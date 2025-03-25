@@ -59,36 +59,6 @@ class Datafeed(object):
             self.sheet = sheetname
             self.__class__._initialized = True
 
-    def create_index(self):
-        """
-        在数据表上创建性能索引
-        此方法应在表已经存在且包含数据时调用，用于提升查询性能
-        """
-        # 创建复合索引，适用于query_nearest_after函数
-        try:
-            self.cursor.execute(f"""
-                CREATE INDEX IF NOT EXISTS idx_{self.sheet}_code_datetime_metric ON {self.sheet} 
-                (code, datetime, metric);
-            """)
-            self.conn.commit()
-            print(f"在{self.sheet}表上创建了索引 idx_{self.sheet}_code_datetime_metric")
-        except (Exception, psycopg2.DatabaseError) as error:
-            print(f"创建索引时出错: {error}")
-            self.conn.rollback()
-            
-        # 创建单独的索引，用于其他查询
-        try:
-            self.cursor.execute(f"""
-                CREATE INDEX IF NOT EXISTS idx_{self.sheet}_datetime ON {self.sheet} (datetime);
-                CREATE INDEX IF NOT EXISTS idx_{self.sheet}_code ON {self.sheet} (code);
-                CREATE INDEX IF NOT EXISTS idx_{self.sheet}_metric ON {self.sheet} (metric);
-            """)
-            self.conn.commit()
-            print(f"在{self.sheet}表上创建了单独的索引")
-        except (Exception, psycopg2.DatabaseError) as error:
-            print(f"创建索引时出错: {error}")
-            self.conn.rollback()
-
     @staticmethod
     def insert_daily_market_data(self, data, table):
 
@@ -285,11 +255,10 @@ class Datafeed(object):
 
         Args:
             params (dict): 必须包含以下键：
-                - codes: 代码列表
+                - codes: 代码列表（必须与datetimes等长）
                 - datetimes: 目标时间戳列表（格式：'YYYY-MM-DD HH:MM'）
                 - metric: 查询的指标名称
                 - time_tolerance: 允许的最大时间间隔（单位：小时，默认不限制）
-                - batch_size: 批处理大小，默认1000
 
         Returns:
             DataFrame: 包含以下列：
@@ -299,102 +268,60 @@ class Datafeed(object):
         required_keys = ['codes', 'datetimes', 'metric']
         if not all(k in params for k in required_keys):
             raise ValueError(f"必须提供参数: {required_keys}")
-            
-        # 确定批处理大小
-        batch_size = params.get('batch_size', 1000)
-        
-        # 优化查询
-        sql = f"""
-        WITH ranked_data AS (
-            SELECT 
-                t.code,
-                t.datetime,
-                t.value,
-                t.metric
-            FROM {self.sheet} t
-            WHERE t.code = ANY(%s)
-            AND t.metric = %s
-            {f"AND t.datetime <= (SELECT MAX(d) + interval '{params.get('time_tolerance', 10000)}' hour FROM unnest(%s) AS d)" if params.get('time_tolerance') else ""}
-        )
-        SELECT
-            i.code AS code,
-            i.ts AS input_ts,
-            (
-                SELECT MIN(rd.datetime)
-                FROM ranked_data rd
-                WHERE rd.code = i.code
-                AND rd.datetime >= i.ts
-            ) AS matched_ts,
-            (
-                SELECT EXTRACT(EPOCH FROM (MIN(rd.datetime) - i.ts))/3600
-                FROM ranked_data rd
-                WHERE rd.code = i.code
-                AND rd.datetime >= i.ts
-            ) AS diff_hours,
-            (
-                SELECT rd.value
-                FROM ranked_data rd
-                WHERE rd.code = i.code
-                AND rd.datetime = (
-                    SELECT MIN(rd2.datetime)
-                    FROM ranked_data rd2
-                    WHERE rd2.code = i.code
-                    AND rd2.datetime >= i.ts
-                )
-            ) AS value
-        FROM (
-            SELECT code, ts
-            FROM unnest(%s, %s) AS t(code, ts)
-        ) i
-        """
-        
-        # 准备所有输入数据
-        all_codes = params['codes']
-        all_datetimes = [pd.Timestamp(dt) if not isinstance(dt, pd.Timestamp) else dt for dt in params['datetimes']]
-        
-        # 生成所有代码和日期的组合
-        code_date_pairs = list(itertools.product(all_codes, all_datetimes))
-        
-        # 准备接收结果
-        all_results = []
-        
-        # 批处理查询
-        for i in range(0, len(code_date_pairs), batch_size):
-            batch = code_date_pairs[i:i+batch_size]
-            
-            # 解包批次数据
-            batch_codes = [pair[0] for pair in batch]
-            batch_timestamps = [pair[1] for pair in batch]
-            
-            # 准备查询参数
-            query_params = [
-                all_codes,  # 限定符合条件的代码
-                params['metric'],  # 指标
-                all_datetimes if params.get('time_tolerance') else None,  # 时间容差计算
-                batch_codes,  # 输入代码
-                batch_timestamps  # 输入时间戳
-            ]
-            
-            # 执行查询
-            if params.get('time_tolerance') is None:
-                # 如果没有时间容差限制，调整参数列表
-                query_params = [all_codes, params['metric'], batch_codes, batch_timestamps]
-            
-            self.cursor.execute(sql, [param for param in query_params if param is not None])
-            
-            # 收集结果
-            batch_results = pd.DataFrame(self.cursor.fetchall())
-            if not batch_results.empty:
-                all_results.append(batch_results)
-                
-        # 合并所有批次结果
-        if all_results:
-            final_df = pd.concat(all_results, ignore_index=True)
-            return final_df
-        else:
-            # 返回空DataFrame，保持列名一致
-            return pd.DataFrame(columns=['code', 'input_ts', 'matched_ts', 'diff_hours', 'value'])
 
+        def gen_pairs():
+            for code, dt in itertools.product(params['codes'], params['datetimes']):
+                yield (code, dt)
+
+        # 生成输入数据占位符 ✅ 防注入处理
+        input_tuples = list(gen_pairs())
+        value_placeholders = ', '.join(['(%s, %s::TIMESTAMP)'] * len(input_tuples))
+
+        # 构建核心查询 ✅ 包含时间间隔计算
+        sql = f"""WITH input_data (code, input_ts) AS (
+            VALUES {value_placeholders}
+        ),
+        candidate_data AS (
+            SELECT
+                i.code,
+                i.input_ts,
+                t.datetime AS matched_ts,
+                EXTRACT(EPOCH FROM (t.datetime - i.input_ts))/3600 AS diff_hours,
+                t.value,
+                ROW_NUMBER() OVER (
+                    PARTITION BY i.code, i.input_ts 
+                    ORDER BY t.datetime ASC  -- ✅ 找之后最近的
+                ) AS rn
+            FROM input_data i
+            LEFT JOIN {self.sheet} t
+                ON i.code = t.code
+                AND t.datetime >= i.input_ts  -- ✅ 关键过滤条件
+                AND t.metric = %s
+                {"AND (t.datetime - i.input_ts) <= %s * INTERVAL '1 hour'"
+        if params.get('time_tolerance') else ''}
+        )
+        SELECT 
+            code,
+            input_ts,
+            matched_ts,
+            diff_hours,
+            value
+        FROM candidate_data
+        WHERE rn = 1
+        """
+
+        # 构造参数列表 ✅ 安全传参
+        params_list = []
+        for code, dt in input_tuples:
+            params_list.extend([code, dt])
+        params_list.append(params['metric'])
+        if 'time_tolerance' in params:
+            params_list.append(params['time_tolerance'])
+
+        # 执行查询
+        self.cursor.execute(sql, params_list)
+        df = pd.DataFrame(self.cursor.fetchall())
+        return df
 #%%
 def get_interval(df, start=None, end=None):
     # 假设 df 的索引是时间序列
@@ -435,19 +362,15 @@ if __name__ == '__main__':
     #pd.DataFrame(error_result).to_excel("error_result2.xlsx")
 
     # 虚拟的权重序列
-    weights = pd.DataFrame(0, index=pd.date_range(start='2010-01-01 10:00:00', end='2025-01-01 10:00:00', freq='W'),columns=['000279.OF', '000592.OF', '000824.OF', '000916.OF', '001076.OF',
+    weights = pd.DataFrame(0, index=pd.date_range(start='2010-01-01 10:00:00', end='2025-01-01 10:00:00', freq='D'),columns=['000279.OF', '000592.OF', '000824.OF', '000916.OF', '001076.OF',
        '001188.OF', '001255.OF', '001537.OF'])
 
     db = Datafeed("daily_market_data")
-    
-    # 创建索引以提高查询性能（第一次运行时执行）
-    # db.create_index()
 
     params = {
-        'codes': ['000010.SZ'],#,'000001.SZ','000002.SZ','000003.SZ',],
+        'codes': ['000010.SZ','000001.SZ','000002.SZ','000003.SZ',],
         'datetimes': weights.index,
         'metric': "收盘价(元)",
-        'batch_size': 2000,  # 调整批处理大小
         # 'time_tolerance': 48
     }
     tmp = db.query_nearest_after(params)  # panel data
