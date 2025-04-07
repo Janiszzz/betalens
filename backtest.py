@@ -8,6 +8,7 @@ from datafeed import Datafeed
 class BacktestBase(object):
     def __init__(self, weight, symbol, amount,
                  ftc=0.0, ptc=0.0, verbose=True):
+        self.cost_ret = None
         self.weight = weight
         self.symbol = symbol
         self.start = weight.index[0]
@@ -20,15 +21,22 @@ class BacktestBase(object):
         self.position = 0
         self.trades = 0
         self.verbose = verbose
+
+        self.get_rebalance_data()
+        self.get_position_data()
         ''' 
         self.melt_weights()
         self.get_rebalance_data()
         self.get_daily_position_data()'''
 
     def melt_weights(self):
-        return
+        try:
+            if("code" in self.weight.columns):
+                self.weight = pd.pivot_table(self.weight, values='weight', index=['input_ts'], columns=['code'], )
+            return 0
+        except:
+            return 1
     def get_rebalance_data(self):
-
 
         db = Datafeed("daily_market_data")
         params = {
@@ -37,26 +45,43 @@ class BacktestBase(object):
             'metric': "收盘价(元)",
             # 'time_tolerance': 48
         }
-        cost = db.query_nearest_after(params)
-        return cost
+        self.cost_price = db.query_nearest_after(params)
+        self.cost_price = pd.pivot_table(self.cost_price, values='value', index=['input_ts', 'datetime'], columns=['code'], )
+        self.cost_price.columns.name = ""
+        self.cost_ret = self.cost_price.pct_change().fillna(0)
+        self.start = self.cost_price['datetime'][0]
+        self.end = self.cost_price['datetime'][-1]
 
+        return self.cost_price
+
+    def get_position_data(self):
+        self.amount = self.cost_ret * self.weight
+        self.amount['amount'] = (self.amount.sum(axis=1).cumsum() + 1) * self.initial_amount
+        return self.amount
 
     def get_daily_position_data(self):
-        return
+        
+        db = Datafeed("daily_market_data")
+        params = {
+            'start_date': self.start,
+            'end_date': self.end,
+            'code': self.weight.columns,
+            'metric': "收盘价(元)"
+        }
+        close_price_ts = db.query_data(params)
 
+        self.initial_amount * self.weight
+        self.cost_price
+
+        return
 
 #%%
 if __name__ == '__main__':
     # 虚拟的权重序列
     weights = pd.DataFrame(0.333, index=pd.date_range(start='2024-01-01 10:00:00', end='2025-01-01 10:00:00', freq='1W'),columns=['000010.SZ','000001.SZ','000002.SZ',])
     weights.index.name = "input_ts"
+
     bb = BacktestBase(weight=weights, symbol="", amount=1000000)
-    cost = bb.get_rebalance_data()
-    tmp = pd.pivot_table(cost, values='value', index=['input_ts','datetime'],columns=['code'],)
-    #tmp.index.name = "input_ts"
-    tmp.columns.name = ""
-    tmp = tmp.pct_change().fillna(0)
-    tmpp = tmp*weights
-    tmpp = (tmpp.sum(axis=1).cumsum()+1)*1000000
+    bb.amount
     #name = 结算持仓市值（不考虑余额）
 
