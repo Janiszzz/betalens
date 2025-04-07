@@ -11,7 +11,7 @@ import concurrent.futures
 import statsmodels.api as sm
 from sympy.codegen.cfunctions import isnan
 
-
+#因子增量测试
 class RobustTest(object):
     def __init__(self, fund, factor):
         data = pd.concat([fund, factor], axis=1).dropna()
@@ -98,7 +98,7 @@ class RobustTest(object):
         modifd_P = self.T.abs().apply(lambda x : np.searchsorted(max_statistic_pdf,x)/len(max_statistic_pdf))
         modifd_P = 1- modifd_P
 
-        eff_fct_name = modifd_P.loc[modifd_P[y.name]<0.1].index
+        eff_fct_name = modifd_P.loc[modifd_P[self.y.name]<0.1].index
 
         return eff_fct_name,modifd_P,max_statistic_pdf
     def work(self):
@@ -108,7 +108,7 @@ class RobustTest(object):
                 break
             self.neu()
 
-            eff_fct_name, modifd_P, max_statistic_pdf = self.bootstrap_once(OX, y, T)
+            eff_fct_name, modifd_P, max_statistic_pdf = self.bootstrap_once(self.OX, self.y, self.T)
             not_eff_fct_name = list(set(self.X.columns) - set(eff_fct_name))
 
             if (len(not_eff_fct_name) == 0 or len(eff_fct_name) == 0):
@@ -129,16 +129,7 @@ class RobustTest(object):
         print("Finish!")
         print()
 
-#%%
 '''
-    import init
-    codes = ["000906.SH", "512760.SH", "588000.SH", "512530.SH", "159708.SZ", "159928.SZ", "159707.SZ", "512000.SH",
-                 "518880.SH", "511520.SH", "511090.SH"]
-    data = pd.DataFrame()
-    for code in codes:
-        data = pd.concat([data,init.get_mongo(code)])
-    '''
-
 code = pd.read_excel(r".\红利主题.xlsx")
 code = code['代码'].str.cat(sep=',')
 
@@ -147,7 +138,7 @@ ret = pd.read_excel(r".\ret.xlsx").set_index("date")
 fct = pd.read_excel(r".\指数行情序列.xlsx").set_index("date")
 fct = fct.pct_change()
 # ret = fct
-# %%
+
 print("start")
 result = []
 for fund in ret.columns:
@@ -155,17 +146,19 @@ for fund in ret.columns:
     new = RobustTest(ret[fund], fct)
     result.append(new.work())
 result.to_excel("result.xlsx")
+'''
 #%%
 import pandas as pd
 import numpy as np
 import concurrent.futures
 import statsmodels.api as sm
-
+import os
+#os.chdir(r"D:\Janis\OneDrive\因子框架")
 fct = pd.read_excel(r".\betaplus-1000-indexdaily.xlsx").set_index("date")
 fct = fct.pct_change()
 ret = pd.read_excel(r".\ret.xlsx").set_index("date")
 
-
+#面板回归，单测alpha
 def panel(X,y):
     model = sm.OLS(y, sm.add_constant(X)).fit()
     B = model.params
@@ -173,7 +166,13 @@ def panel(X,y):
     OX = model.resid
     T = model.tvalues
     T = pd.DataFrame(T).T
-    return B,OX,T
+
+    df_params = pd.DataFrame({
+        'Coefficient': model.params,
+        #'t_Value': model.tvalues
+    })
+
+    return B,OX,T,df_params.T
 
 def fake_fund(X,B,OX):
     indices = np.random.choice(range(OX.shape[0]),  OX.shape[0], replace=True)
@@ -205,6 +204,7 @@ def bootstrap_fake_fund(X,B,OX,T, n_bootstraps=1000):
 
     return modifd_P['const'],max_statistic_pdf
 #%%
+'''
 ans = pd.DataFrame()
 print("start")
 for fund in ret.columns:
@@ -223,40 +223,8 @@ for fund in ret.columns:
     modifd_P.index = [fund]
     print(modifd_P)
     ans = pd.concat([ans, modifd_P])
-
-#%%
-def get_interval(df, start=None, end=None):
-    # 假设 df 的索引是时间序列
-    if isinstance(df.index, pd.DatetimeIndex):
-        if start is None and end is None:
-            return df  # 返回完整数据框，因为没有时间限制
-
-        elif start is not None and end is not None:
-            return df.loc[start:end]
-
-        elif start is not None:
-            # 筛选从 start 到最后一个时间点的数据
-            return df.loc[start:]
-
-        else:  # end is not None
-            # 筛选从第一个时间点到 end 的数据
-            return df.loc[:end]
-
-    # 如果没有时间索引，假设有一个时间列名为 'datetime'
-    elif 'datetime' in df.columns:
-        mask = []
-
-        if start is not None and end is not None:
-            mask = df['datetime'].between(start, end)
-        elif start is not None:
-            mask = df['datetime'] >= start
-        else:  # end is not None
-            mask = df['datetime'] <= end
-
-        return df[mask]
-
-    else:
-        raise ValueError("DataFrame 必须包含时间索引或 'datetime' 列")
+'''
+#%%基金经理任期拆解
 
 def work(fund,fct):
     data = pd.concat([fund,fct],axis=1).dropna()
@@ -267,10 +235,11 @@ def work(fund,fct):
     #X = data.iloc[:,1:].reset_index(drop=True)
     #y = data.iloc[:,0].reset_index(drop=True)
 
-    B,OX,T = panel(X, y)
+    B,OX,T,df_params = panel(X, y)
     modifd_P,max_statistic_pdf = bootstrap_fake_fund(X,B,OX,T)
-
-    return modifd_P
+    modifd_P = pd.DataFrame(modifd_P)
+    modifd_P.columns = ['modifd_P']
+    return pd.concat([modifd_P.reset_index(drop=True),df_params.reset_index(drop=True)],axis=1)
 
 def parse_name_dates(s):
     """
@@ -309,9 +278,41 @@ def parse_name_dates(s):
 
     except (IndexError, ValueError) as e:
         raise ValueError(f"无法解析字符串 '{s}': {e}")
+def get_interval(df, start=None, end=None):
+    # 假设 df 的索引是时间序列
+    if isinstance(df.index, pd.DatetimeIndex):
+        if start is None and end is None:
+            return df  # 返回完整数据框，因为没有时间限制
 
-intervals = pd.read_excel(r".\datepairs.xlsx")
-ans = []
+        elif start is not None and end is not None:
+            return df.loc[start:end]
+
+        elif start is not None:
+            # 筛选从 start 到最后一个时间点的数据
+            return df.loc[start:]
+
+        else:  # end is not None
+            # 筛选从第一个时间点到 end 的数据
+            return df.loc[:end]
+
+    # 如果没有时间索引，假设有一个时间列名为 'datetime'
+    elif 'datetime' in df.columns:
+        mask = []
+
+        if start is not None and end is not None:
+            mask = df['datetime'].between(start, end)
+        elif start is not None:
+            mask = df['datetime'] >= start
+        else:  # end is not None
+            mask = df['datetime'] <= end
+
+        return df[mask]
+
+    else:
+        raise ValueError("DataFrame 必须包含时间索引或 'datetime' 列")
+
+intervals = pd.read_excel(r".\datepairs牛熊.xlsx")
+ans = pd.DataFrame()
 for fund in intervals.columns:
     for datepairs in intervals[fund]:
         if(pd.isna(datepairs)):
@@ -320,12 +321,52 @@ for fund in intervals.columns:
         a,b = get_interval(ret[fund],tmp['start_date'],tmp['end_date']),get_interval(fct,tmp['start_date'],tmp['end_date'])
         result = work(a.fillna(0),b.fillna(0))
         print(fund,datepairs,result)
-        ans.append([fund,datepairs,result])
+        #
+        if isinstance(result, pd.DataFrame):
+            #ans.append(pd.concat([pd.DataFrame([fund,datepairs]).T.reset_index(drop=True), result.reset_index(drop=True)], axis=1))
+            ans = pd.concat([ans, pd.concat(
+                [pd.DataFrame([fund, datepairs]).T.reset_index(drop=True), result.reset_index(drop=True)], axis=1)])
+ans = ans.round(3)
+#%%滚动时间段 
+def gen_date_pairs(start_time, end_time, interval = '1Y'):
+    # 生成起始时间序列（频率与间隔一致）
+    start_points = pd.date_range(start=start_time, end=end_time, freq=interval)
+    
+    # 生成时间戳对列表
+    time_pairs = []
+    for start in start_points:
+        end = start + pd.Timedelta(interval) # 避免重叠
+        if end > pd.Timestamp(end_time):  # 处理边界溢出
+            end = pd.Timestamp(end_time)
+        time_pairs.append((start, end))
+    
+    return time_pairs
 
-        
-        
-        
-pd.DataFrame(ans).to_excel(r".\250318.xlsx")
+#%%
+ans = []
+
+for fund in ret.columns:
+    tmp = ret[fund].dropna()
+    intervals = gen_date_pairs(tmp.index[0],tmp.index[-1])
+    for i in range(len(intervals)):
+        start,end = intervals[i]
+        a,b = get_interval(ret[fund],start,end),get_interval(fct,start,end)
+        result = work(a.fillna(0),b.fillna(0))
+        print(fund,start,result)
+        ans.append([fund,start]+result)
+
+
+#%%
+
+
+
+
+
+
+
+
+
+
 
 
 

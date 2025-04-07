@@ -43,7 +43,7 @@ def func_timer(function):
         return result
     return function_timer
 
-class Datafeed(object):
+class Datafeed():
     _initialized = False
 
     def __init__(self, sheetname):
@@ -190,6 +190,7 @@ class Datafeed(object):
         result.groupby(['code', 'metric']).apply(check, include_groups=False)
         return result
 
+    @func_timer
     def query_data(self, params=None):
         """
         查询 daily_market_data 表中的数据
@@ -285,7 +286,7 @@ class Datafeed(object):
             SELECT
                 i.code,
                 i.input_ts,
-                t.datetime AS matched_ts,
+                t.datetime AS datetime,
                 EXTRACT(EPOCH FROM (t.datetime - i.input_ts))/3600 AS diff_hours,
                 t.value,
                 ROW_NUMBER() OVER (
@@ -303,7 +304,7 @@ class Datafeed(object):
         SELECT 
             code,
             input_ts,
-            matched_ts,
+            datetime,
             diff_hours,
             value
         FROM candidate_data
@@ -322,51 +323,19 @@ class Datafeed(object):
         self.cursor.execute(sql, params_list)
         df = pd.DataFrame(self.cursor.fetchall())
         return df
+
 #%%
-def get_interval(df, start=None, end=None):
-    # 假设 df 的索引是时间序列
-    if isinstance(df.index, pd.DatetimeIndex):
-        if start is None and end is None:
-            return df  # 返回完整数据框，因为没有时间限制
-
-        elif start is not None and end is not None:
-            return df.loc[start:end]
-
-        elif start is not None:
-            # 筛选从 start 到最后一个时间点的数据
-            return df.loc[start:]
-
-        else:  # end is not None
-            # 筛选从第一个时间点到 end 的数据
-            return df.loc[:end]
-
-    # 如果没有时间索引，假设有一个时间列名为 'datetime'
-    elif 'datetime' in df.columns:
-        mask = []
-
-        if start is not None and end is not None:
-            mask = df['datetime'].between(start, end)
-        elif start is not None:
-            mask = df['datetime'] >= start
-        else:  # end is not None
-            mask = df['datetime'] <= end
-
-        return df[mask]
-
-    else:
-        raise ValueError("DataFrame 必须包含时间索引或 'datetime' 列")
 
 #%%
 if __name__ == '__main__':
     #error_result = df.insert_files(r"C:\Users\Janis\Desktop\基金", df.insert_daily_fund_data)
     #pd.DataFrame(error_result).to_excel("error_result2.xlsx")
-
+    '''
     # 虚拟的权重序列
-    weights = pd.DataFrame(0, index=pd.date_range(start='2010-01-01 10:00:00', end='2025-01-01 10:00:00', freq='D'),columns=['000279.OF', '000592.OF', '000824.OF', '000916.OF', '001076.OF',
+    weights = pd.DataFrame(0, index=pd.date_range(start='2015-01-01 10:00:00', end='2025-01-01 10:00:00', freq='1W'),columns=['000279.OF', '000592.OF', '000824.OF', '000916.OF', '001076.OF',
        '001188.OF', '001255.OF', '001537.OF'])
 
     db = Datafeed("daily_market_data")
-
     params = {
         'codes': ['000010.SZ','000001.SZ','000002.SZ','000003.SZ',],
         'datetimes': weights.index,
@@ -375,6 +344,17 @@ if __name__ == '__main__':
     }
     tmp = db.query_nearest_after(params)  # panel data
 
+    '''
+    '''
+    for i  in ['000010.SZ','000001.SZ','000002.SZ','000003.SZ',]:
+        params = {
+            'codes': [i],
+            'datetimes': weights.index,
+            'metric': "收盘价(元)",
+            #'time_tolerance': 48
+        }
+        tmp = db.query_nearest_after(params)  # panel data
+    '''
     '''params = {
         'start_date': '2023-01-03 15:00:00',
         'end_date': '2024-01-01 9:00:00',
@@ -382,3 +362,4 @@ if __name__ == '__main__':
         'metric': "收盘价(元)"
     }
     tmp = db.query_data(params)'''
+
