@@ -47,7 +47,7 @@ class Datafeed():
     _initialized = False
 
     def __init__(self, sheetname):
-        if not self._initialized:
+      #  if not self._initialized:
             self.conn = psycopg2.connect(
                 dbname="datafeed",
                 user="postgres",
@@ -330,7 +330,7 @@ class Datafeed():
 if __name__ == '__main__':
     #error_result = df.insert_files(r"C:\Users\Janis\Desktop\基金", df.insert_daily_fund_data)
     #pd.DataFrame(error_result).to_excel("error_result2.xlsx")
-    '''
+
     # 虚拟的权重序列
     weights = pd.DataFrame(0, index=pd.date_range(start='2015-01-01 10:00:00', end='2025-01-01 10:00:00', freq='1W'),columns=['000279.OF', '000592.OF', '000824.OF', '000916.OF', '001076.OF',
        '001188.OF', '001255.OF', '001537.OF'])
@@ -344,7 +344,7 @@ if __name__ == '__main__':
     }
     tmp = db.query_nearest_after(params)  # panel data
 
-    '''
+
     '''
     for i  in ['000010.SZ','000001.SZ','000002.SZ','000003.SZ',]:
         params = {
@@ -361,5 +361,6 @@ if __name__ == '__main__':
         'code': ["000010.SZ"],
         'metric': "收盘价(元)"
     }
-    tmp = db.query_data(params)'''
+    tmp = db.query_data(params)
+    '''
 

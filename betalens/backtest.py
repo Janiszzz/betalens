@@ -3,7 +3,7 @@ import pandas as pd
 from pylab import mpl, plt
 plt.style.use('seaborn-v0_8')
 mpl.rcParams['font.family'] = 'serif'
-from datafeed import Datafeed
+from betalens.datafeed import Datafeed
 
 class BacktestBase(object):
     def __init__(self, weight, symbol, amount,

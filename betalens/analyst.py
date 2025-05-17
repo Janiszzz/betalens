@@ -17,7 +17,7 @@ class PortfolioAnalyzer:
     # 核心指标计算
     def total_return(self):
         """累计收益率"""
-        return self.nav.iloc[-1] / self.nav.iloc[0] - 1
+        return (self.nav.iloc[-1] / self.nav.iloc[0]) - 1
     
     def annualized_return(self):
         """年化收益率"""
@@ -46,7 +46,7 @@ class PortfolioAnalyzer:
         )
     
     def rolling_win_rate(self):
-        return self.returns.rolling(self.window).apply(lambda x: np.mean(x > 0))
+        return (self.returns.rolling(self.window).sum() > 0).mean()/(len(self.returns)-self.window)*len(self.returns)
     
     # 高级指标（需辅助方法）
     def calmar_ratio(self):
@@ -64,13 +64,24 @@ class PortfolioAnalyzer:
 from prettytable import PrettyTable
 
 class ReportExporter:
-    def __init__(self, analyzer, benchmark_analyzer=None):
+    def __init__(self, analyzer, benchmark_analyzer=None, start_date=None, end_date=None):
         """
         :param analyzer: PortfolioAnalyzer实例
         :param benchmark_analyzer: 基准分析器实例（可选）
         """
         self.analyzer = analyzer
-        self.benchmark = benchmark_analyzer
+
+        if(start_date):
+            subset = self.analyzer.nav.loc[start_date:end_date]
+            custom_analyzer = PortfolioAnalyzer(subset)
+            self.analyzer = custom_analyzer
+        if(benchmark_analyzer):
+            subset = benchmark_analyzer.nav.loc[self.analyzer.nav.index[0]:self.analyzer.nav.index[-1]]
+            self.benchmark = PortfolioAnalyzer(subset)
+            #self.excess_returns = PortfolioAnalyzer(((self.analyzer.returns+1) / (self.benchmark.returns+1)).cumprod())
+            excess_returns = (self.analyzer.returns - self.benchmark.returns + 1).cumprod()
+
+            self.excess = PortfolioAnalyzer(excess_returns)
 
     def _format_percentage(self, value):
         """统一格式化百分比数值"""
@@ -79,7 +90,7 @@ class ReportExporter:
     def generate_annual_report(self, excel_path=None):
         """分年度报告生成"""
         # 按年分组计算指标（参考网页7的resample方法）
-        annual_groups = self.analyzer.nav.groupby(pd.Grouper(freq='Y'))
+        annual_groups = self.analyzer.nav.groupby(pd.Grouper(freq='YE'))
         
         report_data = []
         for year, nav_series in annual_groups:
@@ -124,7 +135,7 @@ class ReportExporter:
         comparison = {
             '组合收益': self.analyzer.total_return(),
             '基准收益': self.benchmark.total_return(),
-            '超额收益': self.analyzer.total_return() - self.benchmark.total_return(),
+            '超额收益': self.excess.total_return(),
             '组合波动率': self.analyzer.annualized_volatility(),
             '基准波动率': self.benchmark.annualized_volatility()
         }
@@ -133,6 +144,8 @@ class ReportExporter:
         self._print_cli_table(df, title="基准对比报告")
         if excel_path:
             self._export_to_excel(df, excel_path, sheet_name="Benchmark")
+
+
 
     def _print_cli_table(self, data_df, title=""):
         """命令行表格输出（参考网页5的格式化）"""
@@ -162,12 +175,20 @@ if __name__ == "__main__":
     nav = np.exp(np.random.normal(0, 0.01, len(dates)).cumsum())
     analyzer = PortfolioAnalyzer(pd.Series(nav, index=dates))
     
-    # 基准数据（假设基准年化收益8%）
-    benchmark_nav = np.exp(np.random.normal(0.0003, 0.008, len(dates)).cumsum())
+    # 基准数据
+    benchmark_nav = np.exp(np.random.normal(0, 0.01, len(dates)).cumsum())
     benchmark = PortfolioAnalyzer(pd.Series(benchmark_nav, index=dates))
-    
+    benchmark = PortfolioAnalyzer(pd.Series(np.ones(len(dates)), index=dates))
     # 生成报告
     exporter = ReportExporter(analyzer, benchmark)
     exporter.generate_annual_report()  # 分年度输出
     exporter.generate_custom_report('2024-01-01', '2024-12-31')  # 指定时段
     exporter.generate_benchmark_report()  # 基准对比
+
+    exporter.analyzer.returns
+    exporter.benchmark.returns
+    exporter.excess.returns
+
+    (analyzer.nav.iloc[-1] / analyzer.nav.iloc[0]) - 1
+
+    analyzer.total_return()
