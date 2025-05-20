@@ -41,14 +41,16 @@ class BacktestBase(object):
 
         db = Datafeed("daily_market_data")
         params = {
-            'codes': self.weight.columns,
+            'codes': self.weight.columns.drop('cash'),
             'datetimes': self.weight.index,
             'metric': "收盘价(元)",
             # 'time_tolerance': 48
         }
+        #当天开始调仓，并不一定是当天就调。只需控制偏离不晚于下一次调仓。
         self.cost_price = db.query_nearest_after(params)
         self.cost_price = pd.pivot_table(self.cost_price, values='value', index=['input_ts', 'datetime'], columns=['code'], )
         self.cost_price.columns.name = ""
+        self.cost_price['cash'] = 1
         self.cost_ret = self.cost_price.pct_change().fillna(0)
         self.start = self.cost_price.index.get_level_values('datetime')[0]
         self.end = self.cost_price.index.get_level_values('datetime')[-1]
@@ -61,6 +63,7 @@ class BacktestBase(object):
         #self.amount.reset_index(inplace=True)
         #self.amount = self.amount[['datetime','amount']].set_index('datetime')
         self.amount = self.amount['amount']
+        self.amount = self.amount.shift(1).fillna(self.initial_amount)
         return self.amount
 
     def get_daily_position_data(self):
@@ -69,19 +72,20 @@ class BacktestBase(object):
         params = {
             'start_date': str(self.start),
             'end_date': str(self.end),
-            'code': self.weight.columns,
+            'code': self.weight.columns.drop('cash'),
             'metric': "收盘价(元)"
         }
         close_price_ts = db.query_data(params)
         #close_price_ts.set_index("datetime", inplace=True)
         close_price_ts = pd.pivot_table(close_price_ts, values='value', index=['datetime'], columns=['code'], )
         close_price_ts.columns.name = ""
+        close_price_ts['cash'] = 1
         self.position = self.weight.mul(self.amount, axis=0)
         self.position = self.position.div(self.cost_price)
         self.position = self.position.droplevel('input_ts').drop_duplicates()
         self.position = self.position.reindex(close_price_ts.index, method='ffill')
         self.daily_amount = self.position.mul(close_price_ts, axis=0).sum(axis=1).astype(float)
-        self.nav = self.daily_amount / self.initial_amount
+        self.nav = (self.daily_amount / self.initial_amount)
         return self.daily_amount
 
 #%%

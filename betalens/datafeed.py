@@ -249,11 +249,13 @@ class Datafeed():
 
         return result
 
+    #时间结构：最新特征<=提数时点<调仓时点   
+    #时间戳：提数时点：提数时点：晚于提数时点的价格时点
     @func_timer
     def query_nearest_after(self, params=None):
         """
         根据输入时间戳序列查找每个时点之后最近的有效值
-
+        主要用于回测时提取价格，
         Args:
             params (dict): 必须包含以下键：
                 - codes: 代码列表（必须与datetimes等长）
@@ -296,7 +298,7 @@ class Datafeed():
             FROM input_data i
             LEFT JOIN {self.sheet} t
                 ON i.code = t.code
-                AND t.datetime >= i.input_ts  -- ✅ 关键过滤条件
+                AND t.datetime > i.input_ts  -- ✅ 关键过滤条件
                 AND t.metric = %s
                 {"AND (t.datetime - i.input_ts) <= %s * INTERVAL '1 hour'"
         if params.get('time_tolerance') else ''}
@@ -322,8 +324,86 @@ class Datafeed():
         # 执行查询
         self.cursor.execute(sql, params_list)
         df = pd.DataFrame(self.cursor.fetchall())
+        
+        df.rename({'value':params['metric']})
         return df
 
+    @func_timer
+    def query_nearest_before(self, params=None):
+        """
+        根据输入时间戳序列查找每个时点之前最近的有效值
+        主要用于回测时提取历史价格特征，时间结构需满足：
+            调仓时点 <= 提数时点 < 最新特征时点
+        Args:
+            params (dict): 必须包含以下键：
+                - codes: 代码列表（必须与datetimes等长）
+                - datetimes: 目标时间戳列表（格式：'YYYY-MM-DD HH:MM'）
+                - metric: 查询的指标名称
+                - time_tolerance: 允许的最大时间间隔（单位：小时，默认不限制）
+
+        Returns:
+            DataFrame: 包含以下列：
+                code | input_datetime | matched_datetime | time_diff_hours | value
+        """
+        # 参数校验
+        required_keys = ['codes', 'datetimes', 'metric']
+        if not all(k in params for k in required_keys):
+            raise ValueError(f"必须提供参数: {required_keys}")
+
+        def gen_pairs():
+            for code, dt in itertools.product(params['codes'], params['datetimes']):
+                yield (code, dt)
+
+        # 生成输入数据占位符（防注入处理）
+        input_tuples = list(gen_pairs())
+        value_placeholders = ', '.join(['(%s, %s::TIMESTAMP)'] * len(input_tuples))
+
+        # 构建核心查询（包含时间间隔计算）
+        sql = f"""WITH input_data (code, input_ts) AS (
+            VALUES {value_placeholders}
+        ),
+        candidate_data AS (
+            SELECT
+                i.code,
+                i.input_ts,
+                t.datetime AS datetime,
+                EXTRACT(EPOCH FROM (i.input_ts - t.datetime))/3600 AS diff_hours,  -- 计算提数时点与数据时点的时间差（小时）
+                t.value,
+                ROW_NUMBER() OVER (
+                    PARTITION BY i.code, i.input_ts 
+                    ORDER BY t.datetime DESC  -- 按时间降序取最近的前置数据
+                ) AS rn
+            FROM input_data i
+            LEFT JOIN {self.sheet} t
+                ON i.code = t.code
+                AND t.datetime <= i.input_ts  -- 关键过滤：仅取提数时点前的数据
+                AND t.metric = %s
+                {"AND (i.input_ts - t.datetime) <= %s * INTERVAL '1 hour'"
+        if params.get('time_tolerance') else ''}
+        )
+        SELECT 
+            code,
+            input_ts,
+            datetime,
+            diff_hours,
+            value
+        FROM candidate_data
+        WHERE rn = 1  -- 取时间最近的记录
+        """
+
+        # 构造参数列表（安全传参）
+        params_list = []
+        for code, dt in input_tuples:
+            params_list.extend([code, dt])
+        params_list.append(params['metric'])
+        if 'time_tolerance' in params:
+            params_list.append(params['time_tolerance'])
+
+        # 执行查询并返回结果
+        self.cursor.execute(sql, params_list)
+        df = pd.DataFrame(self.cursor.fetchall())
+        df.rename(columns={'value': params['metric']}, inplace=True)
+        return df
 #%%
 
 #%%
