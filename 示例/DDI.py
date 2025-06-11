@@ -13,6 +13,8 @@ params = {
     'time_tolerance': 48 #注意数据缺失带来的错误
 }
 price = data.query_nearest_before(params)  # panel data
+
+
 price = price.dropna()
 price = price[['datetime','收盘价(元)']].drop_duplicates()
 price.set_index('datetime', inplace=True)

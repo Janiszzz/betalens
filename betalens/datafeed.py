@@ -117,6 +117,7 @@ class Datafeed():
         # self.cursor.close()
         return 0
 
+
     @staticmethod
     def insert_daily_fund_data(self, data, table):
 
@@ -146,16 +147,110 @@ class Datafeed():
         # self.cursor.close()
         return 0
 
+    @staticmethod
+    def wash_ede_data(filepath):
+        def text_to_json(input_text):
+            # 去除输入文本两端的双引号（如果存在）
+            import json
+            cleaned_text = input_text.strip('"')
+
+            # 按行分割文本
+            lines = cleaned_text.split('\n')
+
+            # 创建结果字典
+            result = {
+                lines[0]: {}
+            }
+
+            # 处理属性行
+            for line in lines[1:]:
+                if line.strip():  # 跳过空行
+                    # 分割键值对
+                    parts = line.split(']', 1)  # 只在第一个']'处分割
+
+                    # 提取键名（去除开头的'['）
+                    key = parts[0].replace('[', '')
+
+                    # 提取值并去除多余空格
+                    value_str = parts[1].strip() if len(parts) > 1 else ""
+
+                    # 尝试将字符串值转换为合适的类型
+                    try:
+                        # 尝试转换为整数
+                        value = int(value_str)
+                    except ValueError:
+                        try:
+                            # 尝试转换为浮点数
+                            value = float(value_str)
+                        except ValueError:
+                            # 保留为字符串
+                            value = value_str
+
+                    # 添加到结果字典
+                    result[lines[0]][key] = value
+
+            return json.dumps(result, ensure_ascii=False, indent=2)
+
+        df = pd.read_csv(filepath)
+        df.rename(columns={'证券代码': 'code', '证券简称': 'name', }, inplace=True)
+        df = pd.melt(df, id_vars=['code', 'name'], var_name='note', value_name='value')
+
+        import re
+        try:
+            df['label_datetime'] = df['note'].apply(lambda x :re.search(r'\[报表年度\]\s*(\d{4})', x).group(1))
+        except:
+            df['label_datetime'] = df['note'].apply(lambda x: re.search(r'\[报告期\]\s*(\d{4})', x).group(1))
+        try:
+            df['note'] = df['note'].apply(text_to_json)
+        except:
+            print("note转写json失败")
+        df.to_csv(filepath+"_washed.csv", encoding='utf_8_sig', index=False)
+        return df
+
+    @staticmethod
+    def merge_fundamental_data(label_time_filepath, value_filepath, metric_name):
+        label_time = pd.read_csv(label_time_filepath)
+        value = pd.read_csv(value_filepath)
+
+        label_time.rename(columns={'value':'datetime',}, inplace=True)
+        label_time['datetime'] += " 15:00:01"
+        df = pd.merge(label_time[['code', 'name', 'datetime', 'label_datetime']], value, on=['code', 'name', 'label_datetime'])
+        df['metric'] = metric_name
+        df.to_csv(value_filepath+"_mergeded.csv", encoding='utf_8_sig',index=False)
+
+        return 0
+
+    def insert_washed_data(self, df, table):
+
+        import psycopg2.extras as extras
+        tuples = [tuple(x) for x in df.to_numpy()]
+
+        cols = ','.join(list(df.columns))
+        # SQL query to execute
+        query = "INSERT INTO %s(%s) VALUES %%s" % (table, cols)
+        try:
+            extras.execute_values(self.cursor, query, tuples)
+            self.conn.commit()
+        except (Exception, psycopg2.DatabaseError) as error:
+            print("Error: %s" % error)
+            self.conn.rollback()
+            self.cursor.close()
+            return 1
+        # print("the dataframe is inserted")
+        # self.cursor.close()
+        return 0
+
+
     def insert_files(self, folder_path, insert_func):
         # 获取文件夹中所有文件的列表
         file_list = os.listdir(folder_path)
         error_list = []
         # 读取所有CSV文件并将其存储在一个列表中
         for file in file_list:
-            if file.endswith('.CSV'):
+            if file.endswith('.CSV') or file.endswith('.csv') :
                 file_path = os.path.join(folder_path, file)
                 try:
-                    data = pd.read_csv(file_path, encoding='gb2312')
+                    data = pd.read_csv(file_path)
                 except:
                     print(file_path + " Error!")
                     error_list.append(file_path)
@@ -404,43 +499,35 @@ class Datafeed():
         df = pd.DataFrame(self.cursor.fetchall())
         df.rename(columns={'value': params['metric']}, inplace=True)
         return df
+
+def get_absolute_trade_days(begin_date, end_date, period):
+    #string
+    from WindPy import w
+    w.start()
+    trade_days = w.tdays(begin_date, end_date, "Period="+period).Data[0]
+    return trade_days
+
+
 #%%
+# if __name__ == '__main__':
 
-#%%
-if __name__ == '__main__':
-    #error_result = df.insert_files(r"C:\Users\Janis\Desktop\基金", df.insert_daily_fund_data)
-    #pd.DataFrame(error_result).to_excel("error_result2.xlsx")
-
-    # 虚拟的权重序列
-    weights = pd.DataFrame(0, index=pd.date_range(start='2015-01-01 10:00:00', end='2025-01-01 10:00:00', freq='1W'),columns=['000279.OF', '000592.OF', '000824.OF', '000916.OF', '001076.OF',
-       '001188.OF', '001255.OF', '001537.OF'])
-
-    db = Datafeed("daily_market_data")
-    params = {
-        'codes': ['000010.SZ','000001.SZ','000002.SZ','000003.SZ',],
-        'datetimes': weights.index,
-        'metric': "收盘价(元)",
-        # 'time_tolerance': 48
-    }
-    tmp = db.query_nearest_after(params)  # panel data
-
-
-    '''
-    for i  in ['000010.SZ','000001.SZ','000002.SZ','000003.SZ',]:
-        params = {
-            'codes': [i],
-            'datetimes': weights.index,
-            'metric': "收盘价(元)",
-            #'time_tolerance': 48
-        }
-        tmp = db.query_nearest_after(params)  # panel data
-    '''
-    '''params = {
-        'start_date': '2023-01-03 15:00:00',
-        'end_date': '2024-01-01 9:00:00',
-        'code': ["000010.SZ"],
-        'metric': "收盘价(元)"
-    }
-    tmp = db.query_data(params)
-    '''
-
+    # data.wash_ede_data(r"C:\Users\Janis\OneDrive\因子框架\股息率(报告期).csv")
+    # data.wash_ede_data(r"C:\Users\Janis\OneDrive\因子框架\定期报告实际披露日期.csv")
+    # data.merge_fundamental_data(r"C:\Users\Janis\OneDrive\因子框架\定期报告实际披露日期.csv"+"_washed.csv",r"C:\Users\Janis\OneDrive\因子框架\股息率(报告期).csv"+"_washed.csv","股息率(报告期)")
+    # error_result = data.insert_files(r"C:\Users\Janis\OneDrive\因子框架\insert", data.insert_washed_data)
+    # d = Datafeed("fundamental_data")
+    # os.chdir(r"C:\Users\Janis\Desktop")
+    # data = pd.read_pickle("交易状态.pkl")
+    # data['metric'] = "交易状态"
+    # import datetime as dt
+    # data['datetime'] = data['note'] + dt.timedelta(hours=9,minutes=32)
+    # data['label_datetime'] = data['note']
+    # codes, uniques = pd.factorize(data['value'])
+    # data['note'] = "{\"交易状态\":\"" + data['value'] + "\"}"
+    # data['value'] = codes
+    # data.to_pickle("交易状态95-25.pkl")
+    # d.insert_washed_data(df=data, table=d.sheet)
+    # 示例调用
+    # insert_fundamental_data('annual_report.csv', 'dividend_yield.csv', 'fundamental_data')
+    # error_result = db.insert_files(r"C:\Users\Janis\Desktop\基金", db.insert_daily_fund_data)
+    # pd.DataFrame(error_result).to_excel("error_result2.xlsx")
