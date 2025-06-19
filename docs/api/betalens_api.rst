@@ -1,23 +1,17 @@
-betalens package
-================
+###################
+Betalens API 参考
+###################
 
-Submodules
-----------
+本文档详细介绍了 ``betalens`` 包中主要模块的公共 API。
 
-betalens.datafeed module
-------------------------
+.. contents:: 模块目录
+   :local:
 
-.. automodule:: betalens.datafeed
-   :members:
-   :undoc-members:
-   :show-inheritance:
-   :private-members:
+********************
+betalens.datafeed
+********************
 
-========
-Datafeed
-========
-
-.. currentmodule:: datafeed
+.. currentmodule:: betalens.datafeed
 
 ``Datafeed`` 模块提供了一个与金融数据库（PostgreSQL）交互的接口，专门用于处理和查询金融时间序列数据。它的核心是 ``Datafeed`` 类，旨在简化行情数据、基本面数据等的入库、清洗和查询流程，为量化研究和回测提供支持。
 
@@ -31,19 +25,14 @@ Datafeed
     - 针对回测场景，高效查询指定时间点之前或之后最近的有效数据点。
 
 
-API 参考
-==================
-
-本节详细介绍了 ``Datafeed`` 模块的公共 API。
-
 Datafeed 类
-----------------
+-----------
 
 .. class:: Datafeed(sheetname)
 
    初始化一个数据馈送实例，用于连接和操作指定的数据库表。
 
-   在实例化时，此类会建立一个到本地 PostgreSQL 数据库表 "datafeed" 的连接。
+   在实例化时，此类会建立一个到本地 PostgreSQL 数据库 "datafeed" 的连接。
 
    .. admonition:: Parameters
       :class: note
@@ -51,18 +40,17 @@ Datafeed 类
       :param sheetname: 要操作的数据库表的名称。
       :type sheetname: str
 
-
    **数据入库与处理方法**
 
    .. method:: insert_daily_market_data(data, table)
 
-      将经过格式化的日度行情序列数据（如股票）插入到指定的表中。
+      将经过格式化的日度行情数据（如股票）插入到指定的表中。
 
       此方法首先会对输入的 DataFrame 进行转换（melt），将多个指标列转换为单一的键值对列，并根据指标名称（如“开盘价”）设置精确的时间戳，然后执行批量插入。
 
-      :param data: 包含日度行情数据的 DataFrame。预期列应包括代码、简称、日期以及多个指标列（如“开盘价”）。
+      :param data: 包含日度行情数据的 DataFrame。预期列应包括代码、简称、日期以及多个指标列。
       :type data: pandas.DataFrame
-      :param table: 目标数据库表的名称。注意：应符合betalens数据库规范。
+      :param table: 目标数据库表的名称。
       :type table: str
       :return: 成功返回 0，失败返回 1。
       :rtype: int
@@ -215,11 +203,11 @@ Datafeed 类
 
 
 辅助函数
-----------
+--------
 
 .. function:: get_absolute_trade_days(begin_date, end_date, period) -> list
 
-   获取指定日期区间内的交易日列表。依赖于 ``WindPy`` 库。
+   获取指定日期区间内的交易日列表。依赖于 ``WindPy`` 库，且仅能提供周期末日。如获取2015-04-30~2017-04-30的年频日期，将返回[2015-12-31,2016-12-31,2017-04-30]。
 
    :param begin_date: 开始日期。
    :type begin_date: str
@@ -230,82 +218,23 @@ Datafeed 类
    :return: 交易日日期字符串列表。
    :rtype: list
 
+*****************
+betalens.factor
+*****************
 
-使用示例
-====================
-
-下面的示例展示了如何使用 ``Datafeed`` 类来清洗、合并和检查基本面数据。
-
-.. code-block:: python
-
-   import pandas as pd
-   from datafeed import Datafeed
-
-   # 假设我们有两个从数据源导出的CSV文件：
-   # 1. '定期报告实际披露日期.csv': 包含财报的实际披露日期
-   # 2. '股息率(报告期).csv': 包含按报告期记录的股息率
-
-   # 步骤 1: 实例化 Datafeed 类，指定目标表
-   db = Datafeed("fundamental_data")
-
-   # 步骤 2: 分别清洗两个数据文件
-   # wash_ede_data 是静态方法，可以直接通过类名调用
-   Datafeed.wash_ede_data("定期报告实际披露日期.csv")
-   Datafeed.wash_ede_data("股息率(报告期).csv")
-   # 这会生成两个清洗后的文件: *_washed.csv
-
-   # 步骤 3: 合并清洗后的数据
-   # merge_fundamental_data 也是静态方法
-   merged_df = Datafeed.merge_fundamental_data(
-       label_time_filepath="定期报告实际披露日期.csv_washed.csv",
-       value_filepath="股息率(报告期).csv_washed.csv",
-       metric_name="股息率(报告期)"
-   )
-   # 这会生成一个合并后的文件: *_mergeded.csv
-
-   # 步骤 4: 检查合并后数据的完整性和唯一性
-   checked_df = db.check_result(merged_df)
-   print("数据检查完成，处理后的数据行数:", len(checked_df))
-
-   # 步骤 5: 将最终的数据插入数据库
-   # result = db.insert_washed_data(checked_df, db.sheet)
-   # if result == 0:
-   #     print("数据成功插入数据库！")
-
-
-betalens.factor module
-----------------------
-
-.. automodule:: betalens.factor
-   :members:
-   :undoc-members:
-   :show-inheritance:
-   :private-members:
-
-======
-Factor
-======
-
-.. currentmodule:: factor
+.. currentmodule:: betalens.factor
 
 ``Factor`` 模块提供了一套用于执行单因子策略的工具函数。它整合了数据获取、因子计算、分组和权重生成等关键步骤，旨在简化从因子思想到策略权重的转换过程。
 
 该模块的核心流程包括：
 
 1.  **确定可交易股票池**: 根据给定的调仓日期，从数据库中筛选出处于正常交易状态的股票。
-2.  **获取特征值**: 在每个调仓日，为股票池中的每只股票获取 **最新** 的特征值。
-3.  **因子分组**: 根据特征值对股票进行排序和分位数分组。
+2.  **获取因子值**: 在每个调仓日，为股票池中的每只股票获取最新的因子暴露值。
+3.  **因子分组**: 根据因子值对股票进行排序和分位数分组。
 4.  **生成多空权重**: 根据分组结果，为多头组合和空头组合生成相应的持仓权重。
-5.  **回测**：持仓权重时间序列完成了对策略的全部描述。结合回测模块对策略进行回测。
-6.  **因子描述**: 提供工具来描述因子的分组情况，例如计算每组的样本数和均值。
+5.  **因子描述**: 提供工具来描述因子的分组情况，例如计算每组的样本数和均值。
 
 这些功能共同构成了一个基础的单因子测试框架，依赖于 ``betalens.datafeed`` 模块来与底层数据库交互。
-
-
-API 参考
-==================
-
-本节详细介绍了 ``factor`` 模块的公共 API。
 
 
 .. function:: get_tradable_pool(date_list) -> tuple[list, list]
@@ -321,16 +250,16 @@ API 参考
       :type date_list: list[datetime.datetime]
 
    :return: 一个元组，包含两个列表：
-            - 第一个列表是去重后的实际有可交易股票的日期。若input无误，应与其相同。
+            - 第一个列表是去重后的实际有可交易股票的日期。
             - 第二个列表是与日期列表对应的、包含可交易股票代码的嵌套列表。
-   :rtype: tuple(list, list[list[str]])
+   :rtype: tuple
 
 
 .. function:: single_factor(date_ranges, code_ranges, metric, quantiles) -> pandas.DataFrame
 
-   为每个调仓日的股票池，匹配其当日所能获取的最新的特征值，并进行分位数分组。
+   为每个调仓日的股票池计算其在特定指标（因子）上的暴露，并进行分位数分组。
 
-   该函数会为每个调仓日和对应的股票池，查询在该日之前最新的特征值（使用 ``query_nearest_before``），然后对每个截面上的股票按因子值进行分位数分组。该函数的input为get_tradable_pool的output。
+   该函数会为每个调仓日和对应的股票池，查询在该日之前最新的因子值（使用 ``query_nearest_before``），然后对每个截面上的股票按因子值进行分位数分组。
 
    .. admonition:: Parameters
       :class: note
@@ -339,7 +268,7 @@ API 参考
       :type date_ranges: list
       :param code_ranges: 与调仓日对应的可交易股票代码列表。
       :type code_ranges: list[list[str]]
-      :param metric: 要查询的因子名称（在数据库中的 `metric` 字段）。注意，你需要提前确认数据库中有完整的该数据字段。
+      :param metric: 要查询的因子名称（在数据库中的 `metric` 字段）。
       :type metric: str
       :param quantiles: 用于 ``pandas.qcut`` 的分位数定义。可以是一个整数（例如10表示十分位数），或一个表示分位数边界的列表（例如 `[0, .2, .4, .6, .8, 1]`）。
       :type quantiles: int or list[float]
@@ -411,92 +340,25 @@ API 参考
    :return: 一个描述因子分组统计特征的透视表。
    :rtype: pandas.DataFrame
 
+*******************
+betalens.backtest
+*******************
 
-使用示例
-====================
-
-下面的示例展示了从获取交易日、构建因子、生成权重到执行回测的完整流程。
-
-.. code-block:: python
-
-   import betalens.datafeed
-   import betalens.backtest
-   import betalens.analyst
-   from factor import (
-       get_tradable_pool,
-       single_factor,
-       get_single_factor_weight,
-       describe_labeled_pool
-   )
-
-   # 1. 获取年度调仓日期
-   date_list = betalens.datafeed.get_absolute_trade_days(
-       "2015-04-30", "2024-04-30", "Y"
-   )
-
-   # 2. 获取每个调仓日的可交易股票池
-   date_ranges, code_ranges = get_tradable_pool(date_list)
-
-   # 3. 定义因子和分组方式
-   metric = "股息率(报告期)"
-   quantiles = {"股息率(报告期)": 10} # 十分位分组
-
-   # 4. 计算因子暴露并进行分组
-   labeled_pool = single_factor(date_ranges, code_ranges, metric, quantiles)
-
-   # 5. (可选) 查看因子分组的描述性统计
-   stats_table = describe_labeled_pool(labeled_pool)
-   print(stats_table)
-
-   # 6. 定义权重生成规则并生成权重
-   params = {
-       'factor_key': '股息率(报告期)',
-       'mode': 'classic-long-short',
-   }
-   weights = get_single_factor_weight(labeled_pool, params)
-
-   # 7. (可选) 使用生成的权重进行回测
-   weights['cash'] = 0  # 可选，设置现金头寸
-   backtest_engine = betalens.backtest.BacktestBase(
-       weight=weights,
-       amount=1000000
-   )
-   backtest_engine.nav.plot()
-
-
-
-betalens.backtest module
-------------------------
-
-.. automodule:: betalens.backtest
-   :members:
-   :undoc-members:
-   :show-inheritance:
-   :private-members:
-   
-========
-Backtest
-========
-
-.. currentmodule:: backtest
+.. currentmodule:: betalens.backtest
 
 ``Backtest`` 模块提供了一个基础的向量化回测框架，封装在 ``BacktestBase`` 类中。它的主要功能是根据用户提供的资产权重序列，模拟策略的交易和持仓，并最终计算出每日的净值（NAV）曲线。
 
 该回测引擎的核心逻辑包括：
 
 1.  **数据获取**: 在每个调仓日，从数据库获取用于计算交易成本的资产价格。
-2.  **市值计算**: 根据调仓日的资产价格和目标资金权重，计算调仓日的投资组合市值。
-3.  **每日净值生成**: 基于调仓日的持仓手数，结合期间每日的收盘价，计算出每日的盯市价值和策略净值。
+2.  **市值计算**: 根据调仓日的资产价格和目标权重，计算当时的投资组合市值。
+3.  **每日净值生成**: 基于调仓日的持仓，结合后续每日的收盘价，计算出每日的盯市价值和策略净值。
 
 此类旨在简化回测流程，用户只需提供核心的权重信号，即可快速得到策略表现的初步结果。
 
-API 参考
-==================
-
-本节详细介绍了 ``Backtest`` 模块的公共 API。
 
 BacktestBase 类
------------------
+---------------
 
 .. class:: BacktestBase(weight, symbol, amount, ftc=0.0, ptc=0.0, verbose=True)
 
@@ -507,7 +369,7 @@ BacktestBase 类
    .. admonition:: Parameters
       :class: note
 
-      :param weight: 包含策略权重的 DataFrame，以时间x代码形式储存权重值。
+      :param weight: 包含策略权重的 DataFrame。
                      - **索引 (index)**: 必须是表示调仓日期的 DatetimeIndex。
                      - **列 (columns)**: 必须是资产的唯一标识代码（例如股票代码）。可以包含一个名为 'cash' 的列来表示现金头寸。
       :type weight: pandas.DataFrame
@@ -539,7 +401,7 @@ BacktestBase 类
 
    .. attribute:: position
 
-      每日的资产持仓数量（单位：股/份/手数）。
+      每日的资产持仓数量（单位：股/份）。
 
       :type: pandas.DataFrame
 
@@ -549,82 +411,13 @@ BacktestBase 类
 
       :type: pandas.DataFrame
 
-   **内部方法**
+*****************
+betalens.analyst
+*****************
 
-   下面的方法在 ``__init__`` 中被自动调用，代表了回测的主要步骤，用户通常不需要直接与它们交互。
+.. currentmodule:: betalens.analyst
 
-   .. method:: get_rebalance_data()
-
-      获取每个调仓日之后最近的有效价格作为交易成本价，并计算调仓期间的资产回报率。注意：这里隐含的行为是在调仓信号出现后，尽快进行调仓，而未必是在信号日调仓。这是为了不引入未来视野。
-
-   .. method:: get_position_data()
-
-      基于调仓期间的回报率和前次权重，计算出每个调仓节点上的投资组合总金额。
-
-   .. method:: get_daily_position_data()
-
-      将调仓日的持仓（单位：股/份）向前填充到每个交易日，并结合每日收盘价计算每日的盯市总价值（``daily_amount``）和净值（``nav``）。
-
-使用示例
-====================
-
-下面的示例展示了如何使用一个虚拟的权重 DataFrame 来实例化 ``BacktestBase`` 并获取回测结果。
-
-.. code-block:: python
-
-   import pandas as pd
-   from backtest import BacktestBase
-   import matplotlib.pyplot as plt
-
-   # 1. 创建一个虚拟的权重 DataFrame
-   # 假设我们有三只股票，并且在每个调仓日都等权重持有它们。
-   # 调仓频率为每月一次。
-   rebalance_dates = pd.to_datetime(pd.date_range(
-       start='2023-01-01',
-       end='2024-01-01',
-       freq='MS'
-   ))
-   assets = ['000001.SZ', '600519.SH', '000858.SZ']
-   weights_df = pd.DataFrame(1/len(assets), index=rebalance_dates, columns=assets)
-
-   # 添加 'cash' 列，表示无现金头寸
-   #  'cash' 列是为了满足含空仓情况的策略
-   weights_df['cash'] = 0
-
-   # 2. 实例化 BacktestBase 类，并运行回测
-   # 初始资金为 1,000,000
-   bb = BacktestBase(weight=weights_df, symbol="equal_weight_strategy", amount=1000000)
-
-   # 3. 访问并可视化回测结果
-   # 打印每日净值序列的最后五行
-   print("每日净值 (NAV):")
-   print(bb.nav.tail())
-
-   # 绘制净值曲线
-   plt.figure(figsize=(10, 6))
-   bb.nav.plot(title='Strategy Net Asset Value (NAV)')
-   plt.xlabel('Date')
-   plt.ylabel('NAV')
-   plt.grid(True)
-   plt.show()
-
-
-betalens.analyst module
------------------------
-
-.. automodule:: betalens.analyst
-   :members:
-   :undoc-members:
-   :show-inheritance:
-   :private-members:
-
-=======
-Analyst
-=======
-
-.. currentmodule:: analyst
-
-``Analyst`` 模块是用于投资组合绩效分析和报告生成的工具集。基于组合净值序列，它包含两个核心类： ``PortfolioAnalyzer`` 用于计算各种标准的风险和收益指标，而 ``ReportExporter`` 则用于将这些分析结果格式化为清晰、易读的报告。
+``Analyst`` 模块是用于投资组合绩效分析和报告生成的工具集。它包含两个核心类：``PortfolioAnalyzer`` 用于计算各种标准的风险和收益指标，而 ``ReportExporter`` 则用于将这些分析结果格式化为清晰、易读的报告。
 
 该模块的主要功能包括：
 
@@ -637,10 +430,6 @@ Analyst
 - **灵活输出**: 支持将报告输出到命令行（CLI）表格或 Excel 文件。
 
 
-API 参考
-==================
-
-本节详细介绍了 ``analyst`` 模块的公共 API。
 
 PortfolioAnalyzer 类
 ----------------------
@@ -652,11 +441,11 @@ PortfolioAnalyzer 类
    .. admonition:: Parameters
       :class: note
 
-      :param nav_series: 包含日期索引的投资组合净值序列。默认日频。
+      :param nav_series: 包含日期索引的投资组合净值序列。
       :type nav_series: pandas.Series
       :param risk_free_rate: 年化的无风险利率，用于计算夏普比率等指标。默认为 0.0。
       :type risk_free_rate: float, optional
-      :param annualizer: 年化因子，即一年中的交易日数量。默认为 252。若输入为周频序列，应对应指定为52。
+      :param annualizer: 年化因子，即一年中的交易日数量。默认为 252。
       :type annualizer: int, optional
       :param window: 用于计算滚动指标的窗口大小（天数）。默认为 30。
       :type window: int, optional
@@ -737,60 +526,3 @@ ReportExporter 类
       :param excel_path: (可选) 如果提供路径，则会将报告保存为 Excel 文件。
       :type excel_path: str, optional
 
-
-使用示例
-====================
-
-下面的示例展示了如何使用 ``PortfolioAnalyzer`` 和 ``ReportExporter`` 来分析一个模拟的净值序列并生成多种报告。
-
-.. code-block:: python
-
-   import pandas as pd
-   import numpy as np
-   from analyst import PortfolioAnalyzer, ReportExporter
-
-   # 1. 生成模拟的策略净值和基准净值序列
-   dates = pd.date_range('2020-01-01', '2023-12-31')
-   strategy_returns = np.random.normal(0.0008, 0.015, len(dates))
-   benchmark_returns = np.random.normal(0.0005, 0.01, len(dates))
-
-   strategy_nav = pd.Series(np.exp(strategy_returns.cumsum()), index=dates)
-   benchmark_nav = pd.Series(np.exp(benchmark_returns.cumsum()), index=dates)
-
-
-   # 2. 为策略和基准分别创建 PortfolioAnalyzer 实例
-   strategy_analyzer = PortfolioAnalyzer(strategy_nav, risk_free_rate=0.02)
-   benchmark_analyzer = PortfolioAnalyzer(benchmark_nav, risk_free_rate=0.02)
-
-   # 3. 创建 ReportExporter 实例
-   exporter = ReportExporter(analyzer=strategy_analyzer, benchmark_analyzer=benchmark_analyzer)
-
-   # 4. 生成不同类型的报告
-   print("--- 分年度绩效报告 ---")
-   exporter.generate_annual_report()
-
-   print("\n--- 2022年度绩效报告 ---")
-   exporter.generate_custom_report('2022-01-01', '2022-12-31')
-
-   print("\n--- 基准对比报告 ---")
-   exporter.generate_benchmark_report(excel_path="performance_report.xlsx")
-
-
-
-betalens.robust module
-----------------------
-
-.. automodule:: betalens.robust
-   :members:
-   :undoc-members:
-   :show-inheritance:
-   :private-members:
-
-Module contents
----------------
-
-.. automodule:: betalens
-   :members:
-   :undoc-members:
-   :show-inheritance:
-   :private-members:
