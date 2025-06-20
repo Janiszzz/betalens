@@ -55,9 +55,3 @@
       :classes: btn-outline-primary btn-block
 
    查阅 Betalens 中所有模块、类和函数的详细技术文档和使用示例。
-
-
-索引
-====
-
-* :ref:`genindex`
