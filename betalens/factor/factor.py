@@ -81,20 +81,29 @@ def single_factor(date_ranges, code_ranges, metric, quantiles):
 
 def get_single_factor_weight(labeled_pool, params):
     factor_key = params['factor_key']
+    import numpy as np
 
     def f1(group):
-        group[factor_key + '_weight'] = 0
-        group.loc[group[factor_key + '_label'] == group.loc[:, factor_key + '_label'].max(), factor_key + '_weight'] = 1
-        group.loc[group[factor_key + '_label'] == group.loc[:, factor_key + '_label'].min(), factor_key + '_weight'] = -1
-        group = group[group[factor_key + '_weight'] != 0]
+        group = group.copy()
+        weight_col = factor_key + '_weight'
+        label_col = factor_key + '_label'
+        group[weight_col] = 0
+        max_label = group[label_col].max()
+        min_label = group[label_col].min()
+        group[weight_col] = np.where(group[label_col] == max_label, 1,
+                                     np.where(group[label_col] == min_label, -1, 0))
+        group = group[group[weight_col] != 0]
         return group
     def f2(group):
-        group[factor_key + '_weight'] = 0
+        group = group.copy()
+        weight_col = factor_key + '_weight'
+        label_col = factor_key + '_label'
+        group[weight_col] = 0
         for i in params['long']:
-            group.loc[group[factor_key + '_label'] == i, factor_key + '_weight'] = 1
+            group.loc[group[label_col] == i, weight_col] = 1
         for i in params['short']:
-            group.loc[group[factor_key + '_label'] == i, factor_key + '_weight'] = -1
-        group = group[group[factor_key + '_weight'] != 0]
+            group.loc[group[label_col] == i, weight_col] = -1
+        group = group[group[weight_col] != 0]
         return group
     if(params['mode'] == 'classic-long-short'):
         labeled_pool = labeled_pool.groupby(labeled_pool.index.get_level_values(0),as_index=False).apply(f1)
@@ -140,6 +149,7 @@ def describe_labeled_pool(labeled_pool):
         margins_name='Total'
     )
     return pivot
+
 #%%
 if __name__ == '__main__':
     data = betalens.datafeed.Datafeed("daily_market_data")
@@ -161,8 +171,8 @@ if __name__ == '__main__':
     params = {
         'factor_key' : '股息率(报告期)',
         'mode' : 'freeplay', #'classic-long-short','freeplay',
-        'long' : [991,990],
-        'short' : [0,1],
+        'long' : [200,201],
+        'short' : [800,801],
     }
     #1 极值组long short
     weights = get_single_factor_weight(labeled_pool, params)

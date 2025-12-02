@@ -1,0 +1,164 @@
+{
+  "_comment": "这是datafeed模块的配置文件示例，复制此文件为config.json并根据需要修改",
+  "database": {
+    "_comment": "PostgreSQL数据库连接配置",
+    "dbname": "datafeed",
+    "user": "postgres",
+    "password": "111111",
+    "host": "localhost",
+    "port": "5432"
+  },
+  "logging": {
+    "_comment": "日志配置",
+    "log_dir": "./logs",
+    "log_level": "INFO",
+    "log_format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  },
+  "excel": {
+    "_comment": "Excel文件处理配置",
+    "encodings": [
+      "utf-8",
+      "utf-8-sig",
+      "gb18030",
+      "gbk",
+      "gb2312",
+      "latin1",
+      "cp936",
+      "big5"
+    ],
+    "time_alignment": {
+      "_comment": "交易时间对齐配置",
+      "open_time": "09:30:01",
+      "other_time": "15:00:01",
+      "open_metric_names": [
+        "开盘价",
+        "开盘价(元)"
+      ]
+    }
+  },
+  "wind": {
+    "_comment": "Wind数据抓取配置",
+    "asset_fields": {
+      "stock": {
+        "_comment": "股票字段配置",
+        "fields": [
+          "open",
+          "high",
+          "low",
+          "close",
+          "volume",
+          "amt",
+          "turn"
+        ],
+        "field_names": [
+          "开盘价(元)",
+          "最高价(元)",
+          "最低价(元)",
+          "收盘价(元)",
+          "成交量(股)",
+          "成交额(元)",
+          "换手率(%)"
+        ]
+      },
+      "index": {
+        "_comment": "指数字段配置",
+        "fields": [
+          "open",
+          "high",
+          "low",
+          "close",
+          "volume",
+          "amt"
+        ],
+        "field_names": [
+          "开盘价",
+          "最高价",
+          "最低价",
+          "收盘价",
+          "成交量",
+          "成交额"
+        ]
+      },
+      "fund": {
+        "_comment": "基金字段配置",
+        "fields": [
+          "open",
+          "high",
+          "low",
+          "close",
+          "volume",
+          "amt"
+        ],
+        "field_names": [
+          "开盘价(元)",
+          "最高价(元)",
+          "最低价(元)",
+          "收盘价(元)",
+          "成交量(份)",
+          "成交额(元)"
+        ]
+      },
+      "bond": {
+        "_comment": "债券字段配置",
+        "fields": [
+          "open",
+          "high",
+          "low",
+          "close",
+          "volume",
+          "amt"
+        ],
+        "field_names": [
+          "开盘价(元)",
+          "最高价(元)",
+          "最低价(元)",
+          "收盘价(元)",
+          "成交量(手)",
+          "成交额(元)"
+        ]
+      }
+    }
+  },
+  "ede": {
+    "_comment": "EDE格式Excel文件处理配置",
+    "date_extraction": {
+      "_comment": "日期提取配置",
+      "pattern": "(\\d{8})",
+      "default_time": "15:30:00"
+    },
+    "column_names": {
+      "_comment": "列名识别配置",
+      "code_columns": [
+        "证券代码",
+        "code",
+        "windcode",
+        "代码",
+        "Code",
+        "WindCode"
+      ],
+      "name_columns": [
+        "证券简称",
+        "name",
+        "sec_name",
+        "简称",
+        "名称",
+        "Name",
+        "SecName"
+      ]
+    },
+    "data_cleaning": {
+      "_comment": "数据清理配置",
+      "keywords_to_remove": [
+        "数据来源",
+        "Wind",
+        "来源:",
+        "注:",
+        "说明:",
+        "Source:",
+        "Note:",
+        "Remark:"
+      ]
+    }
+  }
+}
+

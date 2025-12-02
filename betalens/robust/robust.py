@@ -147,17 +147,6 @@ for fund in ret.columns:
     result.append(new.work())
 result.to_excel("result.xlsx")
 '''
-#%%
-import pandas as pd
-import numpy as np
-import concurrent.futures
-import statsmodels.api as sm
-import os
-#os.chdir(r"D:\Janis\OneDrive\因子框架")
-fct = pd.read_excel(r".\betaplus-1000-indexdaily.xlsx").set_index("date")
-fct = fct.pct_change()
-ret = pd.read_excel(r".\ret.xlsx").set_index("date")
-
 #面板回归，单测alpha
 def panel(X,y):
     model = sm.OLS(y, sm.add_constant(X)).fit()

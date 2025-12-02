@@ -112,6 +112,13 @@ class ReportExporter:
     def generate_custom_report(self, start_date, end_date, excel_path=None):
         """指定时段报告生成（参考网页11的时间切片）"""
         subset = self.analyzer.nav.loc[start_date:end_date]
+        
+        # 检查是否有足够的数据
+        if len(subset) < 2:
+            print(f"⚠️ 警告: {start_date}至{end_date}期间数据不足（仅{len(subset)}条），跳过报告生成")
+            print(f"   可用数据范围: {self.analyzer.nav.index[0]} 至 {self.analyzer.nav.index[-1]}")
+            return
+        
         custom_analyzer = PortfolioAnalyzer(subset)
         
         metrics = {
