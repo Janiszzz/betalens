@@ -396,10 +396,6 @@ class BacktestBase(object):
         self.get_rebalance_data()
         self.get_position_data()
         self.get_daily_position_data()
-        ''' 
-        self.melt_weights()
-        self.get_rebalance_data()
-        self.get_daily_position_data()'''
 
     def melt_weights(self):
         try:
@@ -983,14 +979,3 @@ class BacktestBase(object):
             ) from e
         
         return self.daily_amount
-
-#%%
-'''
-if __name__ == '__main__':
-    # 虚拟的权重序列
-    weights = pd.DataFrame(0.33333333, index=pd.date_range(start='2024-01-01 10:00:00', end='2025-01-01 10:00:00', freq='1D'),columns=['000010.SZ','000001.SZ','000002.SZ',])
-    weights.index.name = "input_ts"
-
-    bb = BacktestBase(weight=weights, symbol="", amount=1000000)
-    #name = 结算持仓市值（不考虑余额）
-'''

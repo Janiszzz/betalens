@@ -3,9 +3,9 @@
 Betalens 文档
 =============
 
-**Betalens** 是一个用于量化分析和回测的 Python 框架。
+**Betalens** 是一个用于量化因子分析和回测的 Python 框架。
 
-.. image:: https://img.shields.io/badge/python-3.8+-blue.svg
+.. image:: https://img.shields.io/badge/python-3.10+-blue.svg
    :target: https://www.python.org/downloads/
 
 .. image:: https://img.shields.io/badge/License-MIT-yellow.svg
@@ -14,13 +14,13 @@ Betalens 文档
 特性
 ----
 
-* 📊 **因子分析** - 支持单因子/多因子分组、打标签、生成多空权重
-* 📈 **数据管理** - PostgreSQL 数据库接口，支持时间序列查询
-* 🔄 **回测框架** - 多资产多权重回测，自动获取价格数据
-* 📋 **绩效分析** - 计算夏普比率、最大回撤等指标，生成报告
-* 🧪 **稳健性检验** - 因子增量检验、Bootstrap 重采样
+* 📊 **因子分析** - 支持单因子/双因子/多因子分组、打标签、生成多空权重
+* 📈 **数据管理** - PostgreSQL 数据库接口，支持时间序列查询、Wind数据抓取
+* 🔄 **回测框架** - 多资产多权重回测，自动获取价格数据，详细的异常处理
+* 📋 **绩效分析** - 计算夏普比率、最大回撤等指标，分年度/自定义时段报告
+* 🧪 **稳健性检验** - 基于Lucky Factors的因子增量检验、Bootstrap重采样
 
-快速安装（逗你玩的）
+快速安装
 --------
 
 .. code-block:: bash
@@ -32,7 +32,7 @@ Betalens 文档
 .. code-block:: bash
 
    git clone https://github.com/Janiszzz/betalens.git
-   cd betalens
+   cd betalens/gitworks
    pip install -e .
 
 快速示例
@@ -40,24 +40,38 @@ Betalens 文档
 
 .. code-block:: python
 
-   from betalens.datafeed import Datafeed
+   from betalens.datafeed import Datafeed, get_absolute_trade_days
+   from betalens.factor.factor import (
+       get_tradable_pool, pre_query_factor_data,
+       single_factor, get_single_factor_weight
+   )
    from betalens.backtest import BacktestBase
    from betalens.analyst import PortfolioAnalyzer, ReportExporter
 
-   # 获取数据
-   data = Datafeed("daily_market_data")
-   params = {
-       'codes': ['000001.SZ'],
-       'datetimes': ['2024-01-01 10:00:00'],
-       'metric': "收盘价(元)",
-   }
-   price = data.query_nearest_before(params)
+   # 1. 准备数据
+   trading_days = get_absolute_trade_days("2020-04-30", "2024-04-30", "Y")
+   date_ranges, code_ranges = get_tradable_pool(trading_days)
 
-   # 回测
-   bb = BacktestBase(weight=weights, symbol="", amount=1000000)
+   # 2. 查询因子并分组
+   data = pre_query_factor_data(trading_days, "股息率(报告期)",
+                                date_ranges=date_ranges, code_ranges=code_ranges)
+   labeled_pool = single_factor(data, "股息率(报告期)", {"股息率(报告期)": 10})
 
-   # 绩效分析
-   analyzer = PortfolioAnalyzer(bb.nav)
+   # 3. 生成权重
+   weights = get_single_factor_weight(labeled_pool, {
+       "factor_key": "股息率(报告期)",
+       "mode": "classic-long-short"
+   })
+   weights["cash"] = 0
+
+   # 4. 回测
+   engine = BacktestBase(weight=weights, symbol="Dividend", amount=1_000_000)
+
+   # 5. 绩效分析
+   analyzer = PortfolioAnalyzer(engine.nav)
+   print(f"Sharpe: {analyzer.sharpe_ratio():.4f}")
+   print(f"Max Drawdown: {analyzer.max_drawdown():.2%}")
+
    exporter = ReportExporter(analyzer)
    exporter.generate_annual_report()
 
@@ -76,9 +90,9 @@ Betalens 文档
    :caption: 用户指南
 
    guide/datafeed
+   guide/factor
    guide/backtest
    guide/analyst
-   guide/factor
    guide/robust
 
 .. toctree::
@@ -86,16 +100,10 @@ Betalens 文档
    :caption: API 参考
 
    api/datafeed
+   api/factor
    api/backtest
    api/analyst
-   api/factor
    api/robust
-
-.. toctree::
-   :maxdepth: 1
-   :caption: 其他
-
-   changelog
 
 索引
 ----

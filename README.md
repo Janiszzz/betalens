@@ -81,7 +81,13 @@ betalens/
 
 ## 📖 文档
 
-详细文档请访问 [官方文档（由AI生成，暂未进行人工校对）](https://betalens.readthedocs.io/en/latest/)
+详细文档请访问 [docs/](docs/) 目录：
+
+- [快速开始](docs/getting-started.md)
+- [Datafeed 使用指南](docs/datafeed-guide.md)
+- [Backtest 回测指南](docs/backtest-guide.md)
+- [Analyst 分析指南](docs/analyst-guide.md)
+- [API 参考](docs/api-reference.md)
 
 ## 🔧 依赖
 

@@ -188,14 +188,6 @@ if __name__ == "__main__":
     benchmark = PortfolioAnalyzer(pd.Series(np.ones(len(dates)), index=dates))
     # 生成报告
     exporter = ReportExporter(analyzer, benchmark)
-    exporter.generate_annual_report()  # 分年度输出
-    exporter.generate_custom_report('2024-01-01', '2024-12-31')  # 指定时段
-    exporter.generate_benchmark_report()  # 基准对比
-
-    exporter.analyzer.returns
-    exporter.benchmark.returns
-    exporter.excess.returns
-
-    (analyzer.nav.iloc[-1] / analyzer.nav.iloc[0]) - 1
-
-    analyzer.total_return()
+    exporter.generate_annual_report()
+    exporter.generate_custom_report('2024-01-01', '2024-12-31')
+    exporter.generate_benchmark_report()

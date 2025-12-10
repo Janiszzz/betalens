@@ -1,5 +1,6 @@
 #ToDo：
 '''
+开发中
 这是收益检测模块，对抗过拟合的最后环节，基于Lucky Factor
 设计上应该与挖掘模块高度隔离，处于pipeline最下游
 输入多个因子收益序列，分析其中一个因子中性化之后的有效程度，输出检验结果、新因子都被哪几个老因子解释
@@ -147,6 +148,17 @@ for fund in ret.columns:
     result.append(new.work())
 result.to_excel("result.xlsx")
 '''
+#%%
+import pandas as pd
+import numpy as np
+import concurrent.futures
+import statsmodels.api as sm
+import os
+#os.chdir(r"D:\Janis\OneDrive\因子框架")
+fct = pd.read_excel(r".\betaplus-1000-indexdaily.xlsx").set_index("date")
+fct = fct.pct_change()
+ret = pd.read_excel(r".\ret.xlsx").set_index("date")
+
 #面板回归，单测alpha
 def panel(X,y):
     model = sm.OLS(y, sm.add_constant(X)).fit()

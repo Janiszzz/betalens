@@ -1,0 +1,150 @@
+{
+  "database": {
+    "dbname": "datafeed",
+    "user": "postgres",
+    "password": "111111",
+    "host": "localhost",
+    "port": "5432"
+  },
+  "logging": {
+    "log_dir": "./logs",
+    "log_level": "INFO",
+    "log_format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  },
+  "excel": {
+    "encodings": [
+      "utf-8",
+      "utf-8-sig",
+      "gb18030",
+      "gbk",
+      "gb2312",
+      "latin1",
+      "cp936",
+      "big5"
+    ],
+    "time_alignment": {
+      "open_time": "09:30:01",
+      "other_time": "15:00:01",
+      "open_metric_names": [
+        "开盘价",
+        "开盘价(元)"
+      ]
+    }
+  },
+  "wind": {
+    "asset_fields": {
+      "stock": {
+        "fields": [
+          "open",
+          "high",
+          "low",
+          "close",
+          "volume",
+          "amt",
+          "turn"
+        ],
+        "field_names": [
+          "开盘价(元)",
+          "最高价(元)",
+          "最低价(元)",
+          "收盘价(元)",
+          "成交量(股)",
+          "成交额(元)",
+          "换手率(%)"
+        ]
+      },
+      "index": {
+        "fields": [
+          "open",
+          "high",
+          "low",
+          "close",
+          "volume",
+          "amt"
+        ],
+        "field_names": [
+          "开盘价",
+          "最高价",
+          "最低价",
+          "收盘价",
+          "成交量",
+          "成交额"
+        ]
+      },
+      "fund": {
+        "fields": [
+          "open",
+          "high",
+          "low",
+          "close",
+          "volume",
+          "amt"
+        ],
+        "field_names": [
+          "开盘价(元)",
+          "最高价(元)",
+          "最低价(元)",
+          "收盘价(元)",
+          "成交量(份)",
+          "成交额(元)"
+        ]
+      },
+      "bond": {
+        "fields": [
+          "open",
+          "high",
+          "low",
+          "close",
+          "volume",
+          "amt"
+        ],
+        "field_names": [
+          "开盘价(元)",
+          "最高价(元)",
+          "最低价(元)",
+          "收盘价(元)",
+          "成交量(手)",
+          "成交额(元)"
+        ]
+      }
+    }
+  },
+  "ede": {
+    "date_extraction": {
+      "pattern": "(\\d{8})",
+      "default_time": "15:30:00"
+    },
+    "column_names": {
+      "code_columns": [
+        "证券代码",
+        "code",
+        "windcode",
+        "代码",
+        "Code",
+        "WindCode"
+      ],
+      "name_columns": [
+        "证券简称",
+        "name",
+        "sec_name",
+        "简称",
+        "名称",
+        "Name",
+        "SecName"
+      ]
+    },
+    "data_cleaning": {
+      "keywords_to_remove": [
+        "数据来源",
+        "Wind",
+        "来源:",
+        "注:",
+        "说明:",
+        "Source:",
+        "Note:",
+        "Remark:"
+      ]
+    }
+  }
+}
+
