@@ -24,9 +24,9 @@
 
 .. code-block:: python
 
-   from betalens.factor.factor import pre_query_factor_data
+   from betalens.factor.factor import pre_query_characteristic_data
 
-   pre_queried_data = pre_query_factor_data(
+   pre_queried_data = pre_query_characteristic_data(
        date_list=rebalance_days,
        metric="股息率(报告期)",
        time_tolerance=24*2*365,  # 时间容差（小时）
@@ -51,7 +51,7 @@
 
    from betalens.factor.factor import single_factor
 
-   labeled_pool = single_factor(
+   labeled_pool = single_characteristic(
        pre_queried_data=pre_queried_data,
        metric="ROE",
        quantiles={"ROE": 10}
@@ -121,7 +121,7 @@
 
    from betalens.factor.factor import double_factor, describe_double_labeled_pool
 
-   labeled_pool = double_factor(
+   labeled_pool = double_characteristic(
        pre_queried_data1=data1,
        pre_queried_data2=data2,
        metric1="市值",
@@ -177,7 +177,7 @@
        {'name': '动量', 'quantiles': 3, 'method': 'independent'},
    ]
 
-   labeled_pool = multi_factor(
+   labeled_pool = multi_characteristic(
        pre_queried_data_list=[data1, data2, data3],
        factors=factors
    )

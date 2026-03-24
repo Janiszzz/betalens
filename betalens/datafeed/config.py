@@ -46,7 +46,8 @@ DEFAULT_CONFIG = {
             "other_time": "15:00:01",
             "open_metric_names": [
                 "开盘价",
-                "开盘价(元)"
+                "开盘价(元)",
+                "前收盘价",
             ]
         }
     },

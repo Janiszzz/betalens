@@ -67,21 +67,52 @@ def process_excel_to_db_format(
     try:
         # 1. 读取文件
         read_kwargs = config.get('read_kwargs', {})
+        # 将encoding添加到read_kwargs
+        if 'encoding' in config:
+            read_kwargs['encoding'] = config['encoding']
+
         df = read_file(filepath, logger=logger, **read_kwargs)
-        
+
+        # 1.5 应用列名映射
+        column_mapping = config.get('column_mapping', {})
+        if column_mapping:
+            df = df.rename(columns=column_mapping)
+            logger.info(f"应用列名映射: {column_mapping}")
+
         # 2. 自动推断value_columns（如果未指定）
         key_columns = config.get('key_columns', [])
+        # 如果有列名映射，将key_columns也映射
+        if column_mapping:
+            key_columns = [column_mapping.get(col, col) for col in key_columns]
+
+        # 处理date_column映射
+        date_column = config.get('date_column')
+        if date_column and column_mapping:
+            date_column = column_mapping.get(date_column, date_column)
+
         value_columns = config.get('value_columns')
-        
+
         if value_columns is None:
-            # 自动推断：除了key_columns之外的所有列
-            value_columns = [col for col in df.columns if col not in key_columns]
+            # 自动推断：除了key_columns和date_column之外的所有列
+            exclude_cols = key_columns.copy()
+            if date_column:
+                exclude_cols.append(date_column)
+            value_columns = [col for col in df.columns if col not in exclude_cols]
             logger.info(f"自动推断value_columns: {len(value_columns)}列")
-        
-        # 3. 转换格式
+
+        # 3. 处理additional_fields中的特殊值
+        additional_fields = config.get('additional_fields', {}).copy()
+        if 'datetime' in additional_fields and additional_fields['datetime'] == 'from_date_column':
+            if date_column and date_column in df.columns:
+                # 将在cross_section转换后处理
+                additional_fields['datetime'] = '__FROM_DATE_COLUMN__'
+            else:
+                logger.warning(f"date_column '{date_column}' 不存在，无法提取datetime")
+                del additional_fields['datetime']
+
+        # 4. 转换格式
         key_value_mapping = config.get('key_value_mapping', {})
-        additional_fields = config.get('additional_fields', {})
-        
+
         df_converted = cross_section_to_db_format(
             df=df,
             key_columns=key_columns,
@@ -90,8 +121,26 @@ def process_excel_to_db_format(
             additional_fields=additional_fields,
             logger=logger
         )
-        
-        # 4. 数据验证
+
+        # 4.5 处理从date_column提取datetime
+        if 'datetime' in df_converted.columns and df_converted['datetime'].iloc[0] == '__FROM_DATE_COLUMN__':
+            # metric列包含日期值，需要转换为datetime
+            metric_col = key_value_mapping.get('variable', 'variable')
+            date_format = config.get('date_format', '%Y-%m-%d')
+            try:
+                df_converted['datetime'] = pd.to_datetime(df_converted[metric_col], format=date_format)
+                logger.info(f"从 {metric_col} 列提取datetime成功")
+            except Exception as e:
+                logger.error(f"从 {metric_col} 列提取datetime失败: {str(e)}")
+                # 尝试自动推断格式
+                try:
+                    df_converted['datetime'] = pd.to_datetime(df_converted[metric_col])
+                    logger.info(f"使用自动推断格式转换datetime成功")
+                except Exception as e2:
+                    logger.error(f"自动推断格式也失败: {str(e2)}")
+                    raise
+
+        # 5. 数据验证
         validation_config = config.get('validation', {})
         if validation_config:
             df_converted, validation_report = validate_and_fix(

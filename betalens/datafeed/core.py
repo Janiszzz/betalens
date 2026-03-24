@@ -446,15 +446,15 @@ class Datafeed():
     ):
         """
         增量更新数据到数据库（薄封装）
-        
+
         直接调用 integration.incremental_insert
-        
+
         Args:
             df: 待更新的DataFrame
             date_column: 日期列名
             code_column: 代码列名
             metric_column: 指标列名
-            
+
         Returns:
             (新增行数, 重复行数)
         """
@@ -469,6 +469,184 @@ class Datafeed():
             logger=self.logger
         )
         return new_rows, skipped_rows
+
+    def insert_with_conflict_check(
+        self,
+        df: pd.DataFrame,
+        date_column: str = 'datetime',
+        code_column: str = 'code',
+        metric_column: str = 'metric'
+    ):
+        """
+        插入数据时检测重复和冲突（批量查询优化版本）
+
+        - 如果key(datetime, code, metric)相同但value不同：记录冲突，不插入
+        - 如果key和value完全相同：跳过，不插入
+        - 如果key不存在：插入新记录
+
+        Args:
+            df: 待插入的DataFrame，需包含columns: datetime, code, name, metric, value
+            date_column: 日期列名
+            code_column: 代码列名
+            metric_column: 指标列名
+
+        Returns:
+            (新增行数, 跳过行数, 冲突列表)
+            冲突列表格式：[{datetime, code, name, metric, db_value, new_value}, ...]
+        """
+        # 必需列
+        required_cols = [date_column, code_column, 'name', metric_column, 'value']
+        for col in required_cols:
+            if col not in df.columns:
+                raise ValueError(f"DataFrame缺少必需列: {col}")
+
+        if df.empty:
+            return 0, 0, []
+
+        # 1. 批量查询所有key的现有记录
+        keys = [
+            (row[date_column], row[code_column], row[metric_column])
+            for _, row in df.iterrows()
+        ]
+
+        query = f"""
+            SELECT t.dt, t.cd, t.mt, d.value, d.name
+            FROM (VALUES %s) AS t(dt, cd, mt)
+            LEFT JOIN {self.sheet} d
+            ON d.{date_column} = t.dt
+               AND d.{code_column} = t.cd
+               AND d.{metric_column} = t.mt
+        """
+
+        execute_values(self.cursor, query, keys, template="(%s, %s, %s)", page_size=1000)
+        results = self.cursor.fetchall()
+
+        # 构建字典：key -> (value, name)
+        existing_records = {}
+        for r in results:
+            key = (r['dt'], r['cd'], r['mt'])
+            existing_records[key] = {'value': r['value'], 'name': r['name']}
+
+        # 2. 在Python中比对差异
+        rows_to_insert = []
+        conflicts = []
+        skipped_rows = 0
+
+        for _, row in df.iterrows():
+            datetime_val = row[date_column]
+            code_val = row[code_column]
+            name_val = row['name']
+            metric_val = row[metric_column]
+            value_val = row['value']
+
+            key = (datetime_val, code_val, metric_val)
+            existing = existing_records.get(key)
+
+            if existing is None or existing['value'] is None:
+                # key不存在，准备插入
+                rows_to_insert.append(row)
+            else:
+                # key存在，比较value
+                db_value = existing['value']
+
+                # 比较value（考虑浮点数精度）
+                try:
+                    if isinstance(db_value, (int, float)) and isinstance(value_val, (int, float)):
+                        value_equal = abs(float(db_value) - float(value_val)) < 1e-9
+                    else:
+                        value_equal = (db_value == value_val)
+                except (ValueError, TypeError):
+                    value_equal = (db_value == value_val)
+
+                if not value_equal:
+                    # 冲突：key相同但value不同
+                    conflicts.append({
+                        'datetime': datetime_val,
+                        'code': code_val,
+                        'name': name_val,
+                        'metric': metric_val,
+                        'db_value': db_value,
+                        'new_value': value_val
+                    })
+                    skipped_rows += 1
+                else:
+                    # 完全重复，跳过
+                    skipped_rows += 1
+
+        # 3. 批量插入新记录
+        new_rows = len(rows_to_insert)
+        if rows_to_insert:
+            insert_query = f"""
+                INSERT INTO {self.sheet} ({date_column}, {code_column}, name, {metric_column}, value)
+                VALUES %s
+            """
+            values = [
+                (row[date_column], row[code_column], row['name'], row[metric_column], row['value'])
+                for row in rows_to_insert
+            ]
+            execute_values(self.cursor, insert_query, values, page_size=1000)
+            self.conn.commit()
+            self.logger.info(f"插入 {new_rows} 行新数据")
+
+        if conflicts:
+            self.logger.warning(f"发现 {len(conflicts)} 条冲突记录")
+        if skipped_rows:
+            self.logger.info(f"跳过 {skipped_rows} 行重复/冲突数据")
+
+        return new_rows, skipped_rows, conflicts
+
+    def update_data(
+        self,
+        df: pd.DataFrame,
+        date_column: str = 'datetime',
+        code_column: str = 'code',
+        metric_column: str = 'metric'
+    ):
+        """
+        使用SQL UPDATE批量更新数据
+
+        对于存在的记录(相同datetime, code, metric)，更新value和name
+        对于不存在的记录，可选择插入(upsert模式)
+
+        Args:
+            df: 待更新的DataFrame，需包含columns: datetime, code, name, metric, value
+            date_column: 日期列名
+            code_column: 代码列名
+            metric_column: 指标列名
+
+        Returns:
+            更新行数
+        """
+        # 必需列
+        required_cols = [date_column, code_column, 'name', metric_column, 'value']
+        for col in required_cols:
+            if col not in df.columns:
+                raise ValueError(f"DataFrame缺少必需列: {col}")
+
+        updated_rows = 0
+
+        # 使用 UPSERT (INSERT ... ON CONFLICT ... DO UPDATE)
+        upsert_query = f"""
+            INSERT INTO {self.sheet} ({date_column}, {code_column}, name, {metric_column}, value)
+            VALUES %s
+            ON CONFLICT ({date_column}, {code_column}, {metric_column})
+            DO UPDATE SET
+                value = EXCLUDED.value,
+                name = EXCLUDED.name
+        """
+
+        values = [
+            (row[date_column], row[code_column], row['name'], row[metric_column], row['value'])
+            for _, row in df.iterrows()
+        ]
+
+        execute_values(self.cursor, upsert_query, values)
+        updated_rows = self.cursor.rowcount
+        self.conn.commit()
+
+        self.logger.info(f"更新/插入 {updated_rows} 行数据")
+
+        return updated_rows
     
     # ========== Wind数据抓取 ==========
     
@@ -793,8 +971,30 @@ class Datafeed():
         df = read_file(filepath, logger=self.logger)
         return check_excel_errors(df, checks, logger=self.logger)
     
+    # ========== 表管理 ==========
+
+    def truncate_table(self):
+        """
+        清空表中所有数据
+
+        WARNING: 此操作不可逆，会删除表中所有记录
+
+        Returns:
+            删除的行数
+        """
+        # 先查询表中的行数
+        self.cursor.execute(f"SELECT COUNT(*) FROM {self.sheet}")
+        count = self.cursor.fetchone()['count']
+
+        # 清空表
+        self.cursor.execute(f"TRUNCATE TABLE {self.sheet}")
+        self.conn.commit()
+
+        self.logger.warning(f"已清空表 {self.sheet}，删除 {count} 行数据")
+        return count
+
     # ========== 连接管理 ==========
-    
+
     def close(self):
         """关闭数据库连接"""
         if self.cursor:

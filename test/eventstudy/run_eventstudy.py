@@ -18,14 +18,14 @@ sys.path.insert(0, str(project_root))
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
-from datafeed import Datafeed
-from eventstudy.eventstudy import EventStudy
+from betalens.datafeed import Datafeed
+from betalens.eventstudy.eventstudy import EventStudy
 
 # ========== 文件保存控制开关 ==========
 save_results = False  # 设为True时保存所有Excel和图表文件
 # =====================================
 
-output_file = 'events.xlsx'
+output_file = r'test\eventstudy\events.xlsx'
 # 读取事件序列（保持精确到秒的datetime）
 events_df = pd.read_excel(output_file)
 events_df['date'] = pd.to_datetime(events_df['date'])
@@ -42,9 +42,9 @@ close_price_metric = "收盘价"
 event_study = EventStudy(df_market)
 
 # 事件研究参数
-code = '000905.SH'
-window_before = 10  # 事件前10天
-window_after = 10   # 事件后10天
+code = '868008.WI'
+window_before = 20  # 事件前10天
+window_after = 20   # 事件后10天
 
 print(f"\n事件研究参数:")
 print(f"  - 标的代码: {code}")

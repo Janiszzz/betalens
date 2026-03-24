@@ -24,10 +24,10 @@
 
 .. code-block:: python
 
-   from betalens.factor.factor import pre_query_factor_data
+   from betalens.factor.factor import pre_query_characteristic_data
 
    # 预查询因子数据，time_tolerance为时间容差（小时）
-   pre_queried_data = pre_query_factor_data(
+   pre_queried_data = pre_query_characteristic_data(
        date_list=trading_days,
        metric="股息率(报告期)",
        time_tolerance=24*2*365,  # 2年
@@ -36,7 +36,7 @@
        code_ranges=code_ranges
    )
 
-`pre_query_factor_data` 返回格式化的DataFrame，包含 input_ts、code、因子值、datetime、diff_hours 等列。
+`pre_query_characteristic_data` 返回格式化的DataFrame，包含 input_ts、code、因子值、datetime、diff_hours 等列。
 
 3. 单因子分组打标签
 -------------------
@@ -46,7 +46,7 @@
    from betalens.factor.factor import single_factor, describe_labeled_pool
 
    # 单因子分组（分10组）
-   labeled_pool = single_factor(
+   labeled_pool = single_characteristic(
        pre_queried_data=pre_queried_data,
        metric="股息率(报告期)",
        quantiles={"股息率(报告期)": 10}
@@ -126,11 +126,11 @@
    from betalens.factor.factor import double_factor, get_double_factor_weight
 
    # 预查询两个因子的数据
-   data1 = pre_query_factor_data(trading_days, "市值", date_ranges=date_ranges, code_ranges=code_ranges)
-   data2 = pre_query_factor_data(trading_days, "账面市值比", date_ranges=date_ranges, code_ranges=code_ranges)
+   data1 = pre_query_characteristic_data(trading_days, "市值", date_ranges=date_ranges, code_ranges=code_ranges)
+   data2 = pre_query_characteristic_data(trading_days, "账面市值比", date_ranges=date_ranges, code_ranges=code_ranges)
 
    # 双因子分组（条件排序：先按市值分组，再在组内按账面市值比分组）
-   labeled_pool = double_factor(
+   labeled_pool = double_characteristic(
        pre_queried_data1=data1,
        pre_queried_data2=data2,
        metric1="市值",
@@ -161,9 +161,9 @@
 
    # 预查询多个因子
    data_list = [
-       pre_query_factor_data(trading_days, "市值", date_ranges=date_ranges, code_ranges=code_ranges),
-       pre_query_factor_data(trading_days, "账面市值比", date_ranges=date_ranges, code_ranges=code_ranges),
-       pre_query_factor_data(trading_days, "动量", date_ranges=date_ranges, code_ranges=code_ranges),
+       pre_query_characteristic_data(trading_days, "市值", date_ranges=date_ranges, code_ranges=code_ranges),
+       pre_query_characteristic_data(trading_days, "账面市值比", date_ranges=date_ranges, code_ranges=code_ranges),
+       pre_query_characteristic_data(trading_days, "动量", date_ranges=date_ranges, code_ranges=code_ranges),
    ]
 
    # 多因子配置
@@ -173,7 +173,7 @@
        {'name': '动量', 'quantiles': 3, 'method': 'independent'},
    ]
 
-   labeled_pool = multi_factor(data_list, factors)
+   labeled_pool = multi_characteristic(data_list, factors)
 
    # 生成多因子权重
    weights = get_multi_factor_weight(

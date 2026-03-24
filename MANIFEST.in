@@ -1,0 +1,11 @@
+include betalens/README.md
+include betalens/LICENSE
+recursive-include betalens *.py
+exclude betalens/tests/*
+exclude betalens/gitworks/*
+prune betalens/tests
+prune betalens/gitworks
+prune **/__pycache__
+global-exclude *.pyc
+global-exclude __pycache__
+

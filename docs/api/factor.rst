@@ -21,7 +21,7 @@ factor.factor
    :param date_list: 日期列表
    :return: (date_ranges, code_ranges) 元组
 
-.. py:function:: pre_query_factor_data(date_list, metric, time_tolerance=17520, table_name="fundamental_data", date_ranges=None, code_ranges=None)
+.. py:function:: pre_query_characteristic_data(date_list, metric, time_tolerance=17520, table_name="fundamental_data", date_ranges=None, code_ranges=None)
 
    批量预查询因子数据，生成符合因子排序函数要求的DataFrame。
 
@@ -36,7 +36,7 @@ factor.factor
 单因子函数
 ~~~~~~~~~~
 
-.. py:function:: single_factor(pre_queried_data, metric, quantiles)
+.. py:function:: single_characteristic(pre_queried_data, metric, quantiles)
 
    单因子分组打标签。
 
@@ -62,7 +62,7 @@ factor.factor
 双因子函数
 ~~~~~~~~~~
 
-.. py:function:: double_factor(pre_queried_data1, pre_queried_data2, metric1, metric2, quantiles1, quantiles2, sort_method='dependent')
+.. py:function:: double_characteristic(pre_queried_data1, pre_queried_data2, metric1, metric2, quantiles1, quantiles2, sort_method='dependent')
 
    双因子分组打标签（Double Sort）。
 
@@ -92,7 +92,7 @@ factor.factor
 多因子函数
 ~~~~~~~~~~
 
-.. py:function:: multi_factor(pre_queried_data_list, factors)
+.. py:function:: multi_characteristic(pre_queried_data_list, factors)
 
    多因子分组打标签（Multi-Factor Sort）。
 

@@ -42,7 +42,7 @@ Betalens 文档
 
    from betalens.datafeed import Datafeed, get_absolute_trade_days
    from betalens.factor.factor import (
-       get_tradable_pool, pre_query_factor_data,
+       get_tradable_pool, pre_query_characteristic_data,
        single_factor, get_single_factor_weight
    )
    from betalens.backtest import BacktestBase
@@ -53,9 +53,9 @@ Betalens 文档
    date_ranges, code_ranges = get_tradable_pool(trading_days)
 
    # 2. 查询因子并分组
-   data = pre_query_factor_data(trading_days, "股息率(报告期)",
+   data = pre_query_characteristic_data(trading_days, "股息率(报告期)",
                                 date_ranges=date_ranges, code_ranges=code_ranges)
-   labeled_pool = single_factor(data, "股息率(报告期)", {"股息率(报告期)": 10})
+   labeled_pool = single_characteristic(data, "股息率(报告期)", {"股息率(报告期)": 10})
 
    # 3. 生成权重
    weights = get_single_factor_weight(labeled_pool, {

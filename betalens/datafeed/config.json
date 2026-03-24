@@ -1,5 +1,7 @@
 {
+  "_comment": "这是datafeed模块的配置文件示例，复制此文件为config.json并根据需要修改",
   "database": {
+    "_comment": "PostgreSQL数据库连接配置",
     "dbname": "datafeed",
     "user": "postgres",
     "password": "111111",
@@ -7,11 +9,13 @@
     "port": "5432"
   },
   "logging": {
+    "_comment": "日志配置",
     "log_dir": "./logs",
     "log_level": "INFO",
     "log_format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
   },
   "excel": {
+    "_comment": "Excel文件处理配置",
     "encodings": [
       "utf-8",
       "utf-8-sig",
@@ -23,6 +27,7 @@
       "big5"
     ],
     "time_alignment": {
+      "_comment": "交易时间对齐配置",
       "open_time": "09:30:01",
       "other_time": "15:00:01",
       "open_metric_names": [
@@ -32,8 +37,10 @@
     }
   },
   "wind": {
+    "_comment": "Wind数据抓取配置",
     "asset_fields": {
       "stock": {
+        "_comment": "股票字段配置",
         "fields": [
           "open",
           "high",
@@ -54,6 +61,7 @@
         ]
       },
       "index": {
+        "_comment": "指数字段配置",
         "fields": [
           "open",
           "high",
@@ -72,6 +80,7 @@
         ]
       },
       "fund": {
+        "_comment": "基金字段配置",
         "fields": [
           "open",
           "high",
@@ -90,6 +99,7 @@
         ]
       },
       "bond": {
+        "_comment": "债券字段配置",
         "fields": [
           "open",
           "high",
@@ -110,11 +120,14 @@
     }
   },
   "ede": {
+    "_comment": "EDE格式Excel文件处理配置",
     "date_extraction": {
+      "_comment": "日期提取配置",
       "pattern": "(\\d{8})",
       "default_time": "15:30:00"
     },
     "column_names": {
+      "_comment": "列名识别配置",
       "code_columns": [
         "证券代码",
         "code",
@@ -134,6 +147,7 @@
       ]
     },
     "data_cleaning": {
+      "_comment": "数据清理配置",
       "keywords_to_remove": [
         "数据来源",
         "Wind",
