@@ -25,7 +25,7 @@ from betalens.eventstudy.eventstudy import EventStudy
 save_results = False  # 设为True时保存所有Excel和图表文件
 # =====================================
 
-output_file = r'test\eventstudy\events.xlsx'
+output_file = r'events.xlsx'
 # 读取事件序列（保持精确到秒的datetime）
 events_df = pd.read_excel(output_file)
 events_df['date'] = pd.to_datetime(events_df['date'])

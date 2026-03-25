@@ -13,8 +13,8 @@ import matplotlib
 from matplotlib import cm
 from matplotlib.ticker import FuncFormatter
 # 设置中文字体支持
-matplotlib.rcParams['font.sans-serif'] = ['SimHei', 'Arial Unicode MS', 'DejaVu Sans']
-matplotlib.rcParams['axes.unicode_minus'] = False
+plt.rcParams['font.sans-serif'] = ['simhei']  # 指定默认字体 (黑体)
+plt.rcParams['axes.unicode_minus'] = False  # 解决保存图像是负号'-'显示为方块的问题
 
 
 def _get_event_dates(events: pd.Series) -> pd.DatetimeIndex:
