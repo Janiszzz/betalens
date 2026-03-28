@@ -15,7 +15,7 @@ def render():
         col1, col2 = st.columns(2)
         with col1:
             table = st.selectbox("数据表", TABLES)
-            codes_input = st.text_input("标的代码（逗号分隔，留空查全部）", placeholder="000905.SH,000300.SH")
+            codes_input = st.text_input("标的代码（逗号分隔，留空查全部）", placeholder="000300.SH")
         with col2:
             start = st.date_input("开始日期")
             end = st.date_input("结束日期")
