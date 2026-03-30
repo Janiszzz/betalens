@@ -770,22 +770,24 @@ class Datafeed():
     @func_timer
     def query_time_range(
         self,
-        codes: list = None,
-        start_date: str = None,
-        end_date: str = None,
-        metric: str = None
+        codes: list | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        metric: str | None = None,
+        limit: int | None = None,
     ):
         """
         查询指定时间范围的数据（薄封装）
-        
+
         直接调用 query.query_time_range
-        
+
         Args:
             codes: 代码列表
             start_date: 开始日期
             end_date: 结束日期
             metric: 指标
-            
+            limit: 最大返回行数，None表示不限制
+
         Returns:
             DataFrame
         """
@@ -796,6 +798,7 @@ class Datafeed():
             start_date=start_date,
             end_date=end_date,
             metric=metric,
+            limit=limit,
             logger=self.logger
         )
     

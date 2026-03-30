@@ -33,28 +33,38 @@ def build_query(
     table_name: str,
     conditions: Optional[List[str]] = None,
     params: Optional[List] = None,
-    select_columns: str = '*'
+    select_columns: str = '*',
+    order_by: Optional[str] = None,
+    limit: Optional[int] = None,
 ) -> Tuple[str, List]:
     """
     构建SQL查询
-    
+
     Args:
         table_name: 数据库表名
         conditions: 条件列表
         params: 参数列表
         select_columns: 要选择的列
-        
+        order_by: ORDER BY 子句（如 "datetime DESC"）
+        limit: 最大返回行数
+
     Returns:
         (SQL语句, 参数列表)
     """
     query = f"SELECT {select_columns} FROM {table_name}"
-    
+
     if conditions:
         query += " WHERE " + " AND ".join(conditions)
-    
+
+    if order_by:
+        query += f" ORDER BY {order_by}"
+
+    if limit is not None:
+        query += f" LIMIT {int(limit)}"
+
     if params is None:
         params = []
-    
+
     return query, params
 
 
@@ -311,11 +321,12 @@ def query_time_range(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     metric: Optional[str] = None,
+    limit: Optional[int] = None,
     logger: Optional[logging.Logger] = None
 ) -> pd.DataFrame:
     """
     查询指定时间范围的数据
-    
+
     Args:
         cursor: 数据库游标
         table_name: 表名
@@ -323,43 +334,48 @@ def query_time_range(
         start_date: 开始日期
         end_date: 结束日期
         metric: 指标名称
+        limit: 最大返回行数，None表示不限制（按 datetime DESC 返回最新的 N 行）
         logger: 日志记录器，如果为None则使用默认logger
-        
+
     Returns:
         DataFrame
     """
     if logger is None:
         logger = _get_default_logger()
-    
+
     conditions = []
     params = []
-    
+
     if start_date:
         conditions.append("datetime >= %s::TIMESTAMP")
         params.append(start_date)
-    
+
     if end_date:
         conditions.append("datetime <= %s::TIMESTAMP")
         params.append(end_date)
-    
+
     if codes:
         placeholders = ','.join(['%s'] * len(codes))
         conditions.append(f"code IN ({placeholders})")
         params.extend(codes)
-    
+
     if metric:
         conditions.append("metric = %s")
         params.append(metric)
-    
-    sql, params = build_query(table_name, conditions, params)
-    
+
+    sql, params = build_query(
+        table_name, conditions, params,
+        order_by="datetime DESC",
+        limit=limit,
+    )
+
     logger.info(f"执行时间范围查询: {sql}")
-    
+
     cursor.execute(sql, params)
     df = pd.DataFrame(cursor.fetchall())
-    
+
     logger.info(f"查询完成，返回 {len(df)} 条记录")
-    
+
     return df
 
 

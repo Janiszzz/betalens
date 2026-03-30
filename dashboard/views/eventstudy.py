@@ -206,10 +206,10 @@ def render():
                     c1, c2 = st.columns(2)
                     with c1:
                         st.write("每日收益率统计")
-                        st.dataframe(daily_stats, use_container_width=True)
+                        st.dataframe(daily_stats, width="stretch")
                     with c2:
                         st.write("累积收益率统计")
-                        st.dataframe(cumulative_stats, use_container_width=True)
+                        st.dataframe(cumulative_stats, width="stretch")
 
             if st.button("← 修改参数"):
                 st.session_state["es_step"] = 2

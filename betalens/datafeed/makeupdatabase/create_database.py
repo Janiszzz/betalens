@@ -317,7 +317,7 @@ def table_exists(cursor, table_name: str) -> bool:
         """,
         (table_name,)
     )
-    return cursor.fetchone()[0]
+    return cursor.fetchone()["exists"]
 
 
 def drop_table(cursor, table_name: str):
@@ -448,7 +448,11 @@ def verify_schema(db_config: Dict) -> Dict:
                             """
                             SELECT conname, contype
                             FROM pg_constraint
-                            WHERE conrelid = %s::regclass
+                            WHERE conrelid = (
+                                SELECT oid FROM pg_class
+                                WHERE relname = %s
+                                  AND relnamespace = 'public'::regnamespace
+                            )
                             ORDER BY conname
                             """,
                             (table_name,)
