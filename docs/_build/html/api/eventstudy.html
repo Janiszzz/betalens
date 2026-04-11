@@ -1,0 +1,1009 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="zh-CN" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EventStudy API &mdash; Betalens 1.1.0 文档</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=fa44fd50" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=ab4a11d3"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+      <script src="../_static/translations.js?v=beaddf03"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="索引" href="../genindex.html" />
+    <link rel="search" title="搜索" href="../search.html" />
+    <link rel="next" title="Robust API" href="robust.html" />
+    <link rel="prev" title="Analyst API" href="analyst.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            Betalens
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="搜索文档" aria-label="搜索文档" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="导航菜单">
+              <p class="caption" role="heading"><span class="caption-text">快速开始</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../getting-started/installation.html">安装指南</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../getting-started/installation.html#id2">环境要求</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../getting-started/installation.html#pypi">通过 PyPI 安装</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../getting-started/installation.html#id3">源码安装（推荐开发者）</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../getting-started/installation.html#id4">数据库与配置</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../getting-started/installation.html#id5">验证安装</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../getting-started/installation.html#id6">常见问题</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../getting-started/quickstart.html">10 分钟快速上手</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../getting-started/quickstart.html#id2">1. 准备调仓日与可交易标的</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../getting-started/quickstart.html#id3">2. 批量预查询因子数据</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../getting-started/quickstart.html#id4">3. 单因子分组打标签</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../getting-started/quickstart.html#id5">4. 派生多空权重</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../getting-started/quickstart.html#id6">5. 回测组合净值</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../getting-started/quickstart.html#id7">6. 绩效分析与报告</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../getting-started/quickstart.html#double-sort">7. 双因子分组（Double Sort）</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../getting-started/quickstart.html#multi-factor-sort">8. 多因子分组（Multi-Factor Sort）</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../getting-started/quickstart.html#id8">9. 启用稳健性检验（可选）</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">用户指南</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../guide/datafeed.html">Datafeed 使用指南</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../guide/datafeed.html#id1">模块结构</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../guide/datafeed.html#id2">快速连接数据库</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../guide/datafeed.html#id3">常用查询</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../guide/datafeed.html#id4">时间范围查询</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../guide/datafeed.html#id5">最近时点查询</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../guide/datafeed.html#id6">辅助查询函数</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../guide/datafeed.html#excel-ede">Excel &amp; EDE 导入</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../guide/datafeed.html#csv-excel">CSV/Excel 文件导入</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../guide/datafeed.html#ede">EDE 文件导入</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../guide/datafeed.html#id7">批量导入</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../guide/datafeed.html#wind">Wind 数据抓取</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../guide/datafeed.html#id8">数据验证</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../guide/datafeed.html#id9">增量更新</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../guide/datafeed.html#id10">交易日辅助函数</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../guide/datafeed.html#id11">注意事项</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/factor.html">因子模块</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../guide/factor.html#id2">获取可交易池</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../guide/factor.html#id7">批量预查询因子数据</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../guide/factor.html#id8">单因子分组</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../guide/factor.html#id11">生成单因子权重</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../guide/factor.html#double-sort">双因子分组（Double Sort）</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../guide/factor.html#id12">生成双因子权重</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../guide/factor.html#multi-factor-sort">多因子分组（Multi-Factor Sort）</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../guide/factor.html#id13">生成多因子权重</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../guide/factor.html#id14">描述性统计</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../guide/factor.html#id15">实践提示</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/backtest.html">回测模块</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../guide/backtest.html#id2">权重矩阵规范</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../guide/backtest.html#id3">回测执行</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../guide/backtest.html#id4">主要属性</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../guide/backtest.html#id5">内部步骤</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../guide/backtest.html#id6">异常处理</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../guide/backtest.html#id7">数据验证</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../guide/backtest.html#id8">常见扩展</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/analyst.html">绩效分析模块</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../guide/analyst.html#portfolioanalyzer">PortfolioAnalyzer</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../guide/analyst.html#id2">核心指标</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../guide/analyst.html#id3">滚动指标</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../guide/analyst.html#id4">关键属性</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../guide/analyst.html#reportexporter">ReportExporter</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../guide/analyst.html#id5">分年度报告</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../guide/analyst.html#id6">自定义时段报告</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../guide/analyst.html#id7">基准对比报告</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../guide/analyst.html#id8">指定分析区间</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../guide/analyst.html#id9">输出方式</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../guide/analyst.html#id10">高级用法</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../guide/analyst.html#id11">滚动指标绘图</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../guide/analyst.html#id12">自定义指标</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../guide/analyst.html#id13">多策略对比</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../guide/analyst.html#id14">常见问题</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/eventstudy.html">事件研究模块</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../guide/eventstudy.html#id2">模块概述</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../guide/eventstudy.html#id3">初始化</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../guide/eventstudy.html#id4">基础事件分析</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../guide/eventstudy.html#day-0">Day 0 成本价规则</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../guide/eventstudy.html#id5">分析模式</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../guide/eventstudy.html#flexible">flexible 模式（默认）</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../guide/eventstudy.html#fixed">fixed 模式</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../guide/eventstudy.html#id6">持有起点偏移</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../guide/eventstudy.html#id7">基准超额收益</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../guide/eventstudy.html#id8">多标的平均模式</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../guide/eventstudy.html#id9">可视化</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../guide/eventstudy.html#id10">柱状图：事件前后平均日收益</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../guide/eventstudy.html#id11">折线图：累积收益曲线</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../guide/eventstudy.html#id12">多股票单事件对比</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../guide/eventstudy.html#id13">单股票多事件对比</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../guide/eventstudy.html#id14">完整示例</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/robust.html">稳健性检验</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../guide/robust.html#id2">模块定位</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../guide/robust.html#robusttest">RobustTest 流程</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../guide/robust.html#id3">核心步骤详解</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../guide/robust.html#id4">结果解读</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../guide/robust.html#panel">面板回归（Panel）</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../guide/robust.html#id5">辅助工具</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../guide/robust.html#id6">并行 &amp; 扩展</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../guide/robust.html#id9">最佳实践</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API 参考</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="datafeed.html">Datafeed API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="datafeed.html#betalens.datafeed.Datafeed"><code class="docutils literal notranslate"><span class="pre">Datafeed</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="datafeed.html#betalens.datafeed.Datafeed.__init__"><code class="docutils literal notranslate"><span class="pre">Datafeed.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="datafeed.html#betalens.datafeed.Datafeed.insert_csv_file"><code class="docutils literal notranslate"><span class="pre">Datafeed.insert_csv_file()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="datafeed.html#betalens.datafeed.Datafeed.insert_ede_file"><code class="docutils literal notranslate"><span class="pre">Datafeed.insert_ede_file()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="datafeed.html#betalens.datafeed.Datafeed.batch_process_excel_files"><code class="docutils literal notranslate"><span class="pre">Datafeed.batch_process_excel_files()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="datafeed.html#betalens.datafeed.Datafeed.incremental_update"><code class="docutils literal notranslate"><span class="pre">Datafeed.incremental_update()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="datafeed.html#betalens.datafeed.Datafeed.insert_with_conflict_check"><code class="docutils literal notranslate"><span class="pre">Datafeed.insert_with_conflict_check()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="datafeed.html#betalens.datafeed.Datafeed.update_data"><code class="docutils literal notranslate"><span class="pre">Datafeed.update_data()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="datafeed.html#betalens.datafeed.Datafeed.ingest_wind_daily_market"><code class="docutils literal notranslate"><span class="pre">Datafeed.ingest_wind_daily_market()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="datafeed.html#betalens.datafeed.Datafeed.ingest_wind_daily_index"><code class="docutils literal notranslate"><span class="pre">Datafeed.ingest_wind_daily_index()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="datafeed.html#betalens.datafeed.Datafeed.ingest_wind_daily_fund"><code class="docutils literal notranslate"><span class="pre">Datafeed.ingest_wind_daily_fund()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="datafeed.html#betalens.datafeed.Datafeed.ingest_wind_daily_bond"><code class="docutils literal notranslate"><span class="pre">Datafeed.ingest_wind_daily_bond()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="datafeed.html#betalens.datafeed.Datafeed.run_query"><code class="docutils literal notranslate"><span class="pre">Datafeed.run_query()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="datafeed.html#betalens.datafeed.Datafeed.query_time_range"><code class="docutils literal notranslate"><span class="pre">Datafeed.query_time_range()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="datafeed.html#betalens.datafeed.Datafeed.query_nearest_after"><code class="docutils literal notranslate"><span class="pre">Datafeed.query_nearest_after()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="datafeed.html#betalens.datafeed.Datafeed.query_nearest_before"><code class="docutils literal notranslate"><span class="pre">Datafeed.query_nearest_before()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="datafeed.html#betalens.datafeed.Datafeed.get_latest_date"><code class="docutils literal notranslate"><span class="pre">Datafeed.get_latest_date()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="datafeed.html#betalens.datafeed.Datafeed.get_available_dates"><code class="docutils literal notranslate"><span class="pre">Datafeed.get_available_dates()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="datafeed.html#betalens.datafeed.Datafeed.validate_dataframe"><code class="docutils literal notranslate"><span class="pre">Datafeed.validate_dataframe()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="datafeed.html#betalens.datafeed.Datafeed.check_excel_file"><code class="docutils literal notranslate"><span class="pre">Datafeed.check_excel_file()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="datafeed.html#betalens.datafeed.Datafeed.truncate_table"><code class="docutils literal notranslate"><span class="pre">Datafeed.truncate_table()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="datafeed.html#betalens.datafeed.Datafeed.close"><code class="docutils literal notranslate"><span class="pre">Datafeed.close()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="datafeed.html#betalens.datafeed.read_file"><code class="docutils literal notranslate"><span class="pre">read_file()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="datafeed.html#betalens.datafeed.read_csv_with_encoding"><code class="docutils literal notranslate"><span class="pre">read_csv_with_encoding()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="datafeed.html#betalens.datafeed.cross_section_to_db_format"><code class="docutils literal notranslate"><span class="pre">cross_section_to_db_format()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="datafeed.html#betalens.datafeed.batch_read_files"><code class="docutils literal notranslate"><span class="pre">batch_read_files()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="datafeed.html#betalens.datafeed.batch_write_files"><code class="docutils literal notranslate"><span class="pre">batch_write_files()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="datafeed.html#betalens.datafeed.create_directory_tree"><code class="docutils literal notranslate"><span class="pre">create_directory_tree()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="datafeed.html#betalens.datafeed.check_excel_errors"><code class="docutils literal notranslate"><span class="pre">check_excel_errors()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="datafeed.html#betalens.datafeed.FillStrategy"><code class="docutils literal notranslate"><span class="pre">FillStrategy</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="datafeed.html#betalens.datafeed.FillStrategy.RAISE_ERROR"><code class="docutils literal notranslate"><span class="pre">FillStrategy.RAISE_ERROR</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="datafeed.html#betalens.datafeed.FillStrategy.DROP"><code class="docutils literal notranslate"><span class="pre">FillStrategy.DROP</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="datafeed.html#betalens.datafeed.FillStrategy.FILL_FORWARD"><code class="docutils literal notranslate"><span class="pre">FillStrategy.FILL_FORWARD</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="datafeed.html#betalens.datafeed.FillStrategy.FILL_BACKWARD"><code class="docutils literal notranslate"><span class="pre">FillStrategy.FILL_BACKWARD</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="datafeed.html#betalens.datafeed.FillStrategy.FILL_VALUE"><code class="docutils literal notranslate"><span class="pre">FillStrategy.FILL_VALUE</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="datafeed.html#betalens.datafeed.FillStrategy.FILL_MEAN"><code class="docutils literal notranslate"><span class="pre">FillStrategy.FILL_MEAN</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="datafeed.html#betalens.datafeed.FillStrategy.FILL_MEDIAN"><code class="docutils literal notranslate"><span class="pre">FillStrategy.FILL_MEDIAN</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="datafeed.html#betalens.datafeed.FillStrategy.FILL_MODE"><code class="docutils literal notranslate"><span class="pre">FillStrategy.FILL_MODE</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="datafeed.html#betalens.datafeed.FillStrategy.INTERPOLATE"><code class="docutils literal notranslate"><span class="pre">FillStrategy.INTERPOLATE</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="datafeed.html#betalens.datafeed.check_null_values"><code class="docutils literal notranslate"><span class="pre">check_null_values()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="datafeed.html#betalens.datafeed.check_datetime_column"><code class="docutils literal notranslate"><span class="pre">check_datetime_column()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="datafeed.html#betalens.datafeed.fix_null_values"><code class="docutils literal notranslate"><span class="pre">fix_null_values()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="datafeed.html#betalens.datafeed.drop_duplicates_strict"><code class="docutils literal notranslate"><span class="pre">drop_duplicates_strict()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="datafeed.html#betalens.datafeed.fix_datetime_column"><code class="docutils literal notranslate"><span class="pre">fix_datetime_column()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="datafeed.html#betalens.datafeed.validate_and_fix"><code class="docutils literal notranslate"><span class="pre">validate_and_fix()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="datafeed.html#betalens.datafeed.DataValidator"><code class="docutils literal notranslate"><span class="pre">DataValidator</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="datafeed.html#betalens.datafeed.DataValidator.__init__"><code class="docutils literal notranslate"><span class="pre">DataValidator.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="datafeed.html#betalens.datafeed.DataValidator.check_null_values"><code class="docutils literal notranslate"><span class="pre">DataValidator.check_null_values()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="datafeed.html#betalens.datafeed.DataValidator.check_datetime_column"><code class="docutils literal notranslate"><span class="pre">DataValidator.check_datetime_column()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="datafeed.html#betalens.datafeed.DataValidator.fix_null_values"><code class="docutils literal notranslate"><span class="pre">DataValidator.fix_null_values()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="datafeed.html#betalens.datafeed.DataValidator.drop_duplicates_strict"><code class="docutils literal notranslate"><span class="pre">DataValidator.drop_duplicates_strict()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="datafeed.html#betalens.datafeed.DataValidator.fix_datetime_column"><code class="docutils literal notranslate"><span class="pre">DataValidator.fix_datetime_column()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="datafeed.html#betalens.datafeed.DataValidator.validate_and_fix"><code class="docutils literal notranslate"><span class="pre">DataValidator.validate_and_fix()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="datafeed.html#betalens.datafeed.build_query"><code class="docutils literal notranslate"><span class="pre">build_query()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="datafeed.html#betalens.datafeed.generate_input_pairs"><code class="docutils literal notranslate"><span class="pre">generate_input_pairs()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="datafeed.html#betalens.datafeed.build_nearest_query"><code class="docutils literal notranslate"><span class="pre">build_nearest_query()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="datafeed.html#betalens.datafeed.query_nearest_after"><code class="docutils literal notranslate"><span class="pre">query_nearest_after()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="datafeed.html#betalens.datafeed.query_nearest_before"><code class="docutils literal notranslate"><span class="pre">query_nearest_before()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="datafeed.html#betalens.datafeed.query_time_range"><code class="docutils literal notranslate"><span class="pre">query_time_range()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="datafeed.html#betalens.datafeed.get_available_dates"><code class="docutils literal notranslate"><span class="pre">get_available_dates()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="datafeed.html#betalens.datafeed.get_latest_date"><code class="docutils literal notranslate"><span class="pre">get_latest_date()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="datafeed.html#betalens.datafeed.pivot_to_wide"><code class="docutils literal notranslate"><span class="pre">pivot_to_wide()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="datafeed.html#betalens.datafeed.align_to_dates"><code class="docutils literal notranslate"><span class="pre">align_to_dates()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="datafeed.html#betalens.datafeed.calculate_returns"><code class="docutils literal notranslate"><span class="pre">calculate_returns()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="datafeed.html#betalens.datafeed.process_excel_to_db_format"><code class="docutils literal notranslate"><span class="pre">process_excel_to_db_format()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="datafeed.html#betalens.datafeed.check_existing_rows"><code class="docutils literal notranslate"><span class="pre">check_existing_rows()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="datafeed.html#betalens.datafeed.insert_dataframe"><code class="docutils literal notranslate"><span class="pre">insert_dataframe()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="datafeed.html#betalens.datafeed.get_existing_dates"><code class="docutils literal notranslate"><span class="pre">get_existing_dates()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="datafeed.html#betalens.datafeed.incremental_insert"><code class="docutils literal notranslate"><span class="pre">incremental_insert()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="datafeed.html#betalens.datafeed.save_error_file"><code class="docutils literal notranslate"><span class="pre">save_error_file()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="datafeed.html#betalens.datafeed.process_directory_tree"><code class="docutils literal notranslate"><span class="pre">process_directory_tree()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="datafeed.html#betalens.datafeed.ConfigManager"><code class="docutils literal notranslate"><span class="pre">ConfigManager</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="datafeed.html#betalens.datafeed.ConfigManager.__init__"><code class="docutils literal notranslate"><span class="pre">ConfigManager.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="datafeed.html#betalens.datafeed.ConfigManager.load"><code class="docutils literal notranslate"><span class="pre">ConfigManager.load()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="datafeed.html#betalens.datafeed.ConfigManager.save"><code class="docutils literal notranslate"><span class="pre">ConfigManager.save()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="datafeed.html#betalens.datafeed.ConfigManager.get"><code class="docutils literal notranslate"><span class="pre">ConfigManager.get()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="datafeed.html#betalens.datafeed.ConfigManager.set"><code class="docutils literal notranslate"><span class="pre">ConfigManager.set()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="datafeed.html#betalens.datafeed.ConfigManager.get_section"><code class="docutils literal notranslate"><span class="pre">ConfigManager.get_section()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="datafeed.html#betalens.datafeed.ConfigManager.config"><code class="docutils literal notranslate"><span class="pre">ConfigManager.config</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="datafeed.html#betalens.datafeed.ConfigManager.__getitem__"><code class="docutils literal notranslate"><span class="pre">ConfigManager.__getitem__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="datafeed.html#betalens.datafeed.ConfigManager.__setitem__"><code class="docutils literal notranslate"><span class="pre">ConfigManager.__setitem__()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="datafeed.html#betalens.datafeed.get_config"><code class="docutils literal notranslate"><span class="pre">get_config()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="datafeed.html#betalens.datafeed.reset_config"><code class="docutils literal notranslate"><span class="pre">reset_config()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="datafeed.html#betalens.datafeed.get_database_config"><code class="docutils literal notranslate"><span class="pre">get_database_config()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="datafeed.html#betalens.datafeed.get_logging_config"><code class="docutils literal notranslate"><span class="pre">get_logging_config()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="datafeed.html#betalens.datafeed.get_excel_config"><code class="docutils literal notranslate"><span class="pre">get_excel_config()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="datafeed.html#betalens.datafeed.get_wind_config"><code class="docutils literal notranslate"><span class="pre">get_wind_config()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="datafeed.html#betalens.datafeed.get_ede_config"><code class="docutils literal notranslate"><span class="pre">get_ede_config()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="datafeed.html#betalens.datafeed.func_timer"><code class="docutils literal notranslate"><span class="pre">func_timer()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="datafeed.html#betalens.datafeed.get_absolute_trade_days"><code class="docutils literal notranslate"><span class="pre">get_absolute_trade_days()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="datafeed.html#betalens.datafeed.trade_days_offset"><code class="docutils literal notranslate"><span class="pre">trade_days_offset()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="datafeed.html#id1">子模块</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="datafeed.html#module-betalens.datafeed.core">core</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.core.func_timer"><code class="docutils literal notranslate"><span class="pre">func_timer()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.core.Datafeed"><code class="docutils literal notranslate"><span class="pre">Datafeed</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.core.get_absolute_trade_days"><code class="docutils literal notranslate"><span class="pre">get_absolute_trade_days()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.core.trade_days_offset"><code class="docutils literal notranslate"><span class="pre">trade_days_offset()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="datafeed.html#module-betalens.datafeed.excel">excel</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.excel.read_csv_with_encoding"><code class="docutils literal notranslate"><span class="pre">read_csv_with_encoding()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.excel.read_file"><code class="docutils literal notranslate"><span class="pre">read_file()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.excel.cross_section_to_db_format"><code class="docutils literal notranslate"><span class="pre">cross_section_to_db_format()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.excel.batch_read_files"><code class="docutils literal notranslate"><span class="pre">batch_read_files()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.excel.batch_write_files"><code class="docutils literal notranslate"><span class="pre">batch_write_files()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.excel.create_directory_tree"><code class="docutils literal notranslate"><span class="pre">create_directory_tree()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.excel.apply_time_alignment"><code class="docutils literal notranslate"><span class="pre">apply_time_alignment()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.excel.check_excel_errors"><code class="docutils literal notranslate"><span class="pre">check_excel_errors()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="datafeed.html#module-betalens.datafeed.validation">validation</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.validation.FillStrategy"><code class="docutils literal notranslate"><span class="pre">FillStrategy</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.validation.check_null_values"><code class="docutils literal notranslate"><span class="pre">check_null_values()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.validation.check_datetime_column"><code class="docutils literal notranslate"><span class="pre">check_datetime_column()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.validation.fix_null_values"><code class="docutils literal notranslate"><span class="pre">fix_null_values()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.validation.drop_duplicates_strict"><code class="docutils literal notranslate"><span class="pre">drop_duplicates_strict()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.validation.fix_datetime_column"><code class="docutils literal notranslate"><span class="pre">fix_datetime_column()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.validation.validate_and_fix"><code class="docutils literal notranslate"><span class="pre">validate_and_fix()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.validation.DataValidator"><code class="docutils literal notranslate"><span class="pre">DataValidator</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="datafeed.html#module-betalens.datafeed.query">query</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.query.build_query"><code class="docutils literal notranslate"><span class="pre">build_query()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.query.generate_input_pairs"><code class="docutils literal notranslate"><span class="pre">generate_input_pairs()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.query.build_nearest_query"><code class="docutils literal notranslate"><span class="pre">build_nearest_query()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.query.query_nearest_after"><code class="docutils literal notranslate"><span class="pre">query_nearest_after()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.query.query_nearest_before"><code class="docutils literal notranslate"><span class="pre">query_nearest_before()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.query.query_time_range"><code class="docutils literal notranslate"><span class="pre">query_time_range()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.query.get_available_dates"><code class="docutils literal notranslate"><span class="pre">get_available_dates()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.query.get_latest_date"><code class="docutils literal notranslate"><span class="pre">get_latest_date()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.query.pivot_to_wide"><code class="docutils literal notranslate"><span class="pre">pivot_to_wide()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.query.align_to_dates"><code class="docutils literal notranslate"><span class="pre">align_to_dates()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.query.calculate_returns"><code class="docutils literal notranslate"><span class="pre">calculate_returns()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="datafeed.html#module-betalens.datafeed.integration">integration</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.integration.process_excel_to_db_format"><code class="docutils literal notranslate"><span class="pre">process_excel_to_db_format()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.integration.check_existing_rows"><code class="docutils literal notranslate"><span class="pre">check_existing_rows()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.integration.insert_dataframe"><code class="docutils literal notranslate"><span class="pre">insert_dataframe()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.integration.get_existing_dates"><code class="docutils literal notranslate"><span class="pre">get_existing_dates()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.integration.incremental_insert"><code class="docutils literal notranslate"><span class="pre">incremental_insert()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.integration.save_error_file"><code class="docutils literal notranslate"><span class="pre">save_error_file()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.integration.process_directory_tree"><code class="docutils literal notranslate"><span class="pre">process_directory_tree()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="datafeed.html#module-betalens.datafeed.config">config</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.config.ConfigManager"><code class="docutils literal notranslate"><span class="pre">ConfigManager</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.config.get_config"><code class="docutils literal notranslate"><span class="pre">get_config()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.config.reset_config"><code class="docutils literal notranslate"><span class="pre">reset_config()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.config.get_database_config"><code class="docutils literal notranslate"><span class="pre">get_database_config()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.config.get_logging_config"><code class="docutils literal notranslate"><span class="pre">get_logging_config()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.config.get_excel_config"><code class="docutils literal notranslate"><span class="pre">get_excel_config()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.config.get_wind_config"><code class="docutils literal notranslate"><span class="pre">get_wind_config()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.config.get_ede_config"><code class="docutils literal notranslate"><span class="pre">get_ede_config()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="datafeed.html#module-betalens.datafeed.wind_ingest">wind_ingest</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.wind_ingest.fetch_daily_market"><code class="docutils literal notranslate"><span class="pre">fetch_daily_market()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.wind_ingest.fetch_daily_index"><code class="docutils literal notranslate"><span class="pre">fetch_daily_index()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.wind_ingest.fetch_daily_fund"><code class="docutils literal notranslate"><span class="pre">fetch_daily_fund()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.wind_ingest.fetch_daily_bond"><code class="docutils literal notranslate"><span class="pre">fetch_daily_bond()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="datafeed.html#module-betalens.datafeed.ede_processor">ede_processor</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.ede_processor.extract_date_from_filename"><code class="docutils literal notranslate"><span class="pre">extract_date_from_filename()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.ede_processor.parse_metric_column"><code class="docutils literal notranslate"><span class="pre">parse_metric_column()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.ede_processor.extract_date_from_metric_metadata"><code class="docutils literal notranslate"><span class="pre">extract_date_from_metric_metadata()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.ede_processor.clean_ede_dataframe"><code class="docutils literal notranslate"><span class="pre">clean_ede_dataframe()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.ede_processor.identify_code_name_columns"><code class="docutils literal notranslate"><span class="pre">identify_code_name_columns()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="datafeed.html#betalens.datafeed.ede_processor.process_ede_file"><code class="docutils literal notranslate"><span class="pre">process_ede_file()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="factor.html">Factor API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="factor.html#factor-factor">factor.factor</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="factor.html#id1">数据准备函数</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="factor.html#betalens.factor.get_tradable_pool"><code class="docutils literal notranslate"><span class="pre">get_tradable_pool()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="factor.html#betalens.factor.pre_query_characteristic_data"><code class="docutils literal notranslate"><span class="pre">pre_query_characteristic_data()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="factor.html#id2">单因子函数</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="factor.html#betalens.factor.single_characteristic"><code class="docutils literal notranslate"><span class="pre">single_characteristic()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="factor.html#betalens.factor.get_single_factor_weight"><code class="docutils literal notranslate"><span class="pre">get_single_factor_weight()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="factor.html#betalens.factor.describe_labeled_pool"><code class="docutils literal notranslate"><span class="pre">describe_labeled_pool()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="factor.html#id3">双因子函数</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="factor.html#betalens.factor.double_characteristic"><code class="docutils literal notranslate"><span class="pre">double_characteristic()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="factor.html#betalens.factor.get_double_factor_weight"><code class="docutils literal notranslate"><span class="pre">get_double_factor_weight()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="factor.html#betalens.factor.describe_double_labeled_pool"><code class="docutils literal notranslate"><span class="pre">describe_double_labeled_pool()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="factor.html#id4">多因子函数</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="factor.html#betalens.factor.multi_characteristic"><code class="docutils literal notranslate"><span class="pre">multi_characteristic()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="factor.html#betalens.factor.get_multi_factor_weight"><code class="docutils literal notranslate"><span class="pre">get_multi_factor_weight()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="factor.html#betalens.factor.describe_multi_labeled_pool"><code class="docutils literal notranslate"><span class="pre">describe_multi_labeled_pool()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="factor.html#factor-preprocessing">factor.preprocessing</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="factor.html#id5">截面处理函数</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="factor.html#betalens.factor.winsorize_factor"><code class="docutils literal notranslate"><span class="pre">winsorize_factor()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="factor.html#betalens.factor.standardize_factor"><code class="docutils literal notranslate"><span class="pre">standardize_factor()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="factor.html#betalens.factor.neutralize_factor"><code class="docutils literal notranslate"><span class="pre">neutralize_factor()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="factor.html#id6">因子对因子中性化</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="factor.html#betalens.factor.neutralize_factor_by_factor"><code class="docutils literal notranslate"><span class="pre">neutralize_factor_by_factor()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="factor.html#id7">行业中性化工具</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="factor.html#betalens.factor.filter_pool_by_industry"><code class="docutils literal notranslate"><span class="pre">filter_pool_by_industry()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="factor.html#betalens.factor.apply_industry_weight_constraint"><code class="docutils literal notranslate"><span class="pre">apply_industry_weight_constraint()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="factor.html#id8">一键预处理流水线</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="factor.html#betalens.factor.preprocess_factor"><code class="docutils literal notranslate"><span class="pre">preprocess_factor()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="factor.html#factor-stats">factor.stats</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="factor.html#ic-icir">IC / ICIR</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="factor.html#betalens.factor.calc_ic"><code class="docutils literal notranslate"><span class="pre">calc_ic()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="factor.html#betalens.factor.calc_icir"><code class="docutils literal notranslate"><span class="pre">calc_icir()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="factor.html#betalens.factor.summarize_ic"><code class="docutils literal notranslate"><span class="pre">summarize_ic()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="factor.html#fama-macbeth">Fama-MacBeth 截面回归</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="factor.html#betalens.factor.fama_macbeth"><code class="docutils literal notranslate"><span class="pre">fama_macbeth()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="factor.html#id9">分组收益统计</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="factor.html#betalens.factor.group_return_summary"><code class="docutils literal notranslate"><span class="pre">group_return_summary()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="backtest.html">Backtest API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="backtest.html#betalens.backtest.BacktestBase"><code class="docutils literal notranslate"><span class="pre">BacktestBase</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="backtest.html#betalens.backtest.BacktestBase.__init__"><code class="docutils literal notranslate"><span class="pre">BacktestBase.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="backtest.html#betalens.backtest.BacktestBase.melt_weights"><code class="docutils literal notranslate"><span class="pre">BacktestBase.melt_weights()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="backtest.html#betalens.backtest.BacktestBase.get_rebalance_data"><code class="docutils literal notranslate"><span class="pre">BacktestBase.get_rebalance_data()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="backtest.html#betalens.backtest.BacktestBase.get_position_data"><code class="docutils literal notranslate"><span class="pre">BacktestBase.get_position_data()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="backtest.html#betalens.backtest.BacktestBase.get_daily_position_data"><code class="docutils literal notranslate"><span class="pre">BacktestBase.get_daily_position_data()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="backtest.html#betalens.backtest.BacktestDataError"><code class="docutils literal notranslate"><span class="pre">BacktestDataError</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="backtest.html#betalens.backtest.DateMismatchError"><code class="docutils literal notranslate"><span class="pre">DateMismatchError</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="backtest.html#betalens.backtest.CodeMismatchError"><code class="docutils literal notranslate"><span class="pre">CodeMismatchError</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="backtest.html#backtest-backtest">backtest.backtest</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="backtest.html#backtestbase">BacktestBase</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="backtest.html#id0"><code class="docutils literal notranslate"><span class="pre">BacktestBase</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="backtest.html#id4">异常类</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="backtest.html#id5"><code class="docutils literal notranslate"><span class="pre">BacktestDataError</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="backtest.html#id6"><code class="docutils literal notranslate"><span class="pre">DateMismatchError</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="backtest.html#id7"><code class="docutils literal notranslate"><span class="pre">CodeMismatchError</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="backtest.html#id8">验证函数</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="backtest.html#betalens.backtest.validate_weight_input"><code class="docutils literal notranslate"><span class="pre">validate_weight_input()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="backtest.html#betalens.backtest.validate_query_result"><code class="docutils literal notranslate"><span class="pre">validate_query_result()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="backtest.html#betalens.backtest.validate_pivot_result"><code class="docutils literal notranslate"><span class="pre">validate_pivot_result()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="backtest.html#betalens.backtest.validate_index_alignment"><code class="docutils literal notranslate"><span class="pre">validate_index_alignment()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="backtest.html#betalens.backtest.validate_calculation_inputs"><code class="docutils literal notranslate"><span class="pre">validate_calculation_inputs()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="backtest.html#betalens.backtest.format_data_sample"><code class="docutils literal notranslate"><span class="pre">format_data_sample()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="analyst.html">Analyst API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="analyst.html#betalens.analyst.PortfolioAnalyzer"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="analyst.html#betalens.analyst.PortfolioAnalyzer.__init__"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="analyst.html#betalens.analyst.PortfolioAnalyzer.total_return"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer.total_return()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="analyst.html#betalens.analyst.PortfolioAnalyzer.annualized_return"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer.annualized_return()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="analyst.html#betalens.analyst.PortfolioAnalyzer.annualized_volatility"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer.annualized_volatility()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="analyst.html#betalens.analyst.PortfolioAnalyzer.sharpe_ratio"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer.sharpe_ratio()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="analyst.html#betalens.analyst.PortfolioAnalyzer.max_drawdown"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer.max_drawdown()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="analyst.html#betalens.analyst.PortfolioAnalyzer.rolling_max_drawdown"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer.rolling_max_drawdown()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="analyst.html#betalens.analyst.PortfolioAnalyzer.rolling_win_rate"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer.rolling_win_rate()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="analyst.html#betalens.analyst.PortfolioAnalyzer.calmar_ratio"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer.calmar_ratio()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="analyst.html#betalens.analyst.PortfolioAnalyzer.recovery_days"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer.recovery_days()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="analyst.html#betalens.analyst.ReportExporter"><code class="docutils literal notranslate"><span class="pre">ReportExporter</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="analyst.html#betalens.analyst.ReportExporter.__init__"><code class="docutils literal notranslate"><span class="pre">ReportExporter.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="analyst.html#betalens.analyst.ReportExporter.generate_annual_report"><code class="docutils literal notranslate"><span class="pre">ReportExporter.generate_annual_report()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="analyst.html#betalens.analyst.ReportExporter.generate_custom_report"><code class="docutils literal notranslate"><span class="pre">ReportExporter.generate_custom_report()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="analyst.html#betalens.analyst.ReportExporter.generate_benchmark_report"><code class="docutils literal notranslate"><span class="pre">ReportExporter.generate_benchmark_report()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="analyst.html#analyst-analyst">analyst.analyst</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="analyst.html#portfolioanalyzer">PortfolioAnalyzer</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="analyst.html#id0"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="analyst.html#reportexporter">ReportExporter</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="analyst.html#id10"><code class="docutils literal notranslate"><span class="pre">ReportExporter</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">EventStudy API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#betalens.eventstudy.EventStudy"><code class="docutils literal notranslate"><span class="pre">EventStudy</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#betalens.eventstudy.EventStudy.__init__"><code class="docutils literal notranslate"><span class="pre">EventStudy.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#betalens.eventstudy.EventStudy.analyze"><code class="docutils literal notranslate"><span class="pre">EventStudy.analyze()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#betalens.eventstudy.EventStudy.plot_bar"><code class="docutils literal notranslate"><span class="pre">EventStudy.plot_bar()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#betalens.eventstudy.EventStudy.plot_lines"><code class="docutils literal notranslate"><span class="pre">EventStudy.plot_lines()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#betalens.eventstudy.EventStudy.plot_multi_stocks"><code class="docutils literal notranslate"><span class="pre">EventStudy.plot_multi_stocks()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#betalens.eventstudy.EventStudy.plot_events_lines"><code class="docutils literal notranslate"><span class="pre">EventStudy.plot_events_lines()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#eventstudy-eventstudy">eventstudy.eventstudy</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#eventstudy">EventStudy</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#id0"><code class="docutils literal notranslate"><span class="pre">EventStudy</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#id6">辅助函数</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#betalens.eventstudy._get_event_dates"><code class="docutils literal notranslate"><span class="pre">_get_event_dates()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#betalens.eventstudy._calc_returns"><code class="docutils literal notranslate"><span class="pre">_calc_returns()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#betalens.eventstudy._get_day0_cost_price_loc"><code class="docutils literal notranslate"><span class="pre">_get_day0_cost_price_loc()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#betalens.eventstudy._get_window_returns"><code class="docutils literal notranslate"><span class="pre">_get_window_returns()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#betalens.eventstudy._aggregate_window_returns"><code class="docutils literal notranslate"><span class="pre">_aggregate_window_returns()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#betalens.eventstudy._compute_stats"><code class="docutils literal notranslate"><span class="pre">_compute_stats()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#betalens.eventstudy._compute_period_stats"><code class="docutils literal notranslate"><span class="pre">_compute_period_stats()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="robust.html">Robust API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="robust.html#robust-robust">robust.robust</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="robust.html#robusttest">RobustTest</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="robust.html#RobustTest"><code class="docutils literal notranslate"><span class="pre">RobustTest</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="robust.html#id1">辅助函数</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="robust.html#panel"><code class="docutils literal notranslate"><span class="pre">panel()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="robust.html#bootstrap_fake_fund"><code class="docutils literal notranslate"><span class="pre">bootstrap_fake_fund()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="robust.html#parse_name_dates"><code class="docutils literal notranslate"><span class="pre">parse_name_dates()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="robust.html#get_interval"><code class="docutils literal notranslate"><span class="pre">get_interval()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="robust.html#gen_date_pairs"><code class="docutils literal notranslate"><span class="pre">gen_date_pairs()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="移动版导航菜单" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">Betalens</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content style-external-links">
+          <div role="navigation" aria-label="页面导航">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">EventStudy API</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/api/eventstudy.rst.txt" rel="nofollow"> 查看页面源码</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="module-betalens.eventstudy">
+<span id="eventstudy-api"></span><h1>EventStudy API<a class="headerlink" href="#module-betalens.eventstudy" title="Link to this heading"></a></h1>
+<dl class="py class">
+<dt class="sig sig-object py" id="betalens.eventstudy.EventStudy">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">betalens.eventstudy.</span></span><span class="sig-name descname"><span class="pre">EventStudy</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">datafeed</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/betalens/eventstudy/eventstudy.html#EventStudy"><span class="viewcode-link"><span class="pre">[源代码]</span></span></a><a class="headerlink" href="#betalens.eventstudy.EventStudy" title="Link to this definition"></a></dt>
+<dd><p>基类：<a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="（在 Python v3.14）"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>事件研究分析器</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="betalens.eventstudy.EventStudy.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">datafeed</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/betalens/eventstudy/eventstudy.html#EventStudy.__init__"><span class="viewcode-link"><span class="pre">[源代码]</span></span></a><a class="headerlink" href="#betalens.eventstudy.EventStudy.__init__" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="betalens.eventstudy.EventStudy.analyze">
+<span class="sig-name descname"><span class="pre">analyze</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">events</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">code</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">window_before</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">5</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">window_after</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">5</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">metric</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'收盘价(元)'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">periods</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mode</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'flexible'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">holding_periods</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">holding_start_offset</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">market_close_hour</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">15</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">benchmark_code</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/betalens/eventstudy/eventstudy.html#EventStudy.analyze"><span class="viewcode-link"><span class="pre">[源代码]</span></span></a><a class="headerlink" href="#betalens.eventstudy.EventStudy.analyze" title="Link to this definition"></a></dt>
+<dd><p>分析事件前后的收益率表现</p>
+<dl class="field-list simple">
+<dt class="field-odd">参数<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>events</strong> (<span class="sphinx_autodoc_typehints-type"><code class="xref py py-class docutils literal notranslate"><span class="pre">Series</span></code></span>) -- 事件序列，index为精确到秒的datetime，值为1表示事件发生</p></li>
+<li><p><strong>code</strong> (<span class="sphinx_autodoc_typehints-type"><code class="xref py py-data docutils literal notranslate"><span class="pre">Union</span></code>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="（在 Python v3.14）"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a>, <a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="（在 Python v3.14）"><code class="xref py py-class docutils literal notranslate"><span class="pre">List</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="（在 Python v3.14）"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a>]]</span>) -- 证券代码，可以是单个代码(str)或多个代码列表(List[str])
+当为列表时，计算所有股票在每个时间点的平均收益率</p></li>
+<li><p><strong>window_before</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="（在 Python v3.14）"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></a></span>) -- 事件前窗口期数（相对于事件后第一个收益点）</p></li>
+<li><p><strong>window_after</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="（在 Python v3.14）"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></a></span>) -- 事件后窗口期数</p></li>
+<li><p><strong>metric</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="（在 Python v3.14）"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a></span>) -- 价格指标名称</p></li>
+<li><p><strong>periods</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="（在 Python v3.14）"><code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code></a>[<code class="xref py py-class docutils literal notranslate"><span class="pre">Series</span></code>]</span>) -- 可选的时间分段序列</p></li>
+<li><p><strong>mode</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="（在 Python v3.14）"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a></span>) -- 展示模式，'flexible'=给定n展示前后n期，'fixed'=固定持有期</p></li>
+<li><p><strong>holding_periods</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="（在 Python v3.14）"><code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="（在 Python v3.14）"><code class="xref py py-class docutils literal notranslate"><span class="pre">dict</span></code></a>]</span>) -- 固定持有期字典，如{'days': [1,2,3,4,5], 'months': [1,3,6,9,12]}</p></li>
+<li><p><strong>holding_start_offset</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="（在 Python v3.14）"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></a></span>) -- 持有起点偏移天数，0表示从Day 0开始，n表示从Day n开始</p></li>
+<li><p><strong>market_close_hour</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="（在 Python v3.14）"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></a></span>) -- 市场收盘时间（小时），默认15点</p></li>
+<li><p><strong>benchmark_code</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="（在 Python v3.14）"><code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="（在 Python v3.14）"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a>]</span>) -- 可选的业绩比较基准代码，如提供则计算超额收益=持有标的收益-基准收益</p></li>
+</ul>
+</dd>
+<dt class="field-even">返回类型<span class="colon">:</span></dt>
+<dd class="field-even"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="（在 Python v3.14）"><code class="xref py py-class docutils literal notranslate"><span class="pre">dict</span></code></a></span></p>
+</dd>
+<dt class="field-odd">返回<span class="colon">:</span></dt>
+<dd class="field-odd"><p>包含 daily_stats, cumulative_stats, event_count, returns_matrix 的字典
+多标的模式额外包含: stock_returns_dict (每个股票的收益矩阵)</p>
+</dd>
+</dl>
+<div class="admonition note">
+<p class="admonition-title">备注</p>
+<p>Day 0成本价判断：
+- 事件在15:00前：当天收盘价为成本价
+- 事件在15:00后：第二日收盘价为成本价</p>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="betalens.eventstudy.EventStudy.plot_bar">
+<span class="sig-name descname"><span class="pre">plot_bar</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">daily_stats</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">title</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'事件前后平均收益率'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">figsize</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">(12,</span> <span class="pre">6)</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">save_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/betalens/eventstudy/eventstudy.html#EventStudy.plot_bar"><span class="viewcode-link"><span class="pre">[源代码]</span></span></a><a class="headerlink" href="#betalens.eventstudy.EventStudy.plot_bar" title="Link to this definition"></a></dt>
+<dd><p>类型1：柱状图展示 -n~n 平均收益率序列</p>
+<dl class="field-list simple">
+<dt class="field-odd">参数<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>daily_stats</strong> (<span class="sphinx_autodoc_typehints-type"><code class="xref py py-class docutils literal notranslate"><span class="pre">DataFrame</span></code></span>) -- 每日收益统计DataFrame（来自analyze结果的daily_stats）</p></li>
+<li><p><strong>title</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="（在 Python v3.14）"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a></span>) -- 图表标题</p></li>
+<li><p><strong>figsize</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="（在 Python v3.14）"><code class="xref py py-class docutils literal notranslate"><span class="pre">tuple</span></code></a></span>) -- 图表尺寸</p></li>
+<li><p><strong>save_path</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="（在 Python v3.14）"><code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="（在 Python v3.14）"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a>]</span>) -- 保存路径，如不提供则显示图表</p></li>
+</ul>
+</dd>
+<dt class="field-even">返回类型<span class="colon">:</span></dt>
+<dd class="field-even"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="（在 Python v3.14）"><code class="xref py py-obj docutils literal notranslate"><span class="pre">None</span></code></a></span></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="betalens.eventstudy.EventStudy.plot_lines">
+<span class="sig-name descname"><span class="pre">plot_lines</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">cumulative_stats</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">title</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'事件前后平均累积收益率'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">figsize</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">(12,</span> <span class="pre">6)</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">save_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">show_std</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/betalens/eventstudy/eventstudy.html#EventStudy.plot_lines"><span class="viewcode-link"><span class="pre">[源代码]</span></span></a><a class="headerlink" href="#betalens.eventstudy.EventStudy.plot_lines" title="Link to this definition"></a></dt>
+<dd><p>类型2：折线图展示平均累积收益率曲线（支持单标的或多标的对比）</p>
+<dl class="field-list simple">
+<dt class="field-odd">参数<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>cumulative_stats</strong> (<span class="sphinx_autodoc_typehints-type"><code class="xref py py-data docutils literal notranslate"><span class="pre">Union</span></code>[<code class="xref py py-class docutils literal notranslate"><span class="pre">DataFrame</span></code>, <a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="（在 Python v3.14）"><code class="xref py py-class docutils literal notranslate"><span class="pre">Dict</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="（在 Python v3.14）"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a>, <code class="xref py py-class docutils literal notranslate"><span class="pre">DataFrame</span></code>]]</span>) -- 累积收益统计DataFrame（单标的）或字典（多标的）
+- 单标的：传入analyze结果的cumulative_stats
+- 多标的：传入字典 {股票代码: cumulative_stats, ...}</p></li>
+<li><p><strong>title</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="（在 Python v3.14）"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a></span>) -- 图表标题</p></li>
+<li><p><strong>figsize</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="（在 Python v3.14）"><code class="xref py py-class docutils literal notranslate"><span class="pre">tuple</span></code></a></span>) -- 图表尺寸</p></li>
+<li><p><strong>save_path</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="（在 Python v3.14）"><code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="（在 Python v3.14）"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a>]</span>) -- 保存路径，如不提供则显示图表</p></li>
+<li><p><strong>show_std</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="（在 Python v3.14）"><code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code></a></span>) -- 是否显示标准差区间（仅单标的模式有效）</p></li>
+</ul>
+</dd>
+<dt class="field-even">返回类型<span class="colon">:</span></dt>
+<dd class="field-even"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="（在 Python v3.14）"><code class="xref py py-obj docutils literal notranslate"><span class="pre">None</span></code></a></span></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="betalens.eventstudy.EventStudy.plot_multi_stocks">
+<span class="sig-name descname"><span class="pre">plot_multi_stocks</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">events</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">codes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">event_index</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">window_before</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">10</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">window_after</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">10</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">metric</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'收盘价(元)'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">market_close_hour</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">15</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">title</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">figsize</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">(14,</span> <span class="pre">8)</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">save_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/betalens/eventstudy/eventstudy.html#EventStudy.plot_multi_stocks"><span class="viewcode-link"><span class="pre">[源代码]</span></span></a><a class="headerlink" href="#betalens.eventstudy.EventStudy.plot_multi_stocks" title="Link to this definition"></a></dt>
+<dd><p>类型2B：折线图展示给定股票池在特定事件的 -n~n 累积收益曲线
+所有折线在 t=0, y=0 处相交</p>
+<dl class="field-list simple">
+<dt class="field-odd">参数<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>events</strong> (<span class="sphinx_autodoc_typehints-type"><code class="xref py py-class docutils literal notranslate"><span class="pre">Series</span></code></span>) -- 事件序列</p></li>
+<li><p><strong>codes</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="（在 Python v3.14）"><code class="xref py py-class docutils literal notranslate"><span class="pre">List</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="（在 Python v3.14）"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a>]</span>) -- 股票代码列表</p></li>
+<li><p><strong>event_index</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="（在 Python v3.14）"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></a></span>) -- 选择第几个事件（0表示第一个事件）</p></li>
+<li><p><strong>window_before</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="（在 Python v3.14）"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></a></span>) -- 事件前窗口</p></li>
+<li><p><strong>window_after</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="（在 Python v3.14）"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></a></span>) -- 事件后窗口</p></li>
+<li><p><strong>metric</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="（在 Python v3.14）"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a></span>) -- 价格指标</p></li>
+<li><p><strong>market_close_hour</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="（在 Python v3.14）"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></a></span>) -- 市场收盘时间</p></li>
+<li><p><strong>title</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="（在 Python v3.14）"><code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="（在 Python v3.14）"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a>]</span>) -- 图表标题</p></li>
+<li><p><strong>figsize</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="（在 Python v3.14）"><code class="xref py py-class docutils literal notranslate"><span class="pre">tuple</span></code></a></span>) -- 图表尺寸</p></li>
+<li><p><strong>save_path</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="（在 Python v3.14）"><code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="（在 Python v3.14）"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a>]</span>) -- 保存路径</p></li>
+</ul>
+</dd>
+<dt class="field-even">返回类型<span class="colon">:</span></dt>
+<dd class="field-even"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="（在 Python v3.14）"><code class="xref py py-obj docutils literal notranslate"><span class="pre">None</span></code></a></span></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="betalens.eventstudy.EventStudy.plot_events_lines">
+<span class="sig-name descname"><span class="pre">plot_events_lines</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">events</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">code</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">window_before</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">10</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">window_after</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">10</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">metric</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'收盘价(元)'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">market_close_hour</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">15</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">title</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">figsize</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">(14,</span> <span class="pre">8)</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_events</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">save_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/betalens/eventstudy/eventstudy.html#EventStudy.plot_events_lines"><span class="viewcode-link"><span class="pre">[源代码]</span></span></a><a class="headerlink" href="#betalens.eventstudy.EventStudy.plot_events_lines" title="Link to this definition"></a></dt>
+<dd><p>类型3：折线图展示同一标的在多个事件周围的 -n~n 累积收益曲线
+所有折线在 t=0, y=0 处相交</p>
+<dl class="field-list simple">
+<dt class="field-odd">参数<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>events</strong> (<span class="sphinx_autodoc_typehints-type"><code class="xref py py-class docutils literal notranslate"><span class="pre">Series</span></code></span>) -- 事件序列</p></li>
+<li><p><strong>code</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="（在 Python v3.14）"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a></span>) -- 股票代码</p></li>
+<li><p><strong>window_before</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="（在 Python v3.14）"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></a></span>) -- 事件前窗口</p></li>
+<li><p><strong>window_after</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="（在 Python v3.14）"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></a></span>) -- 事件后窗口</p></li>
+<li><p><strong>metric</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="（在 Python v3.14）"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a></span>) -- 价格指标</p></li>
+<li><p><strong>market_close_hour</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="（在 Python v3.14）"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></a></span>) -- 市场收盘时间</p></li>
+<li><p><strong>title</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="（在 Python v3.14）"><code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="（在 Python v3.14）"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a>]</span>) -- 图表标题</p></li>
+<li><p><strong>figsize</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="（在 Python v3.14）"><code class="xref py py-class docutils literal notranslate"><span class="pre">tuple</span></code></a></span>) -- 图表尺寸</p></li>
+<li><p><strong>max_events</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="（在 Python v3.14）"><code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="（在 Python v3.14）"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></a>]</span>) -- 最多展示的事件数量，None表示全部展示</p></li>
+<li><p><strong>save_path</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="（在 Python v3.14）"><code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="（在 Python v3.14）"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a>]</span>) -- 保存路径</p></li>
+</ul>
+</dd>
+<dt class="field-even">返回类型<span class="colon">:</span></dt>
+<dd class="field-even"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="（在 Python v3.14）"><code class="xref py py-obj docutils literal notranslate"><span class="pre">None</span></code></a></span></p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<section id="eventstudy-eventstudy">
+<h2>eventstudy.eventstudy<a class="headerlink" href="#eventstudy-eventstudy" title="Link to this heading"></a></h2>
+<section id="eventstudy">
+<h3>EventStudy<a class="headerlink" href="#eventstudy" title="Link to this heading"></a></h3>
+<dl class="py class">
+<dt class="sig sig-object py" id="id0">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">betalens.eventstudy.</span></span><span class="sig-name descname"><span class="pre">EventStudy</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">datafeed</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/betalens/eventstudy/eventstudy.html#EventStudy"><span class="viewcode-link"><span class="pre">[源代码]</span></span></a><a class="headerlink" href="#id0" title="Link to this definition"></a></dt>
+<dd><p>事件研究分析器。</p>
+<dl class="field-list simple">
+<dt class="field-odd">参数<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>datafeed</strong> -- <a class="reference internal" href="datafeed.html#betalens.datafeed.Datafeed" title="betalens.datafeed.Datafeed"><code class="xref py py-class docutils literal notranslate"><span class="pre">betalens.datafeed.Datafeed</span></code></a> 实例，用于查询价格数据</p>
+</dd>
+</dl>
+<dl class="py method">
+<dt class="sig sig-object py" id="id1">
+<span class="sig-name descname"><span class="pre">analyze</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">events</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">code</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">window_before</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">5</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">window_after</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">5</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">metric</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'收盘价(元)'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">periods</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mode</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'flexible'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">holding_periods</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">holding_start_offset</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">market_close_hour</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">15</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">benchmark_code</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/betalens/eventstudy/eventstudy.html#EventStudy.analyze"><span class="viewcode-link"><span class="pre">[源代码]</span></span></a><a class="headerlink" href="#id1" title="Link to this definition"></a></dt>
+<dd><p>分析事件前后的收益率表现。</p>
+<dl class="field-list simple">
+<dt class="field-odd">参数<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>events</strong> (<em>Series</em>) -- 事件序列（pd.Series），index 为精确到秒的 datetime，值 1 表示事件发生</p></li>
+<li><p><strong>code</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="（在 Python v3.14）"><em>str</em></a><em> | </em><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="（在 Python v3.14）"><em>List</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="（在 Python v3.14）"><em>str</em></a><em>]</em>) -- 证券代码（str 单标的 | List[str] 多标的取平均）</p></li>
+<li><p><strong>window_before</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="（在 Python v3.14）"><em>int</em></a>) -- 事件前窗口期数</p></li>
+<li><p><strong>window_after</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="（在 Python v3.14）"><em>int</em></a>) -- 事件后窗口期数</p></li>
+<li><p><strong>metric</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="（在 Python v3.14）"><em>str</em></a>) -- 价格指标名称，如 <code class="docutils literal notranslate"><span class="pre">'收盘价(元)'</span></code></p></li>
+<li><p><strong>periods</strong> (<em>Series</em><em> | </em><em>None</em>) -- 可选的时间分段序列（pd.Series），用于分组统计</p></li>
+<li><p><strong>mode</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="（在 Python v3.14）"><em>str</em></a>) -- <code class="docutils literal notranslate"><span class="pre">'flexible'</span></code> 连续累积 | <code class="docutils literal notranslate"><span class="pre">'fixed'</span></code> 固定持有期</p></li>
+<li><p><strong>holding_periods</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="（在 Python v3.14）"><em>dict</em></a><em> | </em><em>None</em>) -- mode='fixed' 时的持有期字典，如 <code class="docutils literal notranslate"><span class="pre">{'days':</span> <span class="pre">[1,2,3,4,5],</span> <span class="pre">'months':</span> <span class="pre">[1,3,6,9,12]}</span></code></p></li>
+<li><p><strong>holding_start_offset</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="（在 Python v3.14）"><em>int</em></a>) -- 持有起点偏移天数（0=Day 0, -3=提前3天）</p></li>
+<li><p><strong>market_close_hour</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="（在 Python v3.14）"><em>int</em></a>) -- 市场收盘时间（小时），默认 15</p></li>
+<li><p><strong>benchmark_code</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="（在 Python v3.14）"><em>str</em></a><em> | </em><em>None</em>) -- 基准代码，提供时计算超额收益 = 标的收益 - 基准收益</p></li>
+</ul>
+</dd>
+<dt class="field-even">返回<span class="colon">:</span></dt>
+<dd class="field-even"><p><p>结果字典，包含以下键：</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">daily_stats</span></code> (pd.DataFrame): 每日收益统计，index=day，列含 mean, std, positive_prob, odds, t_stat, count</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">cumulative_stats</span></code> (pd.DataFrame): 累积收益统计，同上结构</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">event_count</span></code> (int): 有效事件数</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">returns_matrix</span></code> (pd.DataFrame): 收益矩阵，行=相对天数，列=事件编号</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">stock_returns_dict</span></code> (dict, 多标的模式): {代码: 收益矩阵}</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">valid_codes</span></code> (list, 多标的模式): 有效代码列表</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">period_stats</span></code> (pd.DataFrame, 仅单标的+periods): 分段统计</p></li>
+</ul>
+</p>
+</dd>
+<dt class="field-odd">返回类型<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="（在 Python v3.14）">dict</a></p>
+</dd>
+</dl>
+<div class="admonition note">
+<p class="admonition-title">备注</p>
+<p>Day 0 成本价规则：事件在 15:00 前 → 当天收盘价；15:00 后 → 次日收盘价。</p>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="id2">
+<span class="sig-name descname"><span class="pre">plot_bar</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">daily_stats</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">title</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'事件前后平均收益率'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">figsize</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">(12,</span> <span class="pre">6)</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">save_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/betalens/eventstudy/eventstudy.html#EventStudy.plot_bar"><span class="viewcode-link"><span class="pre">[源代码]</span></span></a><a class="headerlink" href="#id2" title="Link to this definition"></a></dt>
+<dd><p>柱状图展示事件前后平均日收益率。</p>
+<dl class="field-list simple">
+<dt class="field-odd">参数<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>daily_stats</strong> (<em>DataFrame</em>) -- <code class="docutils literal notranslate"><span class="pre">analyze()</span></code> 返回的 <code class="docutils literal notranslate"><span class="pre">daily_stats</span></code></p></li>
+<li><p><strong>title</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="（在 Python v3.14）"><em>str</em></a>) -- 图表标题</p></li>
+<li><p><strong>figsize</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="（在 Python v3.14）"><em>tuple</em></a>) -- 图表尺寸</p></li>
+<li><p><strong>save_path</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="（在 Python v3.14）"><em>str</em></a><em> | </em><em>None</em>) -- 保存路径（None 则直接显示）</p></li>
+</ul>
+</dd>
+<dt class="field-even">返回类型<span class="colon">:</span></dt>
+<dd class="field-even"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="id3">
+<span class="sig-name descname"><span class="pre">plot_lines</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">cumulative_stats</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">title</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'事件前后平均累积收益率'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">figsize</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">(12,</span> <span class="pre">6)</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">save_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">show_std</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/betalens/eventstudy/eventstudy.html#EventStudy.plot_lines"><span class="viewcode-link"><span class="pre">[源代码]</span></span></a><a class="headerlink" href="#id3" title="Link to this definition"></a></dt>
+<dd><p>折线图展示累积收益曲线，支持单标的和多标的对比。</p>
+<dl class="field-list simple">
+<dt class="field-odd">参数<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>cumulative_stats</strong> (<em>DataFrame</em><em> | </em><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="（在 Python v3.14）"><em>Dict</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="（在 Python v3.14）"><em>str</em></a><em>, </em><em>DataFrame</em><em>]</em>) -- pd.DataFrame（单标的）或 dict（多标的，<code class="docutils literal notranslate"><span class="pre">{代码:</span> <span class="pre">cumulative_stats_df}</span></code>）</p></li>
+<li><p><strong>title</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="（在 Python v3.14）"><em>str</em></a>) -- 图表标题</p></li>
+<li><p><strong>figsize</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="（在 Python v3.14）"><em>tuple</em></a>) -- 图表尺寸</p></li>
+<li><p><strong>save_path</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="（在 Python v3.14）"><em>str</em></a><em> | </em><em>None</em>) -- 保存路径（None 则直接显示）</p></li>
+<li><p><strong>show_std</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="（在 Python v3.14）"><em>bool</em></a>) -- 是否显示 ±1 标准差区间（仅单标的模式）</p></li>
+</ul>
+</dd>
+<dt class="field-even">返回类型<span class="colon">:</span></dt>
+<dd class="field-even"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="id4">
+<span class="sig-name descname"><span class="pre">plot_multi_stocks</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">events</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">codes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">event_index</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">window_before</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">10</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">window_after</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">10</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">metric</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'收盘价(元)'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">market_close_hour</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">15</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">title</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">figsize</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">(14,</span> <span class="pre">8)</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">save_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/betalens/eventstudy/eventstudy.html#EventStudy.plot_multi_stocks"><span class="viewcode-link"><span class="pre">[源代码]</span></span></a><a class="headerlink" href="#id4" title="Link to this definition"></a></dt>
+<dd><p>折线图展示多只股票在同一个事件前后的累积收益曲线。所有折线在 t=0, y=0 处相交。</p>
+<dl class="field-list simple">
+<dt class="field-odd">参数<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>events</strong> (<em>Series</em>) -- 事件序列</p></li>
+<li><p><strong>codes</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="（在 Python v3.14）"><em>List</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="（在 Python v3.14）"><em>str</em></a><em>]</em>) -- 股票代码列表</p></li>
+<li><p><strong>event_index</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="（在 Python v3.14）"><em>int</em></a>) -- 选择第几个事件（0 = 第一个）</p></li>
+<li><p><strong>window_before</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="（在 Python v3.14）"><em>int</em></a>) -- 事件前窗口</p></li>
+<li><p><strong>window_after</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="（在 Python v3.14）"><em>int</em></a>) -- 事件后窗口</p></li>
+<li><p><strong>metric</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="（在 Python v3.14）"><em>str</em></a>) -- 价格指标</p></li>
+<li><p><strong>market_close_hour</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="（在 Python v3.14）"><em>int</em></a>) -- 收盘时间</p></li>
+<li><p><strong>title</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="（在 Python v3.14）"><em>str</em></a><em> | </em><em>None</em>) -- 标题（None 自动生成）</p></li>
+<li><p><strong>figsize</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="（在 Python v3.14）"><em>tuple</em></a>) -- 图表尺寸</p></li>
+<li><p><strong>save_path</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="（在 Python v3.14）"><em>str</em></a><em> | </em><em>None</em>) -- 保存路径</p></li>
+</ul>
+</dd>
+<dt class="field-even">返回类型<span class="colon">:</span></dt>
+<dd class="field-even"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="id5">
+<span class="sig-name descname"><span class="pre">plot_events_lines</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">events</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">code</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">window_before</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">10</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">window_after</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">10</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">metric</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'收盘价(元)'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">market_close_hour</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">15</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">title</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">figsize</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">(14,</span> <span class="pre">8)</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_events</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">save_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/betalens/eventstudy/eventstudy.html#EventStudy.plot_events_lines"><span class="viewcode-link"><span class="pre">[源代码]</span></span></a><a class="headerlink" href="#id5" title="Link to this definition"></a></dt>
+<dd><p>折线图展示同一标的在多个事件前后的累积收益曲线。所有折线在 t=0, y=0 处相交。</p>
+<dl class="field-list simple">
+<dt class="field-odd">参数<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>events</strong> (<em>Series</em>) -- 事件序列</p></li>
+<li><p><strong>code</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="（在 Python v3.14）"><em>str</em></a>) -- 股票代码</p></li>
+<li><p><strong>window_before</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="（在 Python v3.14）"><em>int</em></a>) -- 事件前窗口</p></li>
+<li><p><strong>window_after</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="（在 Python v3.14）"><em>int</em></a>) -- 事件后窗口</p></li>
+<li><p><strong>metric</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="（在 Python v3.14）"><em>str</em></a>) -- 价格指标</p></li>
+<li><p><strong>market_close_hour</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="（在 Python v3.14）"><em>int</em></a>) -- 收盘时间</p></li>
+<li><p><strong>title</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="（在 Python v3.14）"><em>str</em></a><em> | </em><em>None</em>) -- 标题（None 自动生成）</p></li>
+<li><p><strong>figsize</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="（在 Python v3.14）"><em>tuple</em></a>) -- 图表尺寸</p></li>
+<li><p><strong>max_events</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="（在 Python v3.14）"><em>int</em></a><em> | </em><em>None</em>) -- 最多展示事件数（None 全部展示）</p></li>
+<li><p><strong>save_path</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="（在 Python v3.14）"><em>str</em></a><em> | </em><em>None</em>) -- 保存路径</p></li>
+</ul>
+</dd>
+<dt class="field-even">返回类型<span class="colon">:</span></dt>
+<dd class="field-even"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="id6">
+<h3>辅助函数<a class="headerlink" href="#id6" title="Link to this heading"></a></h3>
+<p>以下为模块内部辅助函数，通常不需要直接调用：</p>
+<dl class="py function">
+<dt class="sig sig-object py" id="betalens.eventstudy._get_event_dates">
+<span class="sig-prename descclassname"><span class="pre">betalens.eventstudy.</span></span><span class="sig-name descname"><span class="pre">_get_event_dates</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">events</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#betalens.eventstudy._get_event_dates" title="Link to this definition"></a></dt>
+<dd><p>从事件序列中提取事件发生日期（值为 1 的行）。</p>
+<dl class="field-list simple">
+<dt class="field-odd">参数<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>events</strong> -- pd.Series，index=datetime，值=0/1</p>
+</dd>
+<dt class="field-even">返回<span class="colon">:</span></dt>
+<dd class="field-even"><p>pd.DatetimeIndex</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="betalens.eventstudy._calc_returns">
+<span class="sig-prename descclassname"><span class="pre">betalens.eventstudy.</span></span><span class="sig-name descname"><span class="pre">_calc_returns</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">prices</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#betalens.eventstudy._calc_returns" title="Link to this definition"></a></dt>
+<dd><p>计算日收益率（pct_change）。</p>
+<dl class="field-list simple">
+<dt class="field-odd">参数<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>prices</strong> -- 价格序列</p>
+</dd>
+<dt class="field-even">返回<span class="colon">:</span></dt>
+<dd class="field-even"><p>收益率序列</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="betalens.eventstudy._get_day0_cost_price_loc">
+<span class="sig-prename descclassname"><span class="pre">betalens.eventstudy.</span></span><span class="sig-name descname"><span class="pre">_get_day0_cost_price_loc</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">prices</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">event_date</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">market_close_hour</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">15</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#betalens.eventstudy._get_day0_cost_price_loc" title="Link to this definition"></a></dt>
+<dd><p>确定 Day 0 成本价在价格序列中的位置。</p>
+<dl class="field-list simple">
+<dt class="field-odd">参数<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>prices</strong> -- 价格序列（pd.Series，index=datetime）</p></li>
+<li><p><strong>event_date</strong> -- 事件时间戳</p></li>
+<li><p><strong>market_close_hour</strong> -- 收盘时间</p></li>
+</ul>
+</dd>
+<dt class="field-even">返回<span class="colon">:</span></dt>
+<dd class="field-even"><p>int 位置索引，找不到返回 None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="betalens.eventstudy._get_window_returns">
+<span class="sig-prename descclassname"><span class="pre">betalens.eventstudy.</span></span><span class="sig-name descname"><span class="pre">_get_window_returns</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">returns</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">prices</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">event_date</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">window_before</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">window_after</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">market_close_hour</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">15</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#betalens.eventstudy._get_window_returns" title="Link to this definition"></a></dt>
+<dd><p>获取单个事件的窗口期收益率序列，索引重置为相对天数。</p>
+<dl class="field-list simple">
+<dt class="field-odd">返回<span class="colon">:</span></dt>
+<dd class="field-odd"><p>pd.Series（index=相对天数）或 None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="betalens.eventstudy._aggregate_window_returns">
+<span class="sig-prename descclassname"><span class="pre">betalens.eventstudy.</span></span><span class="sig-name descname"><span class="pre">_aggregate_window_returns</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">all_returns</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#betalens.eventstudy._aggregate_window_returns" title="Link to this definition"></a></dt>
+<dd><p>将多个事件的窗口收益率合并为矩阵。</p>
+<dl class="field-list simple">
+<dt class="field-odd">参数<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>all_returns</strong> -- Series 列表</p>
+</dd>
+<dt class="field-even">返回<span class="colon">:</span></dt>
+<dd class="field-even"><p>pd.DataFrame（行=相对天数，列=事件编号）</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="betalens.eventstudy._compute_stats">
+<span class="sig-prename descclassname"><span class="pre">betalens.eventstudy.</span></span><span class="sig-name descname"><span class="pre">_compute_stats</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">returns</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#betalens.eventstudy._compute_stats" title="Link to this definition"></a></dt>
+<dd><p>计算收益率统计量。</p>
+<dl class="field-list simple">
+<dt class="field-odd">参数<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>returns</strong> -- 收益率 Series</p>
+</dd>
+<dt class="field-even">返回<span class="colon">:</span></dt>
+<dd class="field-even"><p>dict，包含 mean, std, positive_prob, odds, t_stat, count</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="betalens.eventstudy._compute_period_stats">
+<span class="sig-prename descclassname"><span class="pre">betalens.eventstudy.</span></span><span class="sig-name descname"><span class="pre">_compute_period_stats</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">returns_df</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">event_dates</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">periods</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#betalens.eventstudy._compute_period_stats" title="Link to this definition"></a></dt>
+<dd><p>按时间段分组计算统计量。</p>
+<dl class="field-list simple">
+<dt class="field-odd">参数<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>returns_df</strong> -- 收益矩阵</p></li>
+<li><p><strong>event_dates</strong> -- 事件日期</p></li>
+<li><p><strong>periods</strong> -- 分段序列</p></li>
+</ul>
+</dd>
+<dt class="field-even">返回<span class="colon">:</span></dt>
+<dd class="field-even"><p>pd.DataFrame</p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="页脚">
+        <a href="analyst.html" class="btn btn-neutral float-left" title="Analyst API" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> 上一页</a>
+        <a href="robust.html" class="btn btn-neutral float-right" title="Robust API" accesskey="n" rel="next">下一页 <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; 版权所有 2025, Janis。</p>
+  </div>
+
+  利用 <a href="https://www.sphinx-doc.org/">Sphinx</a> 构建，使用的 
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">主题</a>
+    由 <a href="https://readthedocs.org">Read the Docs</a> 开发.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

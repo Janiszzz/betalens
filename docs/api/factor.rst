@@ -115,4 +115,203 @@ factor.factor
    :param max_display_dims: 最大显示维度
    :return: 统计信息字典
 
+factor.preprocessing
+--------------------
+
+因子预处理模块，在 ``pre_query_characteristic_data()`` 之后、``single_characteristic()`` 之前调用。
+提供截面级别的去极值、标准化、中性化，以及一键预处理流水线。
+
+截面处理函数
+~~~~~~~~~~~~
+
+.. py:function:: winsorize_factor(factor_series, method='mad', n=3.0)
+
+   截面去极值（单截面，index=code）。
+
+   :param factor_series: 单截面因子值（pd.Series，index=code）
+   :param method: ``'mad'`` 中位数绝对偏差（推荐）| ``'percentile'`` 百分位截尾 | ``'std'`` 均值±n倍标准差
+   :param n: 阈值倍数（percentile 方法时为单侧截尾百分比，如 n=1 截 [1%, 99%]）
+   :return: 去极值后的 Series
+
+   .. code-block:: python
+
+      >>> s = pd.Series({'A': 100, 'B': 2, 'C': 3, 'D': 1})
+      >>> winsorize_factor(s, method='mad', n=3)
+
+.. py:function:: standardize_factor(factor_series, method='zscore')
+
+   截面标准化（单截面，index=code）。
+
+   :param factor_series: 单截面因子值
+   :param method: ``'zscore'`` (x-mean)/std | ``'rank'`` rank/N 映射到(0,1) | ``'minmax'`` 缩放到[0,1]
+   :return: 标准化后的 Series
+
+.. py:function:: neutralize_factor(factor_series, industry_labels=None, log_market_cap=None)
+
+   OLS 残差中性化（单截面）。对行业哑变量 + log(市值) 做截面 OLS，返回残差。
+
+   :param factor_series: 因子值 Series，index=code（已标准化）
+   :param industry_labels: 行业标签 Series，index=code（None 则跳过）
+   :param log_market_cap: log 市值 Series，index=code（None 则跳过）
+   :return: 残差 Series，index=code
+
+   .. code-block:: python
+
+      >>> neutralize_factor(s, industry_labels=ind, log_market_cap=lmc)
+
+因子对因子中性化
+~~~~~~~~~~~~~~~~
+
+.. py:function:: neutralize_factor_by_factor(factor_b_data, factor_a_data, metric_b, metric_a)
+
+   用因子 A 对因子 B 做截面 OLS 中性化，返回残差作为"剔除 A 影响后的 B"。
+
+   :param factor_b_data: 被解释因子的 ``pre_query_characteristic_data()`` 输出（列含 input_ts, code, {metric_b}）
+   :param factor_a_data: 解释因子的输出（列含 input_ts, code, {metric_a}）
+   :param metric_b: 被解释因子列名
+   :param metric_a: 解释因子列名
+   :return: 同 factor_b_data 格式的 DataFrame，{metric_b} 列替换为残差值
+
+   .. code-block:: python
+
+      >>> roe_pure = neutralize_factor_by_factor(roe_data, size_data, 'ROE', 'SIZE')
+      >>> labeled = single_characteristic(roe_pure, 'ROE', quantiles={'ROE': 10})
+
+行业中性化工具
+~~~~~~~~~~~~~~
+
+.. py:function:: filter_pool_by_industry(labeled_pool, industry_map, include_industries)
+
+   将打标签的选股池限制在指定行业范围内。
+
+   :param labeled_pool: ``single_characteristic()`` 的输出，MultiIndex(input_ts, code)
+   :param industry_map: 行业映射表（列含 input_ts, code, industry）
+   :param include_industries: 保留的行业列表，如 ``['银行', '非银金融']``
+   :return: 过滤后的 labeled_pool
+
+.. py:function:: apply_industry_weight_constraint(weights, industry_map, method='equal', target_weights=None)
+
+   对已生成的权重矩阵施加行业权重约束。
+
+   :param weights: ``get_single_factor_weight()`` 的输出
+   :param industry_map: 行业映射表（列含 input_ts, code, industry）
+   :param method: ``'equal'`` 全行业等权 | ``'market'`` 按目标比例 | ``'original'`` 不调整
+   :param target_weights: method='market' 时使用，dict ``{industry: float}``
+   :return: 调整后的权重 DataFrame
+
+一键预处理流水线
+~~~~~~~~~~~~~~~~
+
+.. py:function:: preprocess_factor(pre_queried_data, metric, winsorize_method='mad', winsorize_n=3.0, standardize_method='zscore', industry_col=None, log_mktcap_col=None)
+
+   逐截面（按 input_ts）依次执行：去空值 → 去极值 → 标准化 → 中性化。
+
+   :param pre_queried_data: ``pre_query_characteristic_data()`` 的输出
+   :param metric: 因子列名
+   :param winsorize_method: ``'mad'`` | ``'percentile'`` | ``'std'``
+   :param winsorize_n: 去极值阈值
+   :param standardize_method: ``'zscore'`` | ``'rank'`` | ``'minmax'``
+   :param industry_col: pre_queried_data 中的行业列名（None 跳过行业中性化）
+   :param log_mktcap_col: pre_queried_data 中的 log 市值列名（None 跳过市值中性化）
+   :return: 同 pre_queried_data 格式的 DataFrame，{metric} 列已替换为处理后的值
+
+   .. code-block:: python
+
+      >>> cleaned = preprocess_factor(raw_data, 'ROE', industry_col='industry')
+      >>> labeled = single_characteristic(cleaned, 'ROE', quantiles={'ROE': 10})
+
+factor.stats
+------------
+
+因子统计检验模块，提供 IC/ICIR 分析、Fama-MacBeth 截面回归、分组收益统计。
+
+IC / ICIR
+~~~~~~~~~
+
+.. py:function:: calc_ic(factor_data, return_data, method='spearman')
+
+   逐截面计算 IC（Information Coefficient）。
+
+   :param factor_data: 宽表（pd.DataFrame），index=input_ts，columns=code，值为因子值
+   :param return_data: 宽表，index=input_ts，columns=code，值为持仓期收益率
+   :param method: ``'spearman'`` Rank IC（推荐）| ``'pearson'`` 普通 IC
+   :return: pd.Series，index=input_ts，name='IC'
+
+   .. code-block:: python
+
+      >>> ic = calc_ic(factor_wide, return_wide)
+      >>> print(ic.mean(), ic.std())
+
+.. py:function:: calc_icir(ic_series, window=None)
+
+   计算 ICIR = mean(IC) / std(IC)。
+
+   :param ic_series: ``calc_ic()`` 的输出
+   :param window: None 返回全样本 float；整数返回滚动 Series
+   :return: float（全样本）或 pd.Series（滚动）
+
+   .. code-block:: python
+
+      >>> icir = calc_icir(ic)                   # 全样本
+      >>> rolling_icir = calc_icir(ic, window=12)  # 滚动12期
+
+.. py:function:: summarize_ic(ic_series)
+
+   IC 统计摘要。
+
+   :param ic_series: IC 序列
+   :return: dict，包含：
+
+      - ``IC均值``: float
+      - ``IC_std``: float
+      - ``ICIR``: float
+      - ``胜率(IC>0)``: float
+      - ``t统计量``: float
+      - ``p值``: float
+
+   .. code-block:: python
+
+      >>> summary = summarize_ic(ic)
+      >>> pd.Series(summary)
+
+Fama-MacBeth 截面回归
+~~~~~~~~~~~~~~~~~~~~~
+
+.. py:function:: fama_macbeth(factor_data_dict, return_data, industry_dummies=None)
+
+   Fama-MacBeth 两步法截面回归。
+
+   第一步：每截面期 t 做 OLS ``R_i = α_t + Σ(λ_k,t * F_k,i) + ε_i``
+
+   第二步：对 λ_k 时间序列做 t 检验。
+
+   :param factor_data_dict: dict，格式为 {因子名: 宽表 DataFrame}（index=date, columns=code）
+   :param return_data: 宽表（index=date, columns=code），持仓期超额收益
+   :param industry_dummies: 可选，行业哑变量宽表（控制变量，不纳入 λ 报告）
+   :return: pd.DataFrame，index=factor_name，columns=['lambda_mean', 'lambda_std', 't_stat', 'p_value', 'n_periods']
+
+   .. code-block:: python
+
+      >>> fm = fama_macbeth({'ROE': roe_wide, 'PE': pe_wide}, return_wide)
+      >>> print(fm[['lambda_mean', 't_stat']])
+
+分组收益统计
+~~~~~~~~~~~~
+
+.. py:function:: group_return_summary(labeled_pool, return_data, metric)
+
+   计算各分组在持仓期内的等权平均收益。
+
+   :param labeled_pool: ``single_characteristic()`` 输出，MultiIndex(input_ts, code)，含 {metric}_label 列
+   :param return_data: 宽表（index=input_ts, columns=code），持仓期收益率
+   :param metric: 因子名（用于找标签列 ``{metric}_label``）
+   :return: pd.DataFrame，index=input_ts，columns=['G1'...'GN', 'long_short']
+
+   ``long_short`` = G_max - G_min（自动判断因子方向）
+
+   .. code-block:: python
+
+      >>> gr = group_return_summary(labeled_pool, return_wide, 'ROE')
+      >>> gr.cumsum().plot()
+
 

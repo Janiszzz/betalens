@@ -1,0 +1,1544 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="zh-CN" data-content_root="./">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>索引 &mdash; Betalens 1.1.0 文档</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=fa44fd50" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=ab4a11d3"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+      <script src="_static/translations.js?v=beaddf03"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="索引" href="#" />
+    <link rel="search" title="搜索" href="search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            Betalens
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="搜索文档" aria-label="搜索文档" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="导航菜单">
+              <p class="caption" role="heading"><span class="caption-text">快速开始</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="getting-started/installation.html">安装指南</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="getting-started/installation.html#id2">环境要求</a></li>
+<li class="toctree-l2"><a class="reference internal" href="getting-started/installation.html#pypi">通过 PyPI 安装</a></li>
+<li class="toctree-l2"><a class="reference internal" href="getting-started/installation.html#id3">源码安装（推荐开发者）</a></li>
+<li class="toctree-l2"><a class="reference internal" href="getting-started/installation.html#id4">数据库与配置</a></li>
+<li class="toctree-l2"><a class="reference internal" href="getting-started/installation.html#id5">验证安装</a></li>
+<li class="toctree-l2"><a class="reference internal" href="getting-started/installation.html#id6">常见问题</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="getting-started/quickstart.html">10 分钟快速上手</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="getting-started/quickstart.html#id2">1. 准备调仓日与可交易标的</a></li>
+<li class="toctree-l2"><a class="reference internal" href="getting-started/quickstart.html#id3">2. 批量预查询因子数据</a></li>
+<li class="toctree-l2"><a class="reference internal" href="getting-started/quickstart.html#id4">3. 单因子分组打标签</a></li>
+<li class="toctree-l2"><a class="reference internal" href="getting-started/quickstart.html#id5">4. 派生多空权重</a></li>
+<li class="toctree-l2"><a class="reference internal" href="getting-started/quickstart.html#id6">5. 回测组合净值</a></li>
+<li class="toctree-l2"><a class="reference internal" href="getting-started/quickstart.html#id7">6. 绩效分析与报告</a></li>
+<li class="toctree-l2"><a class="reference internal" href="getting-started/quickstart.html#double-sort">7. 双因子分组（Double Sort）</a></li>
+<li class="toctree-l2"><a class="reference internal" href="getting-started/quickstart.html#multi-factor-sort">8. 多因子分组（Multi-Factor Sort）</a></li>
+<li class="toctree-l2"><a class="reference internal" href="getting-started/quickstart.html#id8">9. 启用稳健性检验（可选）</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">用户指南</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="guide/datafeed.html">Datafeed 使用指南</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="guide/datafeed.html#id1">模块结构</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/datafeed.html#id2">快速连接数据库</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/datafeed.html#id3">常用查询</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="guide/datafeed.html#id4">时间范围查询</a></li>
+<li class="toctree-l3"><a class="reference internal" href="guide/datafeed.html#id5">最近时点查询</a></li>
+<li class="toctree-l3"><a class="reference internal" href="guide/datafeed.html#id6">辅助查询函数</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="guide/datafeed.html#excel-ede">Excel &amp; EDE 导入</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="guide/datafeed.html#csv-excel">CSV/Excel 文件导入</a></li>
+<li class="toctree-l3"><a class="reference internal" href="guide/datafeed.html#ede">EDE 文件导入</a></li>
+<li class="toctree-l3"><a class="reference internal" href="guide/datafeed.html#id7">批量导入</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="guide/datafeed.html#wind">Wind 数据抓取</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/datafeed.html#id8">数据验证</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/datafeed.html#id9">增量更新</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/datafeed.html#id10">交易日辅助函数</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/datafeed.html#id11">注意事项</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="guide/factor.html">因子模块</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="guide/factor.html#id2">获取可交易池</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/factor.html#id7">批量预查询因子数据</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/factor.html#id8">单因子分组</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/factor.html#id11">生成单因子权重</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/factor.html#double-sort">双因子分组（Double Sort）</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/factor.html#id12">生成双因子权重</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/factor.html#multi-factor-sort">多因子分组（Multi-Factor Sort）</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/factor.html#id13">生成多因子权重</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/factor.html#id14">描述性统计</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/factor.html#id15">实践提示</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="guide/backtest.html">回测模块</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="guide/backtest.html#id2">权重矩阵规范</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/backtest.html#id3">回测执行</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/backtest.html#id4">主要属性</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/backtest.html#id5">内部步骤</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/backtest.html#id6">异常处理</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/backtest.html#id7">数据验证</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/backtest.html#id8">常见扩展</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="guide/analyst.html">绩效分析模块</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="guide/analyst.html#portfolioanalyzer">PortfolioAnalyzer</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="guide/analyst.html#id2">核心指标</a></li>
+<li class="toctree-l3"><a class="reference internal" href="guide/analyst.html#id3">滚动指标</a></li>
+<li class="toctree-l3"><a class="reference internal" href="guide/analyst.html#id4">关键属性</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="guide/analyst.html#reportexporter">ReportExporter</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="guide/analyst.html#id5">分年度报告</a></li>
+<li class="toctree-l3"><a class="reference internal" href="guide/analyst.html#id6">自定义时段报告</a></li>
+<li class="toctree-l3"><a class="reference internal" href="guide/analyst.html#id7">基准对比报告</a></li>
+<li class="toctree-l3"><a class="reference internal" href="guide/analyst.html#id8">指定分析区间</a></li>
+<li class="toctree-l3"><a class="reference internal" href="guide/analyst.html#id9">输出方式</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="guide/analyst.html#id10">高级用法</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="guide/analyst.html#id11">滚动指标绘图</a></li>
+<li class="toctree-l3"><a class="reference internal" href="guide/analyst.html#id12">自定义指标</a></li>
+<li class="toctree-l3"><a class="reference internal" href="guide/analyst.html#id13">多策略对比</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="guide/analyst.html#id14">常见问题</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="guide/eventstudy.html">事件研究模块</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="guide/eventstudy.html#id2">模块概述</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/eventstudy.html#id3">初始化</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/eventstudy.html#id4">基础事件分析</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="guide/eventstudy.html#day-0">Day 0 成本价规则</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="guide/eventstudy.html#id5">分析模式</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="guide/eventstudy.html#flexible">flexible 模式（默认）</a></li>
+<li class="toctree-l3"><a class="reference internal" href="guide/eventstudy.html#fixed">fixed 模式</a></li>
+<li class="toctree-l3"><a class="reference internal" href="guide/eventstudy.html#id6">持有起点偏移</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="guide/eventstudy.html#id7">基准超额收益</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/eventstudy.html#id8">多标的平均模式</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/eventstudy.html#id9">可视化</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="guide/eventstudy.html#id10">柱状图：事件前后平均日收益</a></li>
+<li class="toctree-l3"><a class="reference internal" href="guide/eventstudy.html#id11">折线图：累积收益曲线</a></li>
+<li class="toctree-l3"><a class="reference internal" href="guide/eventstudy.html#id12">多股票单事件对比</a></li>
+<li class="toctree-l3"><a class="reference internal" href="guide/eventstudy.html#id13">单股票多事件对比</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="guide/eventstudy.html#id14">完整示例</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="guide/robust.html">稳健性检验</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="guide/robust.html#id2">模块定位</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/robust.html#robusttest">RobustTest 流程</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/robust.html#id3">核心步骤详解</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/robust.html#id4">结果解读</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/robust.html#panel">面板回归（Panel）</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/robust.html#id5">辅助工具</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/robust.html#id6">并行 &amp; 扩展</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/robust.html#id9">最佳实践</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API 参考</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="api/datafeed.html">Datafeed API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.Datafeed"><code class="docutils literal notranslate"><span class="pre">Datafeed</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.Datafeed.__init__"><code class="docutils literal notranslate"><span class="pre">Datafeed.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.Datafeed.insert_csv_file"><code class="docutils literal notranslate"><span class="pre">Datafeed.insert_csv_file()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.Datafeed.insert_ede_file"><code class="docutils literal notranslate"><span class="pre">Datafeed.insert_ede_file()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.Datafeed.batch_process_excel_files"><code class="docutils literal notranslate"><span class="pre">Datafeed.batch_process_excel_files()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.Datafeed.incremental_update"><code class="docutils literal notranslate"><span class="pre">Datafeed.incremental_update()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.Datafeed.insert_with_conflict_check"><code class="docutils literal notranslate"><span class="pre">Datafeed.insert_with_conflict_check()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.Datafeed.update_data"><code class="docutils literal notranslate"><span class="pre">Datafeed.update_data()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.Datafeed.ingest_wind_daily_market"><code class="docutils literal notranslate"><span class="pre">Datafeed.ingest_wind_daily_market()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.Datafeed.ingest_wind_daily_index"><code class="docutils literal notranslate"><span class="pre">Datafeed.ingest_wind_daily_index()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.Datafeed.ingest_wind_daily_fund"><code class="docutils literal notranslate"><span class="pre">Datafeed.ingest_wind_daily_fund()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.Datafeed.ingest_wind_daily_bond"><code class="docutils literal notranslate"><span class="pre">Datafeed.ingest_wind_daily_bond()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.Datafeed.run_query"><code class="docutils literal notranslate"><span class="pre">Datafeed.run_query()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.Datafeed.query_time_range"><code class="docutils literal notranslate"><span class="pre">Datafeed.query_time_range()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.Datafeed.query_nearest_after"><code class="docutils literal notranslate"><span class="pre">Datafeed.query_nearest_after()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.Datafeed.query_nearest_before"><code class="docutils literal notranslate"><span class="pre">Datafeed.query_nearest_before()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.Datafeed.get_latest_date"><code class="docutils literal notranslate"><span class="pre">Datafeed.get_latest_date()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.Datafeed.get_available_dates"><code class="docutils literal notranslate"><span class="pre">Datafeed.get_available_dates()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.Datafeed.validate_dataframe"><code class="docutils literal notranslate"><span class="pre">Datafeed.validate_dataframe()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.Datafeed.check_excel_file"><code class="docutils literal notranslate"><span class="pre">Datafeed.check_excel_file()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.Datafeed.truncate_table"><code class="docutils literal notranslate"><span class="pre">Datafeed.truncate_table()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.Datafeed.close"><code class="docutils literal notranslate"><span class="pre">Datafeed.close()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.read_file"><code class="docutils literal notranslate"><span class="pre">read_file()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.read_csv_with_encoding"><code class="docutils literal notranslate"><span class="pre">read_csv_with_encoding()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.cross_section_to_db_format"><code class="docutils literal notranslate"><span class="pre">cross_section_to_db_format()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.batch_read_files"><code class="docutils literal notranslate"><span class="pre">batch_read_files()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.batch_write_files"><code class="docutils literal notranslate"><span class="pre">batch_write_files()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.create_directory_tree"><code class="docutils literal notranslate"><span class="pre">create_directory_tree()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.check_excel_errors"><code class="docutils literal notranslate"><span class="pre">check_excel_errors()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.FillStrategy"><code class="docutils literal notranslate"><span class="pre">FillStrategy</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.FillStrategy.RAISE_ERROR"><code class="docutils literal notranslate"><span class="pre">FillStrategy.RAISE_ERROR</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.FillStrategy.DROP"><code class="docutils literal notranslate"><span class="pre">FillStrategy.DROP</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.FillStrategy.FILL_FORWARD"><code class="docutils literal notranslate"><span class="pre">FillStrategy.FILL_FORWARD</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.FillStrategy.FILL_BACKWARD"><code class="docutils literal notranslate"><span class="pre">FillStrategy.FILL_BACKWARD</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.FillStrategy.FILL_VALUE"><code class="docutils literal notranslate"><span class="pre">FillStrategy.FILL_VALUE</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.FillStrategy.FILL_MEAN"><code class="docutils literal notranslate"><span class="pre">FillStrategy.FILL_MEAN</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.FillStrategy.FILL_MEDIAN"><code class="docutils literal notranslate"><span class="pre">FillStrategy.FILL_MEDIAN</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.FillStrategy.FILL_MODE"><code class="docutils literal notranslate"><span class="pre">FillStrategy.FILL_MODE</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.FillStrategy.INTERPOLATE"><code class="docutils literal notranslate"><span class="pre">FillStrategy.INTERPOLATE</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.check_null_values"><code class="docutils literal notranslate"><span class="pre">check_null_values()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.check_datetime_column"><code class="docutils literal notranslate"><span class="pre">check_datetime_column()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.fix_null_values"><code class="docutils literal notranslate"><span class="pre">fix_null_values()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.drop_duplicates_strict"><code class="docutils literal notranslate"><span class="pre">drop_duplicates_strict()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.fix_datetime_column"><code class="docutils literal notranslate"><span class="pre">fix_datetime_column()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.validate_and_fix"><code class="docutils literal notranslate"><span class="pre">validate_and_fix()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.DataValidator"><code class="docutils literal notranslate"><span class="pre">DataValidator</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.DataValidator.__init__"><code class="docutils literal notranslate"><span class="pre">DataValidator.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.DataValidator.check_null_values"><code class="docutils literal notranslate"><span class="pre">DataValidator.check_null_values()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.DataValidator.check_datetime_column"><code class="docutils literal notranslate"><span class="pre">DataValidator.check_datetime_column()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.DataValidator.fix_null_values"><code class="docutils literal notranslate"><span class="pre">DataValidator.fix_null_values()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.DataValidator.drop_duplicates_strict"><code class="docutils literal notranslate"><span class="pre">DataValidator.drop_duplicates_strict()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.DataValidator.fix_datetime_column"><code class="docutils literal notranslate"><span class="pre">DataValidator.fix_datetime_column()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.DataValidator.validate_and_fix"><code class="docutils literal notranslate"><span class="pre">DataValidator.validate_and_fix()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.build_query"><code class="docutils literal notranslate"><span class="pre">build_query()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.generate_input_pairs"><code class="docutils literal notranslate"><span class="pre">generate_input_pairs()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.build_nearest_query"><code class="docutils literal notranslate"><span class="pre">build_nearest_query()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.query_nearest_after"><code class="docutils literal notranslate"><span class="pre">query_nearest_after()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.query_nearest_before"><code class="docutils literal notranslate"><span class="pre">query_nearest_before()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.query_time_range"><code class="docutils literal notranslate"><span class="pre">query_time_range()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.get_available_dates"><code class="docutils literal notranslate"><span class="pre">get_available_dates()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.get_latest_date"><code class="docutils literal notranslate"><span class="pre">get_latest_date()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.pivot_to_wide"><code class="docutils literal notranslate"><span class="pre">pivot_to_wide()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.align_to_dates"><code class="docutils literal notranslate"><span class="pre">align_to_dates()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.calculate_returns"><code class="docutils literal notranslate"><span class="pre">calculate_returns()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.process_excel_to_db_format"><code class="docutils literal notranslate"><span class="pre">process_excel_to_db_format()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.check_existing_rows"><code class="docutils literal notranslate"><span class="pre">check_existing_rows()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.insert_dataframe"><code class="docutils literal notranslate"><span class="pre">insert_dataframe()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.get_existing_dates"><code class="docutils literal notranslate"><span class="pre">get_existing_dates()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.incremental_insert"><code class="docutils literal notranslate"><span class="pre">incremental_insert()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.save_error_file"><code class="docutils literal notranslate"><span class="pre">save_error_file()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.process_directory_tree"><code class="docutils literal notranslate"><span class="pre">process_directory_tree()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.ConfigManager"><code class="docutils literal notranslate"><span class="pre">ConfigManager</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.ConfigManager.__init__"><code class="docutils literal notranslate"><span class="pre">ConfigManager.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.ConfigManager.load"><code class="docutils literal notranslate"><span class="pre">ConfigManager.load()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.ConfigManager.save"><code class="docutils literal notranslate"><span class="pre">ConfigManager.save()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.ConfigManager.get"><code class="docutils literal notranslate"><span class="pre">ConfigManager.get()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.ConfigManager.set"><code class="docutils literal notranslate"><span class="pre">ConfigManager.set()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.ConfigManager.get_section"><code class="docutils literal notranslate"><span class="pre">ConfigManager.get_section()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.ConfigManager.config"><code class="docutils literal notranslate"><span class="pre">ConfigManager.config</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.ConfigManager.__getitem__"><code class="docutils literal notranslate"><span class="pre">ConfigManager.__getitem__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.ConfigManager.__setitem__"><code class="docutils literal notranslate"><span class="pre">ConfigManager.__setitem__()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.get_config"><code class="docutils literal notranslate"><span class="pre">get_config()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.reset_config"><code class="docutils literal notranslate"><span class="pre">reset_config()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.get_database_config"><code class="docutils literal notranslate"><span class="pre">get_database_config()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.get_logging_config"><code class="docutils literal notranslate"><span class="pre">get_logging_config()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.get_excel_config"><code class="docutils literal notranslate"><span class="pre">get_excel_config()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.get_wind_config"><code class="docutils literal notranslate"><span class="pre">get_wind_config()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.get_ede_config"><code class="docutils literal notranslate"><span class="pre">get_ede_config()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.func_timer"><code class="docutils literal notranslate"><span class="pre">func_timer()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.get_absolute_trade_days"><code class="docutils literal notranslate"><span class="pre">get_absolute_trade_days()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.trade_days_offset"><code class="docutils literal notranslate"><span class="pre">trade_days_offset()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/datafeed.html#id1">子模块</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/datafeed.html#module-betalens.datafeed.core">core</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.core.func_timer"><code class="docutils literal notranslate"><span class="pre">func_timer()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.core.Datafeed"><code class="docutils literal notranslate"><span class="pre">Datafeed</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.core.get_absolute_trade_days"><code class="docutils literal notranslate"><span class="pre">get_absolute_trade_days()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.core.trade_days_offset"><code class="docutils literal notranslate"><span class="pre">trade_days_offset()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="api/datafeed.html#module-betalens.datafeed.excel">excel</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.excel.read_csv_with_encoding"><code class="docutils literal notranslate"><span class="pre">read_csv_with_encoding()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.excel.read_file"><code class="docutils literal notranslate"><span class="pre">read_file()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.excel.cross_section_to_db_format"><code class="docutils literal notranslate"><span class="pre">cross_section_to_db_format()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.excel.batch_read_files"><code class="docutils literal notranslate"><span class="pre">batch_read_files()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.excel.batch_write_files"><code class="docutils literal notranslate"><span class="pre">batch_write_files()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.excel.create_directory_tree"><code class="docutils literal notranslate"><span class="pre">create_directory_tree()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.excel.apply_time_alignment"><code class="docutils literal notranslate"><span class="pre">apply_time_alignment()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.excel.check_excel_errors"><code class="docutils literal notranslate"><span class="pre">check_excel_errors()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="api/datafeed.html#module-betalens.datafeed.validation">validation</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.validation.FillStrategy"><code class="docutils literal notranslate"><span class="pre">FillStrategy</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.validation.check_null_values"><code class="docutils literal notranslate"><span class="pre">check_null_values()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.validation.check_datetime_column"><code class="docutils literal notranslate"><span class="pre">check_datetime_column()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.validation.fix_null_values"><code class="docutils literal notranslate"><span class="pre">fix_null_values()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.validation.drop_duplicates_strict"><code class="docutils literal notranslate"><span class="pre">drop_duplicates_strict()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.validation.fix_datetime_column"><code class="docutils literal notranslate"><span class="pre">fix_datetime_column()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.validation.validate_and_fix"><code class="docutils literal notranslate"><span class="pre">validate_and_fix()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.validation.DataValidator"><code class="docutils literal notranslate"><span class="pre">DataValidator</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="api/datafeed.html#module-betalens.datafeed.query">query</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.query.build_query"><code class="docutils literal notranslate"><span class="pre">build_query()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.query.generate_input_pairs"><code class="docutils literal notranslate"><span class="pre">generate_input_pairs()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.query.build_nearest_query"><code class="docutils literal notranslate"><span class="pre">build_nearest_query()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.query.query_nearest_after"><code class="docutils literal notranslate"><span class="pre">query_nearest_after()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.query.query_nearest_before"><code class="docutils literal notranslate"><span class="pre">query_nearest_before()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.query.query_time_range"><code class="docutils literal notranslate"><span class="pre">query_time_range()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.query.get_available_dates"><code class="docutils literal notranslate"><span class="pre">get_available_dates()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.query.get_latest_date"><code class="docutils literal notranslate"><span class="pre">get_latest_date()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.query.pivot_to_wide"><code class="docutils literal notranslate"><span class="pre">pivot_to_wide()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.query.align_to_dates"><code class="docutils literal notranslate"><span class="pre">align_to_dates()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.query.calculate_returns"><code class="docutils literal notranslate"><span class="pre">calculate_returns()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="api/datafeed.html#module-betalens.datafeed.integration">integration</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.integration.process_excel_to_db_format"><code class="docutils literal notranslate"><span class="pre">process_excel_to_db_format()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.integration.check_existing_rows"><code class="docutils literal notranslate"><span class="pre">check_existing_rows()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.integration.insert_dataframe"><code class="docutils literal notranslate"><span class="pre">insert_dataframe()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.integration.get_existing_dates"><code class="docutils literal notranslate"><span class="pre">get_existing_dates()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.integration.incremental_insert"><code class="docutils literal notranslate"><span class="pre">incremental_insert()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.integration.save_error_file"><code class="docutils literal notranslate"><span class="pre">save_error_file()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.integration.process_directory_tree"><code class="docutils literal notranslate"><span class="pre">process_directory_tree()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="api/datafeed.html#module-betalens.datafeed.config">config</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.config.ConfigManager"><code class="docutils literal notranslate"><span class="pre">ConfigManager</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.config.get_config"><code class="docutils literal notranslate"><span class="pre">get_config()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.config.reset_config"><code class="docutils literal notranslate"><span class="pre">reset_config()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.config.get_database_config"><code class="docutils literal notranslate"><span class="pre">get_database_config()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.config.get_logging_config"><code class="docutils literal notranslate"><span class="pre">get_logging_config()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.config.get_excel_config"><code class="docutils literal notranslate"><span class="pre">get_excel_config()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.config.get_wind_config"><code class="docutils literal notranslate"><span class="pre">get_wind_config()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.config.get_ede_config"><code class="docutils literal notranslate"><span class="pre">get_ede_config()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="api/datafeed.html#module-betalens.datafeed.wind_ingest">wind_ingest</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.wind_ingest.fetch_daily_market"><code class="docutils literal notranslate"><span class="pre">fetch_daily_market()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.wind_ingest.fetch_daily_index"><code class="docutils literal notranslate"><span class="pre">fetch_daily_index()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.wind_ingest.fetch_daily_fund"><code class="docutils literal notranslate"><span class="pre">fetch_daily_fund()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.wind_ingest.fetch_daily_bond"><code class="docutils literal notranslate"><span class="pre">fetch_daily_bond()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="api/datafeed.html#module-betalens.datafeed.ede_processor">ede_processor</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.ede_processor.extract_date_from_filename"><code class="docutils literal notranslate"><span class="pre">extract_date_from_filename()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.ede_processor.parse_metric_column"><code class="docutils literal notranslate"><span class="pre">parse_metric_column()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.ede_processor.extract_date_from_metric_metadata"><code class="docutils literal notranslate"><span class="pre">extract_date_from_metric_metadata()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.ede_processor.clean_ede_dataframe"><code class="docutils literal notranslate"><span class="pre">clean_ede_dataframe()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.ede_processor.identify_code_name_columns"><code class="docutils literal notranslate"><span class="pre">identify_code_name_columns()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/datafeed.html#betalens.datafeed.ede_processor.process_ede_file"><code class="docutils literal notranslate"><span class="pre">process_ede_file()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="api/factor.html">Factor API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api/factor.html#factor-factor">factor.factor</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/factor.html#id1">数据准备函数</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/factor.html#betalens.factor.get_tradable_pool"><code class="docutils literal notranslate"><span class="pre">get_tradable_pool()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/factor.html#betalens.factor.pre_query_characteristic_data"><code class="docutils literal notranslate"><span class="pre">pre_query_characteristic_data()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="api/factor.html#id2">单因子函数</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/factor.html#betalens.factor.single_characteristic"><code class="docutils literal notranslate"><span class="pre">single_characteristic()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/factor.html#betalens.factor.get_single_factor_weight"><code class="docutils literal notranslate"><span class="pre">get_single_factor_weight()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/factor.html#betalens.factor.describe_labeled_pool"><code class="docutils literal notranslate"><span class="pre">describe_labeled_pool()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="api/factor.html#id3">双因子函数</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/factor.html#betalens.factor.double_characteristic"><code class="docutils literal notranslate"><span class="pre">double_characteristic()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/factor.html#betalens.factor.get_double_factor_weight"><code class="docutils literal notranslate"><span class="pre">get_double_factor_weight()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/factor.html#betalens.factor.describe_double_labeled_pool"><code class="docutils literal notranslate"><span class="pre">describe_double_labeled_pool()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="api/factor.html#id4">多因子函数</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/factor.html#betalens.factor.multi_characteristic"><code class="docutils literal notranslate"><span class="pre">multi_characteristic()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/factor.html#betalens.factor.get_multi_factor_weight"><code class="docutils literal notranslate"><span class="pre">get_multi_factor_weight()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/factor.html#betalens.factor.describe_multi_labeled_pool"><code class="docutils literal notranslate"><span class="pre">describe_multi_labeled_pool()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="api/factor.html#factor-preprocessing">factor.preprocessing</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/factor.html#id5">截面处理函数</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/factor.html#betalens.factor.winsorize_factor"><code class="docutils literal notranslate"><span class="pre">winsorize_factor()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/factor.html#betalens.factor.standardize_factor"><code class="docutils literal notranslate"><span class="pre">standardize_factor()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/factor.html#betalens.factor.neutralize_factor"><code class="docutils literal notranslate"><span class="pre">neutralize_factor()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="api/factor.html#id6">因子对因子中性化</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/factor.html#betalens.factor.neutralize_factor_by_factor"><code class="docutils literal notranslate"><span class="pre">neutralize_factor_by_factor()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="api/factor.html#id7">行业中性化工具</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/factor.html#betalens.factor.filter_pool_by_industry"><code class="docutils literal notranslate"><span class="pre">filter_pool_by_industry()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/factor.html#betalens.factor.apply_industry_weight_constraint"><code class="docutils literal notranslate"><span class="pre">apply_industry_weight_constraint()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="api/factor.html#id8">一键预处理流水线</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/factor.html#betalens.factor.preprocess_factor"><code class="docutils literal notranslate"><span class="pre">preprocess_factor()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="api/factor.html#factor-stats">factor.stats</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/factor.html#ic-icir">IC / ICIR</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/factor.html#betalens.factor.calc_ic"><code class="docutils literal notranslate"><span class="pre">calc_ic()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/factor.html#betalens.factor.calc_icir"><code class="docutils literal notranslate"><span class="pre">calc_icir()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/factor.html#betalens.factor.summarize_ic"><code class="docutils literal notranslate"><span class="pre">summarize_ic()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="api/factor.html#fama-macbeth">Fama-MacBeth 截面回归</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/factor.html#betalens.factor.fama_macbeth"><code class="docutils literal notranslate"><span class="pre">fama_macbeth()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="api/factor.html#id9">分组收益统计</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/factor.html#betalens.factor.group_return_summary"><code class="docutils literal notranslate"><span class="pre">group_return_summary()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="api/backtest.html">Backtest API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api/backtest.html#betalens.backtest.BacktestBase"><code class="docutils literal notranslate"><span class="pre">BacktestBase</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/backtest.html#betalens.backtest.BacktestBase.__init__"><code class="docutils literal notranslate"><span class="pre">BacktestBase.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/backtest.html#betalens.backtest.BacktestBase.melt_weights"><code class="docutils literal notranslate"><span class="pre">BacktestBase.melt_weights()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/backtest.html#betalens.backtest.BacktestBase.get_rebalance_data"><code class="docutils literal notranslate"><span class="pre">BacktestBase.get_rebalance_data()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/backtest.html#betalens.backtest.BacktestBase.get_position_data"><code class="docutils literal notranslate"><span class="pre">BacktestBase.get_position_data()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/backtest.html#betalens.backtest.BacktestBase.get_daily_position_data"><code class="docutils literal notranslate"><span class="pre">BacktestBase.get_daily_position_data()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="api/backtest.html#betalens.backtest.BacktestDataError"><code class="docutils literal notranslate"><span class="pre">BacktestDataError</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/backtest.html#betalens.backtest.DateMismatchError"><code class="docutils literal notranslate"><span class="pre">DateMismatchError</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/backtest.html#betalens.backtest.CodeMismatchError"><code class="docutils literal notranslate"><span class="pre">CodeMismatchError</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/backtest.html#backtest-backtest">backtest.backtest</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/backtest.html#backtestbase">BacktestBase</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/backtest.html#id0"><code class="docutils literal notranslate"><span class="pre">BacktestBase</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="api/backtest.html#id4">异常类</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/backtest.html#id5"><code class="docutils literal notranslate"><span class="pre">BacktestDataError</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/backtest.html#id6"><code class="docutils literal notranslate"><span class="pre">DateMismatchError</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/backtest.html#id7"><code class="docutils literal notranslate"><span class="pre">CodeMismatchError</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="api/backtest.html#id8">验证函数</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/backtest.html#betalens.backtest.validate_weight_input"><code class="docutils literal notranslate"><span class="pre">validate_weight_input()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/backtest.html#betalens.backtest.validate_query_result"><code class="docutils literal notranslate"><span class="pre">validate_query_result()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/backtest.html#betalens.backtest.validate_pivot_result"><code class="docutils literal notranslate"><span class="pre">validate_pivot_result()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/backtest.html#betalens.backtest.validate_index_alignment"><code class="docutils literal notranslate"><span class="pre">validate_index_alignment()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/backtest.html#betalens.backtest.validate_calculation_inputs"><code class="docutils literal notranslate"><span class="pre">validate_calculation_inputs()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/backtest.html#betalens.backtest.format_data_sample"><code class="docutils literal notranslate"><span class="pre">format_data_sample()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="api/analyst.html">Analyst API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api/analyst.html#betalens.analyst.PortfolioAnalyzer"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/analyst.html#betalens.analyst.PortfolioAnalyzer.__init__"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/analyst.html#betalens.analyst.PortfolioAnalyzer.total_return"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer.total_return()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/analyst.html#betalens.analyst.PortfolioAnalyzer.annualized_return"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer.annualized_return()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/analyst.html#betalens.analyst.PortfolioAnalyzer.annualized_volatility"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer.annualized_volatility()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/analyst.html#betalens.analyst.PortfolioAnalyzer.sharpe_ratio"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer.sharpe_ratio()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/analyst.html#betalens.analyst.PortfolioAnalyzer.max_drawdown"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer.max_drawdown()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/analyst.html#betalens.analyst.PortfolioAnalyzer.rolling_max_drawdown"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer.rolling_max_drawdown()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/analyst.html#betalens.analyst.PortfolioAnalyzer.rolling_win_rate"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer.rolling_win_rate()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/analyst.html#betalens.analyst.PortfolioAnalyzer.calmar_ratio"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer.calmar_ratio()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/analyst.html#betalens.analyst.PortfolioAnalyzer.recovery_days"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer.recovery_days()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="api/analyst.html#betalens.analyst.ReportExporter"><code class="docutils literal notranslate"><span class="pre">ReportExporter</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/analyst.html#betalens.analyst.ReportExporter.__init__"><code class="docutils literal notranslate"><span class="pre">ReportExporter.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/analyst.html#betalens.analyst.ReportExporter.generate_annual_report"><code class="docutils literal notranslate"><span class="pre">ReportExporter.generate_annual_report()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/analyst.html#betalens.analyst.ReportExporter.generate_custom_report"><code class="docutils literal notranslate"><span class="pre">ReportExporter.generate_custom_report()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/analyst.html#betalens.analyst.ReportExporter.generate_benchmark_report"><code class="docutils literal notranslate"><span class="pre">ReportExporter.generate_benchmark_report()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="api/analyst.html#analyst-analyst">analyst.analyst</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/analyst.html#portfolioanalyzer">PortfolioAnalyzer</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/analyst.html#id0"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="api/analyst.html#reportexporter">ReportExporter</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/analyst.html#id10"><code class="docutils literal notranslate"><span class="pre">ReportExporter</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="api/eventstudy.html">EventStudy API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api/eventstudy.html#betalens.eventstudy.EventStudy"><code class="docutils literal notranslate"><span class="pre">EventStudy</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/eventstudy.html#betalens.eventstudy.EventStudy.__init__"><code class="docutils literal notranslate"><span class="pre">EventStudy.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/eventstudy.html#betalens.eventstudy.EventStudy.analyze"><code class="docutils literal notranslate"><span class="pre">EventStudy.analyze()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/eventstudy.html#betalens.eventstudy.EventStudy.plot_bar"><code class="docutils literal notranslate"><span class="pre">EventStudy.plot_bar()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/eventstudy.html#betalens.eventstudy.EventStudy.plot_lines"><code class="docutils literal notranslate"><span class="pre">EventStudy.plot_lines()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/eventstudy.html#betalens.eventstudy.EventStudy.plot_multi_stocks"><code class="docutils literal notranslate"><span class="pre">EventStudy.plot_multi_stocks()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/eventstudy.html#betalens.eventstudy.EventStudy.plot_events_lines"><code class="docutils literal notranslate"><span class="pre">EventStudy.plot_events_lines()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="api/eventstudy.html#eventstudy-eventstudy">eventstudy.eventstudy</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/eventstudy.html#eventstudy">EventStudy</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/eventstudy.html#id0"><code class="docutils literal notranslate"><span class="pre">EventStudy</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="api/eventstudy.html#id6">辅助函数</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/eventstudy.html#betalens.eventstudy._get_event_dates"><code class="docutils literal notranslate"><span class="pre">_get_event_dates()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/eventstudy.html#betalens.eventstudy._calc_returns"><code class="docutils literal notranslate"><span class="pre">_calc_returns()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/eventstudy.html#betalens.eventstudy._get_day0_cost_price_loc"><code class="docutils literal notranslate"><span class="pre">_get_day0_cost_price_loc()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/eventstudy.html#betalens.eventstudy._get_window_returns"><code class="docutils literal notranslate"><span class="pre">_get_window_returns()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/eventstudy.html#betalens.eventstudy._aggregate_window_returns"><code class="docutils literal notranslate"><span class="pre">_aggregate_window_returns()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/eventstudy.html#betalens.eventstudy._compute_stats"><code class="docutils literal notranslate"><span class="pre">_compute_stats()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/eventstudy.html#betalens.eventstudy._compute_period_stats"><code class="docutils literal notranslate"><span class="pre">_compute_period_stats()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="api/robust.html">Robust API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api/robust.html#robust-robust">robust.robust</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/robust.html#robusttest">RobustTest</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/robust.html#RobustTest"><code class="docutils literal notranslate"><span class="pre">RobustTest</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="api/robust.html#id1">辅助函数</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/robust.html#panel"><code class="docutils literal notranslate"><span class="pre">panel()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/robust.html#bootstrap_fake_fund"><code class="docutils literal notranslate"><span class="pre">bootstrap_fake_fund()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/robust.html#parse_name_dates"><code class="docutils literal notranslate"><span class="pre">parse_name_dates()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/robust.html#get_interval"><code class="docutils literal notranslate"><span class="pre">get_interval()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/robust.html#gen_date_pairs"><code class="docutils literal notranslate"><span class="pre">gen_date_pairs()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="移动版导航菜单" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">Betalens</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content style-external-links">
+          <div role="navigation" aria-label="页面导航">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">索引</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+
+<h1 id="index">索引</h1>
+
+<div class="genindex-jumpbox">
+ <a href="#_"><strong>_</strong></a>
+ | <a href="#A"><strong>A</strong></a>
+ | <a href="#B"><strong>B</strong></a>
+ | <a href="#C"><strong>C</strong></a>
+ | <a href="#D"><strong>D</strong></a>
+ | <a href="#E"><strong>E</strong></a>
+ | <a href="#F"><strong>F</strong></a>
+ | <a href="#G"><strong>G</strong></a>
+ | <a href="#I"><strong>I</strong></a>
+ | <a href="#L"><strong>L</strong></a>
+ | <a href="#M"><strong>M</strong></a>
+ | <a href="#N"><strong>N</strong></a>
+ | <a href="#O"><strong>O</strong></a>
+ | <a href="#P"><strong>P</strong></a>
+ | <a href="#Q"><strong>Q</strong></a>
+ | <a href="#R"><strong>R</strong></a>
+ | <a href="#S"><strong>S</strong></a>
+ | <a href="#T"><strong>T</strong></a>
+ | <a href="#U"><strong>U</strong></a>
+ | <a href="#V"><strong>V</strong></a>
+ | <a href="#W"><strong>W</strong></a>
+ | <a href="#X"><strong>X</strong></a>
+ | <a href="#Y"><strong>Y</strong></a>
+ 
+</div>
+<h2 id="_">_</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/datafeed.html#betalens.datafeed.config.ConfigManager.__getitem__">__getitem__() （betalens.datafeed.config.ConfigManager 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.ConfigManager.__getitem__">__getitem__() （betalens.datafeed.ConfigManager 方法）</a>
+</li>
+      <li><a href="api/analyst.html#betalens.analyst.PortfolioAnalyzer.__init__">__init__() （betalens.analyst.PortfolioAnalyzer 方法）</a>
+</li>
+      <li><a href="api/analyst.html#betalens.analyst.ReportExporter.__init__">__init__() （betalens.analyst.ReportExporter 方法）</a>
+</li>
+      <li><a href="api/backtest.html#betalens.backtest.BacktestBase.__init__">__init__() （betalens.backtest.BacktestBase 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.config.ConfigManager.__init__">__init__() （betalens.datafeed.config.ConfigManager 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.ConfigManager.__init__">__init__() （betalens.datafeed.ConfigManager 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.core.Datafeed.__init__">__init__() （betalens.datafeed.core.Datafeed 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.Datafeed.__init__">__init__() （betalens.datafeed.Datafeed 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.DataValidator.__init__">__init__() （betalens.datafeed.DataValidator 方法）</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/datafeed.html#betalens.datafeed.validation.DataValidator.__init__">__init__() （betalens.datafeed.validation.DataValidator 方法）</a>
+</li>
+      <li><a href="api/eventstudy.html#betalens.eventstudy.EventStudy.__init__">__init__() （betalens.eventstudy.EventStudy 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.config.ConfigManager.__setitem__">__setitem__() （betalens.datafeed.config.ConfigManager 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.ConfigManager.__setitem__">__setitem__() （betalens.datafeed.ConfigManager 方法）</a>
+</li>
+      <li><a href="api/eventstudy.html#betalens.eventstudy._aggregate_window_returns">_aggregate_window_returns()（在 betalens.eventstudy 模块中）</a>
+</li>
+      <li><a href="api/eventstudy.html#betalens.eventstudy._calc_returns">_calc_returns()（在 betalens.eventstudy 模块中）</a>
+</li>
+      <li><a href="api/eventstudy.html#betalens.eventstudy._compute_period_stats">_compute_period_stats()（在 betalens.eventstudy 模块中）</a>
+</li>
+      <li><a href="api/eventstudy.html#betalens.eventstudy._compute_stats">_compute_stats()（在 betalens.eventstudy 模块中）</a>
+</li>
+      <li><a href="api/eventstudy.html#betalens.eventstudy._get_day0_cost_price_loc">_get_day0_cost_price_loc()（在 betalens.eventstudy 模块中）</a>
+</li>
+      <li><a href="api/eventstudy.html#betalens.eventstudy._get_event_dates">_get_event_dates()（在 betalens.eventstudy 模块中）</a>
+</li>
+      <li><a href="api/eventstudy.html#betalens.eventstudy._get_window_returns">_get_window_returns()（在 betalens.eventstudy 模块中）</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="A">A</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/datafeed.html#betalens.datafeed.align_to_dates">align_to_dates()（在 betalens.datafeed 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.query.align_to_dates">align_to_dates()（在 betalens.datafeed.query 模块中）</a>
+</li>
+      <li><a href="api/eventstudy.html#betalens.eventstudy.EventStudy.analyze">analyze() （betalens.eventstudy.EventStudy 方法）</a>, <a href="api/eventstudy.html#id1">[1]</a>
+</li>
+      <li><a href="api/analyst.html#betalens.analyst.ReportExporter.analyzer">analyzer（betalens.analyst.ReportExporter 属性）</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/analyst.html#betalens.analyst.PortfolioAnalyzer.annualized_return">annualized_return() （betalens.analyst.PortfolioAnalyzer 方法）</a>, <a href="api/analyst.html#id2">[1]</a>
+</li>
+      <li><a href="api/analyst.html#betalens.analyst.PortfolioAnalyzer.annualized_volatility">annualized_volatility() （betalens.analyst.PortfolioAnalyzer 方法）</a>, <a href="api/analyst.html#id3">[1]</a>
+</li>
+      <li><a href="api/factor.html#betalens.factor.apply_industry_weight_constraint">apply_industry_weight_constraint()（在 betalens.factor 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.excel.apply_time_alignment">apply_time_alignment()（在 betalens.datafeed.excel 模块中）</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="B">B</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/backtest.html#betalens.backtest.BacktestBase">BacktestBase（betalens.backtest 中的类）</a>, <a href="api/backtest.html#id0">[1]</a>
+</li>
+      <li><a href="api/backtest.html#betalens.backtest.BacktestDataError">BacktestDataError</a>, <a href="api/backtest.html#id5">[1]</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.core.Datafeed.batch_process_excel_files">batch_process_excel_files() （betalens.datafeed.core.Datafeed 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.Datafeed.batch_process_excel_files">batch_process_excel_files() （betalens.datafeed.Datafeed 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.batch_read_files">batch_read_files()（在 betalens.datafeed 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.excel.batch_read_files">batch_read_files()（在 betalens.datafeed.excel 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.batch_write_files">batch_write_files()（在 betalens.datafeed 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.excel.batch_write_files">batch_write_files()（在 betalens.datafeed.excel 模块中）</a>
+</li>
+      <li><a href="api/analyst.html#betalens.analyst.ReportExporter.benchmark">benchmark（betalens.analyst.ReportExporter 属性）</a>
+</li>
+      <li>
+    betalens.analyst
+
+      <ul>
+        <li><a href="api/analyst.html#module-betalens.analyst">module</a>
+</li>
+      </ul></li>
+      <li>
+    betalens.backtest
+
+      <ul>
+        <li><a href="api/backtest.html#module-betalens.backtest">module</a>
+</li>
+      </ul></li>
+      <li>
+    betalens.datafeed
+
+      <ul>
+        <li><a href="api/datafeed.html#module-betalens.datafeed">module</a>
+</li>
+      </ul></li>
+      <li>
+    betalens.datafeed.config
+
+      <ul>
+        <li><a href="api/datafeed.html#module-betalens.datafeed.config">module</a>
+</li>
+      </ul></li>
+      <li>
+    betalens.datafeed.core
+
+      <ul>
+        <li><a href="api/datafeed.html#module-betalens.datafeed.core">module</a>
+</li>
+      </ul></li>
+      <li>
+    betalens.datafeed.ede_processor
+
+      <ul>
+        <li><a href="api/datafeed.html#module-betalens.datafeed.ede_processor">module</a>
+</li>
+      </ul></li>
+      <li>
+    betalens.datafeed.excel
+
+      <ul>
+        <li><a href="api/datafeed.html#module-betalens.datafeed.excel">module</a>
+</li>
+      </ul></li>
+      <li>
+    betalens.datafeed.integration
+
+      <ul>
+        <li><a href="api/datafeed.html#module-betalens.datafeed.integration">module</a>
+</li>
+      </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li>
+    betalens.datafeed.query
+
+      <ul>
+        <li><a href="api/datafeed.html#module-betalens.datafeed.query">module</a>
+</li>
+      </ul></li>
+      <li>
+    betalens.datafeed.validation
+
+      <ul>
+        <li><a href="api/datafeed.html#module-betalens.datafeed.validation">module</a>
+</li>
+      </ul></li>
+      <li>
+    betalens.datafeed.wind_ingest
+
+      <ul>
+        <li><a href="api/datafeed.html#module-betalens.datafeed.wind_ingest">module</a>
+</li>
+      </ul></li>
+      <li>
+    betalens.eventstudy
+
+      <ul>
+        <li><a href="api/eventstudy.html#module-betalens.eventstudy">module</a>
+</li>
+      </ul></li>
+      <li>
+    betalens.factor
+
+      <ul>
+        <li><a href="api/factor.html#module-betalens.factor">module</a>
+</li>
+      </ul></li>
+      <li>
+    bootstrap_fake_fund()
+
+      <ul>
+        <li><a href="api/robust.html#bootstrap_fake_fund">built-in function</a>
+</li>
+      </ul></li>
+      <li><a href="api/robust.html#RobustTest.bootstrap_once">bootstrap_once() （RobustTest 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.build_nearest_query">build_nearest_query()（在 betalens.datafeed 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.query.build_nearest_query">build_nearest_query()（在 betalens.datafeed.query 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.build_query">build_query()（在 betalens.datafeed 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.query.build_query">build_query()（在 betalens.datafeed.query 模块中）</a>
+</li>
+      <li>
+    built-in function
+
+      <ul>
+        <li><a href="api/robust.html#bootstrap_fake_fund">bootstrap_fake_fund()</a>
+</li>
+        <li><a href="api/robust.html#gen_date_pairs">gen_date_pairs()</a>
+</li>
+        <li><a href="api/robust.html#get_interval">get_interval()</a>
+</li>
+        <li><a href="api/robust.html#panel">panel()</a>
+</li>
+        <li><a href="api/robust.html#parse_name_dates">parse_name_dates()</a>
+</li>
+      </ul></li>
+  </ul></td>
+</tr></table>
+
+<h2 id="C">C</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/factor.html#betalens.factor.calc_ic">calc_ic()（在 betalens.factor 模块中）</a>
+</li>
+      <li><a href="api/factor.html#betalens.factor.calc_icir">calc_icir()（在 betalens.factor 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.calculate_returns">calculate_returns()（在 betalens.datafeed 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.query.calculate_returns">calculate_returns()（在 betalens.datafeed.query 模块中）</a>
+</li>
+      <li><a href="api/analyst.html#betalens.analyst.PortfolioAnalyzer.calmar_ratio">calmar_ratio() （betalens.analyst.PortfolioAnalyzer 方法）</a>, <a href="api/analyst.html#id6">[1]</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.DataValidator.check_datetime_column">check_datetime_column() （betalens.datafeed.DataValidator 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.validation.DataValidator.check_datetime_column">check_datetime_column() （betalens.datafeed.validation.DataValidator 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.check_datetime_column">check_datetime_column()（在 betalens.datafeed 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.validation.check_datetime_column">check_datetime_column()（在 betalens.datafeed.validation 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.check_excel_errors">check_excel_errors()（在 betalens.datafeed 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.excel.check_excel_errors">check_excel_errors()（在 betalens.datafeed.excel 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.core.Datafeed.check_excel_file">check_excel_file() （betalens.datafeed.core.Datafeed 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.Datafeed.check_excel_file">check_excel_file() （betalens.datafeed.Datafeed 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.check_existing_rows">check_existing_rows()（在 betalens.datafeed 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.integration.check_existing_rows">check_existing_rows()（在 betalens.datafeed.integration 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.DataValidator.check_null_values">check_null_values() （betalens.datafeed.DataValidator 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.validation.DataValidator.check_null_values">check_null_values() （betalens.datafeed.validation.DataValidator 方法）</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/datafeed.html#betalens.datafeed.check_null_values">check_null_values()（在 betalens.datafeed 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.validation.check_null_values">check_null_values()（在 betalens.datafeed.validation 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.ede_processor.clean_ede_dataframe">clean_ede_dataframe()（在 betalens.datafeed.ede_processor 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.core.Datafeed.close">close() （betalens.datafeed.core.Datafeed 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.Datafeed.close">close() （betalens.datafeed.Datafeed 方法）</a>
+</li>
+      <li><a href="api/backtest.html#betalens.backtest.CodeMismatchError">CodeMismatchError</a>, <a href="api/backtest.html#id7">[1]</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.ConfigManager">ConfigManager（betalens.datafeed 中的类）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.config.ConfigManager">ConfigManager（betalens.datafeed.config 中的类）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.config.ConfigManager.config">config（betalens.datafeed.config.ConfigManager 属性）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.ConfigManager.config">config（betalens.datafeed.ConfigManager 属性）</a>
+</li>
+      <li><a href="api/backtest.html#betalens.backtest.BacktestBase.cost_price">cost_price（betalens.backtest.BacktestBase 属性）</a>
+</li>
+      <li><a href="api/backtest.html#betalens.backtest.BacktestBase.cost_ret">cost_ret（betalens.backtest.BacktestBase 属性）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.create_directory_tree">create_directory_tree()（在 betalens.datafeed 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.excel.create_directory_tree">create_directory_tree()（在 betalens.datafeed.excel 模块中）</a>
+</li>
+      <li><a href="api/robust.html#RobustTest.create_sample_dataframes">create_sample_dataframes()（RobustTest 静态方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.cross_section_to_db_format">cross_section_to_db_format()（在 betalens.datafeed 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.excel.cross_section_to_db_format">cross_section_to_db_format()（在 betalens.datafeed.excel 模块中）</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="D">D</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/backtest.html#betalens.backtest.BacktestBase.daily_amount">daily_amount（betalens.backtest.BacktestBase 属性）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.Datafeed">Datafeed（betalens.datafeed 中的类）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.core.Datafeed">Datafeed（betalens.datafeed.core 中的类）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.DataValidator">DataValidator（betalens.datafeed 中的类）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.validation.DataValidator">DataValidator（betalens.datafeed.validation 中的类）</a>
+</li>
+      <li><a href="api/backtest.html#betalens.backtest.DateMismatchError">DateMismatchError</a>, <a href="api/backtest.html#id6">[1]</a>
+</li>
+      <li><a href="api/factor.html#betalens.factor.describe_double_labeled_pool">describe_double_labeled_pool()（在 betalens.factor 模块中）</a>
+</li>
+      <li><a href="api/factor.html#betalens.factor.describe_labeled_pool">describe_labeled_pool()（在 betalens.factor 模块中）</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/factor.html#betalens.factor.describe_multi_labeled_pool">describe_multi_labeled_pool()（在 betalens.factor 模块中）</a>
+</li>
+      <li><a href="api/factor.html#betalens.factor.double_characteristic">double_characteristic()（在 betalens.factor 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.DataValidator.drop_duplicates_strict">drop_duplicates_strict() （betalens.datafeed.DataValidator 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.validation.DataValidator.drop_duplicates_strict">drop_duplicates_strict() （betalens.datafeed.validation.DataValidator 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.drop_duplicates_strict">drop_duplicates_strict()（在 betalens.datafeed 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.validation.drop_duplicates_strict">drop_duplicates_strict()（在 betalens.datafeed.validation 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.FillStrategy.DROP">DROP（betalens.datafeed.FillStrategy 属性）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.validation.FillStrategy.DROP">DROP（betalens.datafeed.validation.FillStrategy 属性）</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="E">E</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/backtest.html#betalens.backtest.BacktestBase.end">end（betalens.backtest.BacktestBase 属性）</a>
+</li>
+      <li><a href="api/eventstudy.html#betalens.eventstudy.EventStudy">EventStudy（betalens.eventstudy 中的类）</a>, <a href="api/eventstudy.html#id0">[1]</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/analyst.html#betalens.analyst.ReportExporter.excess">excess（betalens.analyst.ReportExporter 属性）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.ede_processor.extract_date_from_filename">extract_date_from_filename()（在 betalens.datafeed.ede_processor 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.ede_processor.extract_date_from_metric_metadata">extract_date_from_metric_metadata()（在 betalens.datafeed.ede_processor 模块中）</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="F">F</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/factor.html#betalens.factor.fama_macbeth">fama_macbeth()（在 betalens.factor 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.wind_ingest.fetch_daily_bond">fetch_daily_bond()（在 betalens.datafeed.wind_ingest 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.wind_ingest.fetch_daily_fund">fetch_daily_fund()（在 betalens.datafeed.wind_ingest 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.wind_ingest.fetch_daily_index">fetch_daily_index()（在 betalens.datafeed.wind_ingest 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.wind_ingest.fetch_daily_market">fetch_daily_market()（在 betalens.datafeed.wind_ingest 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.FillStrategy.FILL_BACKWARD">FILL_BACKWARD（betalens.datafeed.FillStrategy 属性）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.validation.FillStrategy.FILL_BACKWARD">FILL_BACKWARD（betalens.datafeed.validation.FillStrategy 属性）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.FillStrategy.FILL_FORWARD">FILL_FORWARD（betalens.datafeed.FillStrategy 属性）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.validation.FillStrategy.FILL_FORWARD">FILL_FORWARD（betalens.datafeed.validation.FillStrategy 属性）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.FillStrategy.FILL_MEAN">FILL_MEAN（betalens.datafeed.FillStrategy 属性）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.validation.FillStrategy.FILL_MEAN">FILL_MEAN（betalens.datafeed.validation.FillStrategy 属性）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.FillStrategy.FILL_MEDIAN">FILL_MEDIAN（betalens.datafeed.FillStrategy 属性）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.validation.FillStrategy.FILL_MEDIAN">FILL_MEDIAN（betalens.datafeed.validation.FillStrategy 属性）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.FillStrategy.FILL_MODE">FILL_MODE（betalens.datafeed.FillStrategy 属性）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.validation.FillStrategy.FILL_MODE">FILL_MODE（betalens.datafeed.validation.FillStrategy 属性）</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/datafeed.html#betalens.datafeed.FillStrategy.FILL_VALUE">FILL_VALUE（betalens.datafeed.FillStrategy 属性）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.validation.FillStrategy.FILL_VALUE">FILL_VALUE（betalens.datafeed.validation.FillStrategy 属性）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.FillStrategy">FillStrategy（betalens.datafeed 中的类）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.validation.FillStrategy">FillStrategy（betalens.datafeed.validation 中的类）</a>
+</li>
+      <li><a href="api/factor.html#betalens.factor.filter_pool_by_industry">filter_pool_by_industry()（在 betalens.factor 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.DataValidator.fix_datetime_column">fix_datetime_column() （betalens.datafeed.DataValidator 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.validation.DataValidator.fix_datetime_column">fix_datetime_column() （betalens.datafeed.validation.DataValidator 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.fix_datetime_column">fix_datetime_column()（在 betalens.datafeed 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.validation.fix_datetime_column">fix_datetime_column()（在 betalens.datafeed.validation 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.DataValidator.fix_null_values">fix_null_values() （betalens.datafeed.DataValidator 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.validation.DataValidator.fix_null_values">fix_null_values() （betalens.datafeed.validation.DataValidator 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.fix_null_values">fix_null_values()（在 betalens.datafeed 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.validation.fix_null_values">fix_null_values()（在 betalens.datafeed.validation 模块中）</a>
+</li>
+      <li><a href="api/backtest.html#betalens.backtest.format_data_sample">format_data_sample()（在 betalens.backtest 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.func_timer">func_timer()（在 betalens.datafeed 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.core.func_timer">func_timer()（在 betalens.datafeed.core 模块中）</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="G">G</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li>
+    gen_date_pairs()
+
+      <ul>
+        <li><a href="api/robust.html#gen_date_pairs">built-in function</a>
+</li>
+      </ul></li>
+      <li><a href="api/analyst.html#betalens.analyst.ReportExporter.generate_annual_report">generate_annual_report() （betalens.analyst.ReportExporter 方法）</a>, <a href="api/analyst.html#id11">[1]</a>
+</li>
+      <li><a href="api/analyst.html#betalens.analyst.ReportExporter.generate_benchmark_report">generate_benchmark_report() （betalens.analyst.ReportExporter 方法）</a>, <a href="api/analyst.html#id13">[1]</a>
+</li>
+      <li><a href="api/analyst.html#betalens.analyst.ReportExporter.generate_custom_report">generate_custom_report() （betalens.analyst.ReportExporter 方法）</a>, <a href="api/analyst.html#id12">[1]</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.generate_input_pairs">generate_input_pairs()（在 betalens.datafeed 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.query.generate_input_pairs">generate_input_pairs()（在 betalens.datafeed.query 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.config.ConfigManager.get">get() （betalens.datafeed.config.ConfigManager 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.ConfigManager.get">get() （betalens.datafeed.ConfigManager 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.get_absolute_trade_days">get_absolute_trade_days()（在 betalens.datafeed 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.core.get_absolute_trade_days">get_absolute_trade_days()（在 betalens.datafeed.core 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.core.Datafeed.get_available_dates">get_available_dates() （betalens.datafeed.core.Datafeed 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.Datafeed.get_available_dates">get_available_dates() （betalens.datafeed.Datafeed 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.get_available_dates">get_available_dates()（在 betalens.datafeed 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.query.get_available_dates">get_available_dates()（在 betalens.datafeed.query 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.get_config">get_config()（在 betalens.datafeed 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.config.get_config">get_config()（在 betalens.datafeed.config 模块中）</a>
+</li>
+      <li><a href="api/backtest.html#betalens.backtest.BacktestBase.get_daily_position_data">get_daily_position_data() （betalens.backtest.BacktestBase 方法）</a>, <a href="api/backtest.html#id3">[1]</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.get_database_config">get_database_config()（在 betalens.datafeed 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.config.get_database_config">get_database_config()（在 betalens.datafeed.config 模块中）</a>
+</li>
+      <li><a href="api/factor.html#betalens.factor.get_double_factor_weight">get_double_factor_weight()（在 betalens.factor 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.get_ede_config">get_ede_config()（在 betalens.datafeed 模块中）</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/datafeed.html#betalens.datafeed.config.get_ede_config">get_ede_config()（在 betalens.datafeed.config 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.get_excel_config">get_excel_config()（在 betalens.datafeed 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.config.get_excel_config">get_excel_config()（在 betalens.datafeed.config 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.get_existing_dates">get_existing_dates()（在 betalens.datafeed 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.integration.get_existing_dates">get_existing_dates()（在 betalens.datafeed.integration 模块中）</a>
+</li>
+      <li>
+    get_interval()
+
+      <ul>
+        <li><a href="api/robust.html#get_interval">built-in function</a>
+</li>
+      </ul></li>
+      <li><a href="api/datafeed.html#betalens.datafeed.core.Datafeed.get_latest_date">get_latest_date() （betalens.datafeed.core.Datafeed 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.Datafeed.get_latest_date">get_latest_date() （betalens.datafeed.Datafeed 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.get_latest_date">get_latest_date()（在 betalens.datafeed 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.query.get_latest_date">get_latest_date()（在 betalens.datafeed.query 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.get_logging_config">get_logging_config()（在 betalens.datafeed 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.config.get_logging_config">get_logging_config()（在 betalens.datafeed.config 模块中）</a>
+</li>
+      <li><a href="api/factor.html#betalens.factor.get_multi_factor_weight">get_multi_factor_weight()（在 betalens.factor 模块中）</a>
+</li>
+      <li><a href="api/backtest.html#betalens.backtest.BacktestBase.get_position_data">get_position_data() （betalens.backtest.BacktestBase 方法）</a>, <a href="api/backtest.html#id2">[1]</a>
+</li>
+      <li><a href="api/backtest.html#betalens.backtest.BacktestBase.get_rebalance_data">get_rebalance_data() （betalens.backtest.BacktestBase 方法）</a>, <a href="api/backtest.html#id1">[1]</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.config.ConfigManager.get_section">get_section() （betalens.datafeed.config.ConfigManager 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.ConfigManager.get_section">get_section() （betalens.datafeed.ConfigManager 方法）</a>
+</li>
+      <li><a href="api/factor.html#betalens.factor.get_single_factor_weight">get_single_factor_weight()（在 betalens.factor 模块中）</a>
+</li>
+      <li><a href="api/factor.html#betalens.factor.get_tradable_pool">get_tradable_pool()（在 betalens.factor 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.get_wind_config">get_wind_config()（在 betalens.datafeed 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.config.get_wind_config">get_wind_config()（在 betalens.datafeed.config 模块中）</a>
+</li>
+      <li><a href="api/factor.html#betalens.factor.group_return_summary">group_return_summary()（在 betalens.factor 模块中）</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="I">I</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/datafeed.html#betalens.datafeed.ede_processor.identify_code_name_columns">identify_code_name_columns()（在 betalens.datafeed.ede_processor 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.incremental_insert">incremental_insert()（在 betalens.datafeed 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.integration.incremental_insert">incremental_insert()（在 betalens.datafeed.integration 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.core.Datafeed.incremental_update">incremental_update() （betalens.datafeed.core.Datafeed 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.Datafeed.incremental_update">incremental_update() （betalens.datafeed.Datafeed 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.core.Datafeed.ingest_wind_daily_bond">ingest_wind_daily_bond() （betalens.datafeed.core.Datafeed 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.Datafeed.ingest_wind_daily_bond">ingest_wind_daily_bond() （betalens.datafeed.Datafeed 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.core.Datafeed.ingest_wind_daily_fund">ingest_wind_daily_fund() （betalens.datafeed.core.Datafeed 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.Datafeed.ingest_wind_daily_fund">ingest_wind_daily_fund() （betalens.datafeed.Datafeed 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.core.Datafeed.ingest_wind_daily_index">ingest_wind_daily_index() （betalens.datafeed.core.Datafeed 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.Datafeed.ingest_wind_daily_index">ingest_wind_daily_index() （betalens.datafeed.Datafeed 方法）</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/datafeed.html#betalens.datafeed.core.Datafeed.ingest_wind_daily_market">ingest_wind_daily_market() （betalens.datafeed.core.Datafeed 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.Datafeed.ingest_wind_daily_market">ingest_wind_daily_market() （betalens.datafeed.Datafeed 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.core.Datafeed.insert_csv_file">insert_csv_file() （betalens.datafeed.core.Datafeed 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.Datafeed.insert_csv_file">insert_csv_file() （betalens.datafeed.Datafeed 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.insert_dataframe">insert_dataframe()（在 betalens.datafeed 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.integration.insert_dataframe">insert_dataframe()（在 betalens.datafeed.integration 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.core.Datafeed.insert_ede_file">insert_ede_file() （betalens.datafeed.core.Datafeed 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.Datafeed.insert_ede_file">insert_ede_file() （betalens.datafeed.Datafeed 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.core.Datafeed.insert_with_conflict_check">insert_with_conflict_check() （betalens.datafeed.core.Datafeed 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.Datafeed.insert_with_conflict_check">insert_with_conflict_check() （betalens.datafeed.Datafeed 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.FillStrategy.INTERPOLATE">INTERPOLATE（betalens.datafeed.FillStrategy 属性）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.validation.FillStrategy.INTERPOLATE">INTERPOLATE（betalens.datafeed.validation.FillStrategy 属性）</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="L">L</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/datafeed.html#betalens.datafeed.config.ConfigManager.load">load() （betalens.datafeed.config.ConfigManager 方法）</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/datafeed.html#betalens.datafeed.ConfigManager.load">load() （betalens.datafeed.ConfigManager 方法）</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="M">M</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/analyst.html#betalens.analyst.PortfolioAnalyzer.max_drawdown">max_drawdown() （betalens.analyst.PortfolioAnalyzer 方法）</a>, <a href="api/analyst.html#id5">[1]</a>
+</li>
+      <li><a href="api/backtest.html#betalens.backtest.BacktestBase.melt_weights">melt_weights() （betalens.backtest.BacktestBase 方法）</a>
+</li>
+      <li>
+    module
+
+      <ul>
+        <li><a href="api/analyst.html#module-betalens.analyst">betalens.analyst</a>
+</li>
+        <li><a href="api/backtest.html#module-betalens.backtest">betalens.backtest</a>
+</li>
+        <li><a href="api/datafeed.html#module-betalens.datafeed">betalens.datafeed</a>
+</li>
+        <li><a href="api/datafeed.html#module-betalens.datafeed.config">betalens.datafeed.config</a>
+</li>
+        <li><a href="api/datafeed.html#module-betalens.datafeed.core">betalens.datafeed.core</a>
+</li>
+        <li><a href="api/datafeed.html#module-betalens.datafeed.ede_processor">betalens.datafeed.ede_processor</a>
+</li>
+        <li><a href="api/datafeed.html#module-betalens.datafeed.excel">betalens.datafeed.excel</a>
+</li>
+        <li><a href="api/datafeed.html#module-betalens.datafeed.integration">betalens.datafeed.integration</a>
+</li>
+        <li><a href="api/datafeed.html#module-betalens.datafeed.query">betalens.datafeed.query</a>
+</li>
+        <li><a href="api/datafeed.html#module-betalens.datafeed.validation">betalens.datafeed.validation</a>
+</li>
+        <li><a href="api/datafeed.html#module-betalens.datafeed.wind_ingest">betalens.datafeed.wind_ingest</a>
+</li>
+        <li><a href="api/eventstudy.html#module-betalens.eventstudy">betalens.eventstudy</a>
+</li>
+        <li><a href="api/factor.html#module-betalens.factor">betalens.factor</a>
+</li>
+      </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/factor.html#betalens.factor.multi_characteristic">multi_characteristic()（在 betalens.factor 模块中）</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="N">N</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/analyst.html#betalens.analyst.PortfolioAnalyzer.nav">nav（betalens.analyst.PortfolioAnalyzer 属性）</a>
+</li>
+      <li><a href="api/backtest.html#betalens.backtest.BacktestBase.nav">nav（betalens.backtest.BacktestBase 属性）</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/robust.html#RobustTest.neu">neu() （RobustTest 方法）</a>
+</li>
+      <li><a href="api/factor.html#betalens.factor.neutralize_factor">neutralize_factor()（在 betalens.factor 模块中）</a>
+</li>
+      <li><a href="api/factor.html#betalens.factor.neutralize_factor_by_factor">neutralize_factor_by_factor()（在 betalens.factor 模块中）</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="O">O</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/robust.html#RobustTest.OX">OX（RobustTest 属性）</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="P">P</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li>
+    panel()
+
+      <ul>
+        <li><a href="api/robust.html#panel">built-in function</a>
+</li>
+      </ul></li>
+      <li><a href="api/datafeed.html#betalens.datafeed.ede_processor.parse_metric_column">parse_metric_column()（在 betalens.datafeed.ede_processor 模块中）</a>
+</li>
+      <li>
+    parse_name_dates()
+
+      <ul>
+        <li><a href="api/robust.html#parse_name_dates">built-in function</a>
+</li>
+      </ul></li>
+      <li><a href="api/datafeed.html#betalens.datafeed.pivot_to_wide">pivot_to_wide()（在 betalens.datafeed 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.query.pivot_to_wide">pivot_to_wide()（在 betalens.datafeed.query 模块中）</a>
+</li>
+      <li><a href="api/eventstudy.html#betalens.eventstudy.EventStudy.plot_bar">plot_bar() （betalens.eventstudy.EventStudy 方法）</a>, <a href="api/eventstudy.html#id2">[1]</a>
+</li>
+      <li><a href="api/eventstudy.html#betalens.eventstudy.EventStudy.plot_events_lines">plot_events_lines() （betalens.eventstudy.EventStudy 方法）</a>, <a href="api/eventstudy.html#id5">[1]</a>
+</li>
+      <li><a href="api/eventstudy.html#betalens.eventstudy.EventStudy.plot_lines">plot_lines() （betalens.eventstudy.EventStudy 方法）</a>, <a href="api/eventstudy.html#id3">[1]</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/eventstudy.html#betalens.eventstudy.EventStudy.plot_multi_stocks">plot_multi_stocks() （betalens.eventstudy.EventStudy 方法）</a>, <a href="api/eventstudy.html#id4">[1]</a>
+</li>
+      <li><a href="api/analyst.html#betalens.analyst.PortfolioAnalyzer">PortfolioAnalyzer（betalens.analyst 中的类）</a>, <a href="api/analyst.html#id0">[1]</a>
+</li>
+      <li><a href="api/backtest.html#betalens.backtest.BacktestBase.position">position（betalens.backtest.BacktestBase 属性）</a>
+</li>
+      <li><a href="api/factor.html#betalens.factor.pre_query_characteristic_data">pre_query_characteristic_data()（在 betalens.factor 模块中）</a>
+</li>
+      <li><a href="api/factor.html#betalens.factor.preprocess_factor">preprocess_factor()（在 betalens.factor 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.process_directory_tree">process_directory_tree()（在 betalens.datafeed 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.integration.process_directory_tree">process_directory_tree()（在 betalens.datafeed.integration 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.ede_processor.process_ede_file">process_ede_file()（在 betalens.datafeed.ede_processor 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.process_excel_to_db_format">process_excel_to_db_format()（在 betalens.datafeed 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.integration.process_excel_to_db_format">process_excel_to_db_format()（在 betalens.datafeed.integration 模块中）</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="Q">Q</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/datafeed.html#betalens.datafeed.core.Datafeed.query_nearest_after">query_nearest_after() （betalens.datafeed.core.Datafeed 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.Datafeed.query_nearest_after">query_nearest_after() （betalens.datafeed.Datafeed 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.query_nearest_after">query_nearest_after()（在 betalens.datafeed 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.query.query_nearest_after">query_nearest_after()（在 betalens.datafeed.query 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.core.Datafeed.query_nearest_before">query_nearest_before() （betalens.datafeed.core.Datafeed 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.Datafeed.query_nearest_before">query_nearest_before() （betalens.datafeed.Datafeed 方法）</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/datafeed.html#betalens.datafeed.query_nearest_before">query_nearest_before()（在 betalens.datafeed 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.query.query_nearest_before">query_nearest_before()（在 betalens.datafeed.query 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.core.Datafeed.query_time_range">query_time_range() （betalens.datafeed.core.Datafeed 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.Datafeed.query_time_range">query_time_range() （betalens.datafeed.Datafeed 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.query_time_range">query_time_range()（在 betalens.datafeed 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.query.query_time_range">query_time_range()（在 betalens.datafeed.query 模块中）</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="R">R</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/datafeed.html#betalens.datafeed.FillStrategy.RAISE_ERROR">RAISE_ERROR（betalens.datafeed.FillStrategy 属性）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.validation.FillStrategy.RAISE_ERROR">RAISE_ERROR（betalens.datafeed.validation.FillStrategy 属性）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.read_csv_with_encoding">read_csv_with_encoding()（在 betalens.datafeed 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.excel.read_csv_with_encoding">read_csv_with_encoding()（在 betalens.datafeed.excel 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.read_file">read_file()（在 betalens.datafeed 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.excel.read_file">read_file()（在 betalens.datafeed.excel 模块中）</a>
+</li>
+      <li><a href="api/analyst.html#betalens.analyst.PortfolioAnalyzer.recovery_days">recovery_days() （betalens.analyst.PortfolioAnalyzer 方法）</a>, <a href="api/analyst.html#id7">[1]</a>
+</li>
+      <li><a href="api/analyst.html#betalens.analyst.ReportExporter">ReportExporter（betalens.analyst 中的类）</a>, <a href="api/analyst.html#id10">[1]</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/datafeed.html#betalens.datafeed.reset_config">reset_config()（在 betalens.datafeed 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.config.reset_config">reset_config()（在 betalens.datafeed.config 模块中）</a>
+</li>
+      <li><a href="api/analyst.html#betalens.analyst.PortfolioAnalyzer.returns">returns（betalens.analyst.PortfolioAnalyzer 属性）</a>
+</li>
+      <li><a href="api/robust.html#RobustTest">RobustTest（内置类）</a>
+</li>
+      <li><a href="api/analyst.html#betalens.analyst.PortfolioAnalyzer.rolling_max_drawdown">rolling_max_drawdown() （betalens.analyst.PortfolioAnalyzer 方法）</a>, <a href="api/analyst.html#id8">[1]</a>
+</li>
+      <li><a href="api/analyst.html#betalens.analyst.PortfolioAnalyzer.rolling_win_rate">rolling_win_rate() （betalens.analyst.PortfolioAnalyzer 方法）</a>, <a href="api/analyst.html#id9">[1]</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.core.Datafeed.run_query">run_query() （betalens.datafeed.core.Datafeed 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.Datafeed.run_query">run_query() （betalens.datafeed.Datafeed 方法）</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="S">S</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/datafeed.html#betalens.datafeed.config.ConfigManager.save">save() （betalens.datafeed.config.ConfigManager 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.ConfigManager.save">save() （betalens.datafeed.ConfigManager 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.save_error_file">save_error_file()（在 betalens.datafeed 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.integration.save_error_file">save_error_file()（在 betalens.datafeed.integration 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.config.ConfigManager.set">set() （betalens.datafeed.config.ConfigManager 方法）</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/datafeed.html#betalens.datafeed.ConfigManager.set">set() （betalens.datafeed.ConfigManager 方法）</a>
+</li>
+      <li><a href="api/analyst.html#betalens.analyst.PortfolioAnalyzer.sharpe_ratio">sharpe_ratio() （betalens.analyst.PortfolioAnalyzer 方法）</a>, <a href="api/analyst.html#id4">[1]</a>
+</li>
+      <li><a href="api/factor.html#betalens.factor.single_characteristic">single_characteristic()（在 betalens.factor 模块中）</a>
+</li>
+      <li><a href="api/factor.html#betalens.factor.standardize_factor">standardize_factor()（在 betalens.factor 模块中）</a>
+</li>
+      <li><a href="api/backtest.html#betalens.backtest.BacktestBase.start">start（betalens.backtest.BacktestBase 属性）</a>
+</li>
+      <li><a href="api/factor.html#betalens.factor.summarize_ic">summarize_ic()（在 betalens.factor 模块中）</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="T">T</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/analyst.html#betalens.analyst.PortfolioAnalyzer.total_return">total_return() （betalens.analyst.PortfolioAnalyzer 方法）</a>, <a href="api/analyst.html#id1">[1]</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.trade_days_offset">trade_days_offset()（在 betalens.datafeed 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.core.trade_days_offset">trade_days_offset()（在 betalens.datafeed.core 模块中）</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/datafeed.html#betalens.datafeed.core.Datafeed.truncate_table">truncate_table() （betalens.datafeed.core.Datafeed 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.Datafeed.truncate_table">truncate_table() （betalens.datafeed.Datafeed 方法）</a>
+</li>
+      <li><a href="api/robust.html#RobustTest.T">T（RobustTest 属性）</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="U">U</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/datafeed.html#betalens.datafeed.core.Datafeed.update_data">update_data() （betalens.datafeed.core.Datafeed 方法）</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/datafeed.html#betalens.datafeed.Datafeed.update_data">update_data() （betalens.datafeed.Datafeed 方法）</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="V">V</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/datafeed.html#betalens.datafeed.DataValidator.validate_and_fix">validate_and_fix() （betalens.datafeed.DataValidator 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.validation.DataValidator.validate_and_fix">validate_and_fix() （betalens.datafeed.validation.DataValidator 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.validate_and_fix">validate_and_fix()（在 betalens.datafeed 模块中）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.validation.validate_and_fix">validate_and_fix()（在 betalens.datafeed.validation 模块中）</a>
+</li>
+      <li><a href="api/backtest.html#betalens.backtest.validate_calculation_inputs">validate_calculation_inputs()（在 betalens.backtest 模块中）</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/datafeed.html#betalens.datafeed.core.Datafeed.validate_dataframe">validate_dataframe() （betalens.datafeed.core.Datafeed 方法）</a>
+</li>
+      <li><a href="api/datafeed.html#betalens.datafeed.Datafeed.validate_dataframe">validate_dataframe() （betalens.datafeed.Datafeed 方法）</a>
+</li>
+      <li><a href="api/backtest.html#betalens.backtest.validate_index_alignment">validate_index_alignment()（在 betalens.backtest 模块中）</a>
+</li>
+      <li><a href="api/backtest.html#betalens.backtest.validate_pivot_result">validate_pivot_result()（在 betalens.backtest 模块中）</a>
+</li>
+      <li><a href="api/backtest.html#betalens.backtest.validate_query_result">validate_query_result()（在 betalens.backtest 模块中）</a>
+</li>
+      <li><a href="api/backtest.html#betalens.backtest.validate_weight_input">validate_weight_input()（在 betalens.backtest 模块中）</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="W">W</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/factor.html#betalens.factor.winsorize_factor">winsorize_factor()（在 betalens.factor 模块中）</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/robust.html#RobustTest.work">work() （RobustTest 方法）</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="X">X</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/robust.html#RobustTest.X">X（RobustTest 属性）</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="Y">Y</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/robust.html#RobustTest.y">y（RobustTest 属性）</a>
+</li>
+  </ul></td>
+</tr></table>
+
+
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; 版权所有 2025, Janis。</p>
+  </div>
+
+  利用 <a href="https://www.sphinx-doc.org/">Sphinx</a> 构建，使用的 
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">主题</a>
+    由 <a href="https://readthedocs.org">Read the Docs</a> 开发.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

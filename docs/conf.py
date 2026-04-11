@@ -9,8 +9,8 @@ from pathlib import Path
 
 # Add project root and repo root to sys.path for autodoc
 DOCS_DIR = Path(__file__).resolve().parent
-PROJECT_ROOT = DOCS_DIR.parent  # gitworks
-REPO_ROOT = PROJECT_ROOT.parent  # monorepo
+PROJECT_ROOT = DOCS_DIR.parent  # betalens repo root
+REPO_ROOT = PROJECT_ROOT.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(REPO_ROOT))
 
@@ -76,7 +76,7 @@ html_theme_options = {
     'includehidden': True,
     'titles_only': False,
     'logo_only': False,
-    'display_version': True,
+    'version_selector': True,
     'prev_next_buttons_location': 'bottom',
     'style_external_links': True,
 }
@@ -101,6 +101,9 @@ autodoc_mock_imports = [
     'openpyxl',
     'prettytable',
     'WindPy',
+    'statsmodels',
+    'scipy',
+    'streamlit',
 ]
 
 # -- Options for Napoleon (Google/NumPy docstrings) --------------------------

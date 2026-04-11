@@ -1,0 +1,1476 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="zh-CN" data-content_root="../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>betalens.datafeed.integration &mdash; Betalens 1.1.0 文档</title>
+      <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=fa44fd50" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../_static/documentation_options.js?v=ab4a11d3"></script>
+      <script src="../../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../../_static/sphinx_highlight.js?v=dc90522c"></script>
+      <script src="../../../_static/translations.js?v=beaddf03"></script>
+    <script src="../../../_static/js/theme.js"></script>
+    <link rel="index" title="索引" href="../../../genindex.html" />
+    <link rel="search" title="搜索" href="../../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../index.html" class="icon icon-home">
+            Betalens
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../search.html" method="get">
+    <input type="text" name="q" placeholder="搜索文档" aria-label="搜索文档" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="导航菜单">
+              <p class="caption" role="heading"><span class="caption-text">快速开始</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../getting-started/installation.html">安装指南</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../getting-started/installation.html#id2">环境要求</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../getting-started/installation.html#pypi">通过 PyPI 安装</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../getting-started/installation.html#id3">源码安装（推荐开发者）</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../getting-started/installation.html#id4">数据库与配置</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../getting-started/installation.html#id5">验证安装</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../getting-started/installation.html#id6">常见问题</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../../getting-started/quickstart.html">10 分钟快速上手</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../getting-started/quickstart.html#id2">1. 准备调仓日与可交易标的</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../getting-started/quickstart.html#id3">2. 批量预查询因子数据</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../getting-started/quickstart.html#id4">3. 单因子分组打标签</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../getting-started/quickstart.html#id5">4. 派生多空权重</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../getting-started/quickstart.html#id6">5. 回测组合净值</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../getting-started/quickstart.html#id7">6. 绩效分析与报告</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../getting-started/quickstart.html#double-sort">7. 双因子分组（Double Sort）</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../getting-started/quickstart.html#multi-factor-sort">8. 多因子分组（Multi-Factor Sort）</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../getting-started/quickstart.html#id8">9. 启用稳健性检验（可选）</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">用户指南</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../guide/datafeed.html">Datafeed 使用指南</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/datafeed.html#id1">模块结构</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/datafeed.html#id2">快速连接数据库</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/datafeed.html#id3">常用查询</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../guide/datafeed.html#id4">时间范围查询</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../guide/datafeed.html#id5">最近时点查询</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../guide/datafeed.html#id6">辅助查询函数</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/datafeed.html#excel-ede">Excel &amp; EDE 导入</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../guide/datafeed.html#csv-excel">CSV/Excel 文件导入</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../guide/datafeed.html#ede">EDE 文件导入</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../guide/datafeed.html#id7">批量导入</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/datafeed.html#wind">Wind 数据抓取</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/datafeed.html#id8">数据验证</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/datafeed.html#id9">增量更新</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/datafeed.html#id10">交易日辅助函数</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/datafeed.html#id11">注意事项</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../../guide/factor.html">因子模块</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/factor.html#id2">获取可交易池</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/factor.html#id7">批量预查询因子数据</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/factor.html#id8">单因子分组</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/factor.html#id11">生成单因子权重</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/factor.html#double-sort">双因子分组（Double Sort）</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/factor.html#id12">生成双因子权重</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/factor.html#multi-factor-sort">多因子分组（Multi-Factor Sort）</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/factor.html#id13">生成多因子权重</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/factor.html#id14">描述性统计</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/factor.html#id15">实践提示</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../../guide/backtest.html">回测模块</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/backtest.html#id2">权重矩阵规范</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/backtest.html#id3">回测执行</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/backtest.html#id4">主要属性</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/backtest.html#id5">内部步骤</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/backtest.html#id6">异常处理</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/backtest.html#id7">数据验证</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/backtest.html#id8">常见扩展</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../../guide/analyst.html">绩效分析模块</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/analyst.html#portfolioanalyzer">PortfolioAnalyzer</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../guide/analyst.html#id2">核心指标</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../guide/analyst.html#id3">滚动指标</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../guide/analyst.html#id4">关键属性</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/analyst.html#reportexporter">ReportExporter</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../guide/analyst.html#id5">分年度报告</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../guide/analyst.html#id6">自定义时段报告</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../guide/analyst.html#id7">基准对比报告</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../guide/analyst.html#id8">指定分析区间</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../guide/analyst.html#id9">输出方式</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/analyst.html#id10">高级用法</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../guide/analyst.html#id11">滚动指标绘图</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../guide/analyst.html#id12">自定义指标</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../guide/analyst.html#id13">多策略对比</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/analyst.html#id14">常见问题</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../../guide/eventstudy.html">事件研究模块</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/eventstudy.html#id2">模块概述</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/eventstudy.html#id3">初始化</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/eventstudy.html#id4">基础事件分析</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../guide/eventstudy.html#day-0">Day 0 成本价规则</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/eventstudy.html#id5">分析模式</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../guide/eventstudy.html#flexible">flexible 模式（默认）</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../guide/eventstudy.html#fixed">fixed 模式</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../guide/eventstudy.html#id6">持有起点偏移</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/eventstudy.html#id7">基准超额收益</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/eventstudy.html#id8">多标的平均模式</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/eventstudy.html#id9">可视化</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../guide/eventstudy.html#id10">柱状图：事件前后平均日收益</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../guide/eventstudy.html#id11">折线图：累积收益曲线</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../guide/eventstudy.html#id12">多股票单事件对比</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../guide/eventstudy.html#id13">单股票多事件对比</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/eventstudy.html#id14">完整示例</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../../guide/robust.html">稳健性检验</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/robust.html#id2">模块定位</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/robust.html#robusttest">RobustTest 流程</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/robust.html#id3">核心步骤详解</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/robust.html#id4">结果解读</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/robust.html#panel">面板回归（Panel）</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/robust.html#id5">辅助工具</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/robust.html#id6">并行 &amp; 扩展</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/robust.html#id9">最佳实践</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API 参考</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../api/datafeed.html">Datafeed API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed"><code class="docutils literal notranslate"><span class="pre">Datafeed</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.__init__"><code class="docutils literal notranslate"><span class="pre">Datafeed.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.insert_csv_file"><code class="docutils literal notranslate"><span class="pre">Datafeed.insert_csv_file()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.insert_ede_file"><code class="docutils literal notranslate"><span class="pre">Datafeed.insert_ede_file()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.batch_process_excel_files"><code class="docutils literal notranslate"><span class="pre">Datafeed.batch_process_excel_files()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.incremental_update"><code class="docutils literal notranslate"><span class="pre">Datafeed.incremental_update()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.insert_with_conflict_check"><code class="docutils literal notranslate"><span class="pre">Datafeed.insert_with_conflict_check()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.update_data"><code class="docutils literal notranslate"><span class="pre">Datafeed.update_data()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.ingest_wind_daily_market"><code class="docutils literal notranslate"><span class="pre">Datafeed.ingest_wind_daily_market()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.ingest_wind_daily_index"><code class="docutils literal notranslate"><span class="pre">Datafeed.ingest_wind_daily_index()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.ingest_wind_daily_fund"><code class="docutils literal notranslate"><span class="pre">Datafeed.ingest_wind_daily_fund()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.ingest_wind_daily_bond"><code class="docutils literal notranslate"><span class="pre">Datafeed.ingest_wind_daily_bond()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.run_query"><code class="docutils literal notranslate"><span class="pre">Datafeed.run_query()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.query_time_range"><code class="docutils literal notranslate"><span class="pre">Datafeed.query_time_range()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.query_nearest_after"><code class="docutils literal notranslate"><span class="pre">Datafeed.query_nearest_after()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.query_nearest_before"><code class="docutils literal notranslate"><span class="pre">Datafeed.query_nearest_before()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.get_latest_date"><code class="docutils literal notranslate"><span class="pre">Datafeed.get_latest_date()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.get_available_dates"><code class="docutils literal notranslate"><span class="pre">Datafeed.get_available_dates()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.validate_dataframe"><code class="docutils literal notranslate"><span class="pre">Datafeed.validate_dataframe()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.check_excel_file"><code class="docutils literal notranslate"><span class="pre">Datafeed.check_excel_file()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.truncate_table"><code class="docutils literal notranslate"><span class="pre">Datafeed.truncate_table()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.close"><code class="docutils literal notranslate"><span class="pre">Datafeed.close()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.read_file"><code class="docutils literal notranslate"><span class="pre">read_file()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.read_csv_with_encoding"><code class="docutils literal notranslate"><span class="pre">read_csv_with_encoding()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.cross_section_to_db_format"><code class="docutils literal notranslate"><span class="pre">cross_section_to_db_format()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.batch_read_files"><code class="docutils literal notranslate"><span class="pre">batch_read_files()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.batch_write_files"><code class="docutils literal notranslate"><span class="pre">batch_write_files()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.create_directory_tree"><code class="docutils literal notranslate"><span class="pre">create_directory_tree()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.check_excel_errors"><code class="docutils literal notranslate"><span class="pre">check_excel_errors()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.FillStrategy"><code class="docutils literal notranslate"><span class="pre">FillStrategy</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.FillStrategy.RAISE_ERROR"><code class="docutils literal notranslate"><span class="pre">FillStrategy.RAISE_ERROR</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.FillStrategy.DROP"><code class="docutils literal notranslate"><span class="pre">FillStrategy.DROP</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.FillStrategy.FILL_FORWARD"><code class="docutils literal notranslate"><span class="pre">FillStrategy.FILL_FORWARD</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.FillStrategy.FILL_BACKWARD"><code class="docutils literal notranslate"><span class="pre">FillStrategy.FILL_BACKWARD</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.FillStrategy.FILL_VALUE"><code class="docutils literal notranslate"><span class="pre">FillStrategy.FILL_VALUE</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.FillStrategy.FILL_MEAN"><code class="docutils literal notranslate"><span class="pre">FillStrategy.FILL_MEAN</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.FillStrategy.FILL_MEDIAN"><code class="docutils literal notranslate"><span class="pre">FillStrategy.FILL_MEDIAN</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.FillStrategy.FILL_MODE"><code class="docutils literal notranslate"><span class="pre">FillStrategy.FILL_MODE</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.FillStrategy.INTERPOLATE"><code class="docutils literal notranslate"><span class="pre">FillStrategy.INTERPOLATE</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.check_null_values"><code class="docutils literal notranslate"><span class="pre">check_null_values()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.check_datetime_column"><code class="docutils literal notranslate"><span class="pre">check_datetime_column()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.fix_null_values"><code class="docutils literal notranslate"><span class="pre">fix_null_values()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.drop_duplicates_strict"><code class="docutils literal notranslate"><span class="pre">drop_duplicates_strict()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.fix_datetime_column"><code class="docutils literal notranslate"><span class="pre">fix_datetime_column()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.validate_and_fix"><code class="docutils literal notranslate"><span class="pre">validate_and_fix()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.DataValidator"><code class="docutils literal notranslate"><span class="pre">DataValidator</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.DataValidator.__init__"><code class="docutils literal notranslate"><span class="pre">DataValidator.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.DataValidator.check_null_values"><code class="docutils literal notranslate"><span class="pre">DataValidator.check_null_values()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.DataValidator.check_datetime_column"><code class="docutils literal notranslate"><span class="pre">DataValidator.check_datetime_column()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.DataValidator.fix_null_values"><code class="docutils literal notranslate"><span class="pre">DataValidator.fix_null_values()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.DataValidator.drop_duplicates_strict"><code class="docutils literal notranslate"><span class="pre">DataValidator.drop_duplicates_strict()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.DataValidator.fix_datetime_column"><code class="docutils literal notranslate"><span class="pre">DataValidator.fix_datetime_column()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.DataValidator.validate_and_fix"><code class="docutils literal notranslate"><span class="pre">DataValidator.validate_and_fix()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.build_query"><code class="docutils literal notranslate"><span class="pre">build_query()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.generate_input_pairs"><code class="docutils literal notranslate"><span class="pre">generate_input_pairs()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.build_nearest_query"><code class="docutils literal notranslate"><span class="pre">build_nearest_query()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.query_nearest_after"><code class="docutils literal notranslate"><span class="pre">query_nearest_after()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.query_nearest_before"><code class="docutils literal notranslate"><span class="pre">query_nearest_before()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.query_time_range"><code class="docutils literal notranslate"><span class="pre">query_time_range()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.get_available_dates"><code class="docutils literal notranslate"><span class="pre">get_available_dates()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.get_latest_date"><code class="docutils literal notranslate"><span class="pre">get_latest_date()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.pivot_to_wide"><code class="docutils literal notranslate"><span class="pre">pivot_to_wide()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.align_to_dates"><code class="docutils literal notranslate"><span class="pre">align_to_dates()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.calculate_returns"><code class="docutils literal notranslate"><span class="pre">calculate_returns()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.process_excel_to_db_format"><code class="docutils literal notranslate"><span class="pre">process_excel_to_db_format()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.check_existing_rows"><code class="docutils literal notranslate"><span class="pre">check_existing_rows()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.insert_dataframe"><code class="docutils literal notranslate"><span class="pre">insert_dataframe()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.get_existing_dates"><code class="docutils literal notranslate"><span class="pre">get_existing_dates()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.incremental_insert"><code class="docutils literal notranslate"><span class="pre">incremental_insert()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.save_error_file"><code class="docutils literal notranslate"><span class="pre">save_error_file()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.process_directory_tree"><code class="docutils literal notranslate"><span class="pre">process_directory_tree()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.ConfigManager"><code class="docutils literal notranslate"><span class="pre">ConfigManager</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.ConfigManager.__init__"><code class="docutils literal notranslate"><span class="pre">ConfigManager.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.ConfigManager.load"><code class="docutils literal notranslate"><span class="pre">ConfigManager.load()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.ConfigManager.save"><code class="docutils literal notranslate"><span class="pre">ConfigManager.save()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.ConfigManager.get"><code class="docutils literal notranslate"><span class="pre">ConfigManager.get()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.ConfigManager.set"><code class="docutils literal notranslate"><span class="pre">ConfigManager.set()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.ConfigManager.get_section"><code class="docutils literal notranslate"><span class="pre">ConfigManager.get_section()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.ConfigManager.config"><code class="docutils literal notranslate"><span class="pre">ConfigManager.config</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.ConfigManager.__getitem__"><code class="docutils literal notranslate"><span class="pre">ConfigManager.__getitem__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.ConfigManager.__setitem__"><code class="docutils literal notranslate"><span class="pre">ConfigManager.__setitem__()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.get_config"><code class="docutils literal notranslate"><span class="pre">get_config()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.reset_config"><code class="docutils literal notranslate"><span class="pre">reset_config()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.get_database_config"><code class="docutils literal notranslate"><span class="pre">get_database_config()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.get_logging_config"><code class="docutils literal notranslate"><span class="pre">get_logging_config()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.get_excel_config"><code class="docutils literal notranslate"><span class="pre">get_excel_config()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.get_wind_config"><code class="docutils literal notranslate"><span class="pre">get_wind_config()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.get_ede_config"><code class="docutils literal notranslate"><span class="pre">get_ede_config()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.func_timer"><code class="docutils literal notranslate"><span class="pre">func_timer()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.get_absolute_trade_days"><code class="docutils literal notranslate"><span class="pre">get_absolute_trade_days()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.trade_days_offset"><code class="docutils literal notranslate"><span class="pre">trade_days_offset()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#id1">子模块</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#module-betalens.datafeed.core">core</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.core.func_timer"><code class="docutils literal notranslate"><span class="pre">func_timer()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.core.Datafeed"><code class="docutils literal notranslate"><span class="pre">Datafeed</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.core.get_absolute_trade_days"><code class="docutils literal notranslate"><span class="pre">get_absolute_trade_days()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.core.trade_days_offset"><code class="docutils literal notranslate"><span class="pre">trade_days_offset()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#module-betalens.datafeed.excel">excel</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.excel.read_csv_with_encoding"><code class="docutils literal notranslate"><span class="pre">read_csv_with_encoding()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.excel.read_file"><code class="docutils literal notranslate"><span class="pre">read_file()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.excel.cross_section_to_db_format"><code class="docutils literal notranslate"><span class="pre">cross_section_to_db_format()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.excel.batch_read_files"><code class="docutils literal notranslate"><span class="pre">batch_read_files()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.excel.batch_write_files"><code class="docutils literal notranslate"><span class="pre">batch_write_files()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.excel.create_directory_tree"><code class="docutils literal notranslate"><span class="pre">create_directory_tree()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.excel.apply_time_alignment"><code class="docutils literal notranslate"><span class="pre">apply_time_alignment()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.excel.check_excel_errors"><code class="docutils literal notranslate"><span class="pre">check_excel_errors()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#module-betalens.datafeed.validation">validation</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.validation.FillStrategy"><code class="docutils literal notranslate"><span class="pre">FillStrategy</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.validation.check_null_values"><code class="docutils literal notranslate"><span class="pre">check_null_values()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.validation.check_datetime_column"><code class="docutils literal notranslate"><span class="pre">check_datetime_column()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.validation.fix_null_values"><code class="docutils literal notranslate"><span class="pre">fix_null_values()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.validation.drop_duplicates_strict"><code class="docutils literal notranslate"><span class="pre">drop_duplicates_strict()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.validation.fix_datetime_column"><code class="docutils literal notranslate"><span class="pre">fix_datetime_column()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.validation.validate_and_fix"><code class="docutils literal notranslate"><span class="pre">validate_and_fix()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.validation.DataValidator"><code class="docutils literal notranslate"><span class="pre">DataValidator</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#module-betalens.datafeed.query">query</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.query.build_query"><code class="docutils literal notranslate"><span class="pre">build_query()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.query.generate_input_pairs"><code class="docutils literal notranslate"><span class="pre">generate_input_pairs()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.query.build_nearest_query"><code class="docutils literal notranslate"><span class="pre">build_nearest_query()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.query.query_nearest_after"><code class="docutils literal notranslate"><span class="pre">query_nearest_after()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.query.query_nearest_before"><code class="docutils literal notranslate"><span class="pre">query_nearest_before()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.query.query_time_range"><code class="docutils literal notranslate"><span class="pre">query_time_range()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.query.get_available_dates"><code class="docutils literal notranslate"><span class="pre">get_available_dates()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.query.get_latest_date"><code class="docutils literal notranslate"><span class="pre">get_latest_date()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.query.pivot_to_wide"><code class="docutils literal notranslate"><span class="pre">pivot_to_wide()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.query.align_to_dates"><code class="docutils literal notranslate"><span class="pre">align_to_dates()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.query.calculate_returns"><code class="docutils literal notranslate"><span class="pre">calculate_returns()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#module-betalens.datafeed.integration">integration</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.integration.process_excel_to_db_format"><code class="docutils literal notranslate"><span class="pre">process_excel_to_db_format()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.integration.check_existing_rows"><code class="docutils literal notranslate"><span class="pre">check_existing_rows()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.integration.insert_dataframe"><code class="docutils literal notranslate"><span class="pre">insert_dataframe()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.integration.get_existing_dates"><code class="docutils literal notranslate"><span class="pre">get_existing_dates()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.integration.incremental_insert"><code class="docutils literal notranslate"><span class="pre">incremental_insert()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.integration.save_error_file"><code class="docutils literal notranslate"><span class="pre">save_error_file()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.integration.process_directory_tree"><code class="docutils literal notranslate"><span class="pre">process_directory_tree()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#module-betalens.datafeed.config">config</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.config.ConfigManager"><code class="docutils literal notranslate"><span class="pre">ConfigManager</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.config.get_config"><code class="docutils literal notranslate"><span class="pre">get_config()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.config.reset_config"><code class="docutils literal notranslate"><span class="pre">reset_config()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.config.get_database_config"><code class="docutils literal notranslate"><span class="pre">get_database_config()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.config.get_logging_config"><code class="docutils literal notranslate"><span class="pre">get_logging_config()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.config.get_excel_config"><code class="docutils literal notranslate"><span class="pre">get_excel_config()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.config.get_wind_config"><code class="docutils literal notranslate"><span class="pre">get_wind_config()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.config.get_ede_config"><code class="docutils literal notranslate"><span class="pre">get_ede_config()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#module-betalens.datafeed.wind_ingest">wind_ingest</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.wind_ingest.fetch_daily_market"><code class="docutils literal notranslate"><span class="pre">fetch_daily_market()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.wind_ingest.fetch_daily_index"><code class="docutils literal notranslate"><span class="pre">fetch_daily_index()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.wind_ingest.fetch_daily_fund"><code class="docutils literal notranslate"><span class="pre">fetch_daily_fund()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.wind_ingest.fetch_daily_bond"><code class="docutils literal notranslate"><span class="pre">fetch_daily_bond()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#module-betalens.datafeed.ede_processor">ede_processor</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.ede_processor.extract_date_from_filename"><code class="docutils literal notranslate"><span class="pre">extract_date_from_filename()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.ede_processor.parse_metric_column"><code class="docutils literal notranslate"><span class="pre">parse_metric_column()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.ede_processor.extract_date_from_metric_metadata"><code class="docutils literal notranslate"><span class="pre">extract_date_from_metric_metadata()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.ede_processor.clean_ede_dataframe"><code class="docutils literal notranslate"><span class="pre">clean_ede_dataframe()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.ede_processor.identify_code_name_columns"><code class="docutils literal notranslate"><span class="pre">identify_code_name_columns()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.ede_processor.process_ede_file"><code class="docutils literal notranslate"><span class="pre">process_ede_file()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../../api/factor.html">Factor API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/factor.html#factor-factor">factor.factor</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#id1">数据准备函数</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.get_tradable_pool"><code class="docutils literal notranslate"><span class="pre">get_tradable_pool()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.pre_query_characteristic_data"><code class="docutils literal notranslate"><span class="pre">pre_query_characteristic_data()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#id2">单因子函数</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.single_characteristic"><code class="docutils literal notranslate"><span class="pre">single_characteristic()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.get_single_factor_weight"><code class="docutils literal notranslate"><span class="pre">get_single_factor_weight()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.describe_labeled_pool"><code class="docutils literal notranslate"><span class="pre">describe_labeled_pool()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#id3">双因子函数</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.double_characteristic"><code class="docutils literal notranslate"><span class="pre">double_characteristic()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.get_double_factor_weight"><code class="docutils literal notranslate"><span class="pre">get_double_factor_weight()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.describe_double_labeled_pool"><code class="docutils literal notranslate"><span class="pre">describe_double_labeled_pool()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#id4">多因子函数</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.multi_characteristic"><code class="docutils literal notranslate"><span class="pre">multi_characteristic()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.get_multi_factor_weight"><code class="docutils literal notranslate"><span class="pre">get_multi_factor_weight()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.describe_multi_labeled_pool"><code class="docutils literal notranslate"><span class="pre">describe_multi_labeled_pool()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/factor.html#factor-preprocessing">factor.preprocessing</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#id5">截面处理函数</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.winsorize_factor"><code class="docutils literal notranslate"><span class="pre">winsorize_factor()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.standardize_factor"><code class="docutils literal notranslate"><span class="pre">standardize_factor()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.neutralize_factor"><code class="docutils literal notranslate"><span class="pre">neutralize_factor()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#id6">因子对因子中性化</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.neutralize_factor_by_factor"><code class="docutils literal notranslate"><span class="pre">neutralize_factor_by_factor()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#id7">行业中性化工具</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.filter_pool_by_industry"><code class="docutils literal notranslate"><span class="pre">filter_pool_by_industry()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.apply_industry_weight_constraint"><code class="docutils literal notranslate"><span class="pre">apply_industry_weight_constraint()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#id8">一键预处理流水线</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.preprocess_factor"><code class="docutils literal notranslate"><span class="pre">preprocess_factor()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/factor.html#factor-stats">factor.stats</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#ic-icir">IC / ICIR</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.calc_ic"><code class="docutils literal notranslate"><span class="pre">calc_ic()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.calc_icir"><code class="docutils literal notranslate"><span class="pre">calc_icir()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.summarize_ic"><code class="docutils literal notranslate"><span class="pre">summarize_ic()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#fama-macbeth">Fama-MacBeth 截面回归</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.fama_macbeth"><code class="docutils literal notranslate"><span class="pre">fama_macbeth()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#id9">分组收益统计</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.group_return_summary"><code class="docutils literal notranslate"><span class="pre">group_return_summary()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../../api/backtest.html">Backtest API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.BacktestBase"><code class="docutils literal notranslate"><span class="pre">BacktestBase</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.BacktestBase.__init__"><code class="docutils literal notranslate"><span class="pre">BacktestBase.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.BacktestBase.melt_weights"><code class="docutils literal notranslate"><span class="pre">BacktestBase.melt_weights()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.BacktestBase.get_rebalance_data"><code class="docutils literal notranslate"><span class="pre">BacktestBase.get_rebalance_data()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.BacktestBase.get_position_data"><code class="docutils literal notranslate"><span class="pre">BacktestBase.get_position_data()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.BacktestBase.get_daily_position_data"><code class="docutils literal notranslate"><span class="pre">BacktestBase.get_daily_position_data()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.BacktestDataError"><code class="docutils literal notranslate"><span class="pre">BacktestDataError</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.DateMismatchError"><code class="docutils literal notranslate"><span class="pre">DateMismatchError</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.CodeMismatchError"><code class="docutils literal notranslate"><span class="pre">CodeMismatchError</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/backtest.html#backtest-backtest">backtest.backtest</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/backtest.html#backtestbase">BacktestBase</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/backtest.html#id0"><code class="docutils literal notranslate"><span class="pre">BacktestBase</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/backtest.html#id4">异常类</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/backtest.html#id5"><code class="docutils literal notranslate"><span class="pre">BacktestDataError</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/backtest.html#id6"><code class="docutils literal notranslate"><span class="pre">DateMismatchError</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/backtest.html#id7"><code class="docutils literal notranslate"><span class="pre">CodeMismatchError</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/backtest.html#id8">验证函数</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.validate_weight_input"><code class="docutils literal notranslate"><span class="pre">validate_weight_input()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.validate_query_result"><code class="docutils literal notranslate"><span class="pre">validate_query_result()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.validate_pivot_result"><code class="docutils literal notranslate"><span class="pre">validate_pivot_result()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.validate_index_alignment"><code class="docutils literal notranslate"><span class="pre">validate_index_alignment()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.validate_calculation_inputs"><code class="docutils literal notranslate"><span class="pre">validate_calculation_inputs()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.format_data_sample"><code class="docutils literal notranslate"><span class="pre">format_data_sample()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../../api/analyst.html">Analyst API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.PortfolioAnalyzer"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.PortfolioAnalyzer.__init__"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.PortfolioAnalyzer.total_return"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer.total_return()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.PortfolioAnalyzer.annualized_return"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer.annualized_return()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.PortfolioAnalyzer.annualized_volatility"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer.annualized_volatility()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.PortfolioAnalyzer.sharpe_ratio"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer.sharpe_ratio()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.PortfolioAnalyzer.max_drawdown"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer.max_drawdown()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.PortfolioAnalyzer.rolling_max_drawdown"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer.rolling_max_drawdown()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.PortfolioAnalyzer.rolling_win_rate"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer.rolling_win_rate()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.PortfolioAnalyzer.calmar_ratio"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer.calmar_ratio()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.PortfolioAnalyzer.recovery_days"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer.recovery_days()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.ReportExporter"><code class="docutils literal notranslate"><span class="pre">ReportExporter</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.ReportExporter.__init__"><code class="docutils literal notranslate"><span class="pre">ReportExporter.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.ReportExporter.generate_annual_report"><code class="docutils literal notranslate"><span class="pre">ReportExporter.generate_annual_report()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.ReportExporter.generate_custom_report"><code class="docutils literal notranslate"><span class="pre">ReportExporter.generate_custom_report()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.ReportExporter.generate_benchmark_report"><code class="docutils literal notranslate"><span class="pre">ReportExporter.generate_benchmark_report()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/analyst.html#analyst-analyst">analyst.analyst</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#portfolioanalyzer">PortfolioAnalyzer</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/analyst.html#id0"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#reportexporter">ReportExporter</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/analyst.html#id10"><code class="docutils literal notranslate"><span class="pre">ReportExporter</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../../api/eventstudy.html">EventStudy API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/eventstudy.html#betalens.eventstudy.EventStudy"><code class="docutils literal notranslate"><span class="pre">EventStudy</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/eventstudy.html#betalens.eventstudy.EventStudy.__init__"><code class="docutils literal notranslate"><span class="pre">EventStudy.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/eventstudy.html#betalens.eventstudy.EventStudy.analyze"><code class="docutils literal notranslate"><span class="pre">EventStudy.analyze()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/eventstudy.html#betalens.eventstudy.EventStudy.plot_bar"><code class="docutils literal notranslate"><span class="pre">EventStudy.plot_bar()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/eventstudy.html#betalens.eventstudy.EventStudy.plot_lines"><code class="docutils literal notranslate"><span class="pre">EventStudy.plot_lines()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/eventstudy.html#betalens.eventstudy.EventStudy.plot_multi_stocks"><code class="docutils literal notranslate"><span class="pre">EventStudy.plot_multi_stocks()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/eventstudy.html#betalens.eventstudy.EventStudy.plot_events_lines"><code class="docutils literal notranslate"><span class="pre">EventStudy.plot_events_lines()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/eventstudy.html#eventstudy-eventstudy">eventstudy.eventstudy</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/eventstudy.html#eventstudy">EventStudy</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/eventstudy.html#id0"><code class="docutils literal notranslate"><span class="pre">EventStudy</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/eventstudy.html#id6">辅助函数</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/eventstudy.html#betalens.eventstudy._get_event_dates"><code class="docutils literal notranslate"><span class="pre">_get_event_dates()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/eventstudy.html#betalens.eventstudy._calc_returns"><code class="docutils literal notranslate"><span class="pre">_calc_returns()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/eventstudy.html#betalens.eventstudy._get_day0_cost_price_loc"><code class="docutils literal notranslate"><span class="pre">_get_day0_cost_price_loc()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/eventstudy.html#betalens.eventstudy._get_window_returns"><code class="docutils literal notranslate"><span class="pre">_get_window_returns()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/eventstudy.html#betalens.eventstudy._aggregate_window_returns"><code class="docutils literal notranslate"><span class="pre">_aggregate_window_returns()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/eventstudy.html#betalens.eventstudy._compute_stats"><code class="docutils literal notranslate"><span class="pre">_compute_stats()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/eventstudy.html#betalens.eventstudy._compute_period_stats"><code class="docutils literal notranslate"><span class="pre">_compute_period_stats()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../../api/robust.html">Robust API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/robust.html#robust-robust">robust.robust</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/robust.html#robusttest">RobustTest</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/robust.html#RobustTest"><code class="docutils literal notranslate"><span class="pre">RobustTest</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/robust.html#id1">辅助函数</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/robust.html#panel"><code class="docutils literal notranslate"><span class="pre">panel()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/robust.html#bootstrap_fake_fund"><code class="docutils literal notranslate"><span class="pre">bootstrap_fake_fund()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/robust.html#parse_name_dates"><code class="docutils literal notranslate"><span class="pre">parse_name_dates()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/robust.html#get_interval"><code class="docutils literal notranslate"><span class="pre">get_interval()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/robust.html#gen_date_pairs"><code class="docutils literal notranslate"><span class="pre">gen_date_pairs()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="移动版导航菜单" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../index.html">Betalens</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content style-external-links">
+          <div role="navigation" aria-label="页面导航">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../index.html">模块代码</a></li>
+      <li class="breadcrumb-item active">betalens.datafeed.integration</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>betalens.datafeed.integration 源代码</h1><div class="highlight"><pre>
+<span></span><span class="c1">#%%By Janis 250226</span>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">数据库-Excel交互功能模块（函数式）</span>
+<span class="sd">功能：</span>
+<span class="sd">- 按照目录树结构读取和处理Excel文件</span>
+<span class="sd">- 将处理后的数据插入数据库</span>
+<span class="sd">- 增量更新功能（只插入新数据）</span>
+<span class="sd">- 错误检查和日志记录</span>
+<span class="sd">- 保存错误数据和源文件</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">import</span> <span class="nn">pandas</span> <span class="k">as</span> <span class="nn">pd</span>
+<span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
+<span class="kn">from</span> <span class="nn">pathlib</span> <span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">List</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">,</span> <span class="n">Union</span><span class="p">,</span> <span class="n">Any</span>
+<span class="kn">from</span> <span class="nn">datetime</span> <span class="kn">import</span> <span class="n">datetime</span>
+<span class="kn">import</span> <span class="nn">logging</span>
+<span class="kn">import</span> <span class="nn">json</span>
+<span class="kn">import</span> <span class="nn">shutil</span>
+<span class="kn">import</span> <span class="nn">psycopg2</span>
+<span class="kn">import</span> <span class="nn">psycopg2.extras</span>
+
+<span class="kn">from</span> <span class="nn">.excel</span> <span class="kn">import</span> <span class="n">read_file</span><span class="p">,</span> <span class="n">cross_section_to_db_format</span>
+<span class="kn">from</span> <span class="nn">.validation</span> <span class="kn">import</span> <span class="n">validate_and_fix</span>
+
+
+<span class="k">def</span> <span class="nf">_get_default_logger</span><span class="p">():</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;获取默认logger&quot;&quot;&quot;</span>
+    <span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="s1">&#39;DBExcelIntegration&#39;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">logger</span><span class="o">.</span><span class="n">handlers</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">setLevel</span><span class="p">(</span><span class="n">logging</span><span class="o">.</span><span class="n">INFO</span><span class="p">)</span>
+        <span class="n">ch</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">StreamHandler</span><span class="p">()</span>
+        <span class="n">ch</span><span class="o">.</span><span class="n">setLevel</span><span class="p">(</span><span class="n">logging</span><span class="o">.</span><span class="n">INFO</span><span class="p">)</span>
+        <span class="n">formatter</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">Formatter</span><span class="p">(</span><span class="s1">&#39;</span><span class="si">%(asctime)s</span><span class="s1"> - </span><span class="si">%(name)s</span><span class="s1"> - </span><span class="si">%(levelname)s</span><span class="s1"> - </span><span class="si">%(message)s</span><span class="s1">&#39;</span><span class="p">)</span>
+        <span class="n">ch</span><span class="o">.</span><span class="n">setFormatter</span><span class="p">(</span><span class="n">formatter</span><span class="p">)</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">addHandler</span><span class="p">(</span><span class="n">ch</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">logger</span>
+
+
+<div class="viewcode-block" id="process_excel_to_db_format">
+<a class="viewcode-back" href="../../../api/datafeed.html#betalens.datafeed.process_excel_to_db_format">[文档]</a>
+<span class="k">def</span> <span class="nf">process_excel_to_db_format</span><span class="p">(</span>
+    <span class="n">filepath</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Path</span><span class="p">],</span>
+    <span class="n">config</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
+    <span class="n">logger</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">logging</span><span class="o">.</span><span class="n">Logger</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">Optional</span><span class="p">[</span><span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">],</span> <span class="n">List</span><span class="p">[</span><span class="n">Dict</span><span class="p">]]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    处理Excel文件为数据库格式</span>
+<span class="sd">    </span>
+<span class="sd">    Args:</span>
+<span class="sd">        filepath: Excel文件路径</span>
+<span class="sd">        config: 处理配置，包含：</span>
+<span class="sd">            - key_columns: 键列列表</span>
+<span class="sd">            - value_columns: 值列列表（如果为None，则自动推断）</span>
+<span class="sd">            - key_value_mapping: 列名映射字典</span>
+<span class="sd">            - additional_fields: 额外字段字典</span>
+<span class="sd">            - validation: 验证配置</span>
+<span class="sd">            - read_kwargs: 读取参数</span>
+<span class="sd">        logger: 日志记录器，如果为None则使用默认logger</span>
+<span class="sd">            </span>
+<span class="sd">    Returns:</span>
+<span class="sd">        (处理后的DataFrame, 错误列表)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">logger</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">logger</span> <span class="o">=</span> <span class="n">_get_default_logger</span><span class="p">()</span>
+    
+    <span class="n">errors</span> <span class="o">=</span> <span class="p">[]</span>
+    
+    <span class="k">try</span><span class="p">:</span>
+        <span class="c1"># 1. 读取文件</span>
+        <span class="n">read_kwargs</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;read_kwargs&#39;</span><span class="p">,</span> <span class="p">{})</span>
+        <span class="c1"># 将encoding添加到read_kwargs</span>
+        <span class="k">if</span> <span class="s1">&#39;encoding&#39;</span> <span class="ow">in</span> <span class="n">config</span><span class="p">:</span>
+            <span class="n">read_kwargs</span><span class="p">[</span><span class="s1">&#39;encoding&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">config</span><span class="p">[</span><span class="s1">&#39;encoding&#39;</span><span class="p">]</span>
+
+        <span class="n">df</span> <span class="o">=</span> <span class="n">read_file</span><span class="p">(</span><span class="n">filepath</span><span class="p">,</span> <span class="n">logger</span><span class="o">=</span><span class="n">logger</span><span class="p">,</span> <span class="o">**</span><span class="n">read_kwargs</span><span class="p">)</span>
+
+        <span class="c1"># 1.5 应用列名映射</span>
+        <span class="n">column_mapping</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;column_mapping&#39;</span><span class="p">,</span> <span class="p">{})</span>
+        <span class="k">if</span> <span class="n">column_mapping</span><span class="p">:</span>
+            <span class="n">df</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">rename</span><span class="p">(</span><span class="n">columns</span><span class="o">=</span><span class="n">column_mapping</span><span class="p">)</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;应用列名映射: </span><span class="si">{</span><span class="n">column_mapping</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="c1"># 2. 自动推断value_columns（如果未指定）</span>
+        <span class="n">key_columns</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;key_columns&#39;</span><span class="p">,</span> <span class="p">[])</span>
+        <span class="c1"># 如果有列名映射，将key_columns也映射</span>
+        <span class="k">if</span> <span class="n">column_mapping</span><span class="p">:</span>
+            <span class="n">key_columns</span> <span class="o">=</span> <span class="p">[</span><span class="n">column_mapping</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">col</span><span class="p">,</span> <span class="n">col</span><span class="p">)</span> <span class="k">for</span> <span class="n">col</span> <span class="ow">in</span> <span class="n">key_columns</span><span class="p">]</span>
+
+        <span class="c1"># 处理date_column映射</span>
+        <span class="n">date_column</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;date_column&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">date_column</span> <span class="ow">and</span> <span class="n">column_mapping</span><span class="p">:</span>
+            <span class="n">date_column</span> <span class="o">=</span> <span class="n">column_mapping</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">date_column</span><span class="p">,</span> <span class="n">date_column</span><span class="p">)</span>
+
+        <span class="n">value_columns</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;value_columns&#39;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">value_columns</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="c1"># 自动推断：除了key_columns和date_column之外的所有列</span>
+            <span class="n">exclude_cols</span> <span class="o">=</span> <span class="n">key_columns</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+            <span class="k">if</span> <span class="n">date_column</span><span class="p">:</span>
+                <span class="n">exclude_cols</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">date_column</span><span class="p">)</span>
+            <span class="n">value_columns</span> <span class="o">=</span> <span class="p">[</span><span class="n">col</span> <span class="k">for</span> <span class="n">col</span> <span class="ow">in</span> <span class="n">df</span><span class="o">.</span><span class="n">columns</span> <span class="k">if</span> <span class="n">col</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">exclude_cols</span><span class="p">]</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;自动推断value_columns: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">value_columns</span><span class="p">)</span><span class="si">}</span><span class="s2">列&quot;</span><span class="p">)</span>
+
+        <span class="c1"># 3. 处理additional_fields中的特殊值</span>
+        <span class="n">additional_fields</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;additional_fields&#39;</span><span class="p">,</span> <span class="p">{})</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+        <span class="k">if</span> <span class="s1">&#39;datetime&#39;</span> <span class="ow">in</span> <span class="n">additional_fields</span> <span class="ow">and</span> <span class="n">additional_fields</span><span class="p">[</span><span class="s1">&#39;datetime&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="s1">&#39;from_date_column&#39;</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">date_column</span> <span class="ow">and</span> <span class="n">date_column</span> <span class="ow">in</span> <span class="n">df</span><span class="o">.</span><span class="n">columns</span><span class="p">:</span>
+                <span class="c1"># 将在cross_section转换后处理</span>
+                <span class="n">additional_fields</span><span class="p">[</span><span class="s1">&#39;datetime&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s1">&#39;__FROM_DATE_COLUMN__&#39;</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;date_column &#39;</span><span class="si">{</span><span class="n">date_column</span><span class="si">}</span><span class="s2">&#39; 不存在，无法提取datetime&quot;</span><span class="p">)</span>
+                <span class="k">del</span> <span class="n">additional_fields</span><span class="p">[</span><span class="s1">&#39;datetime&#39;</span><span class="p">]</span>
+
+        <span class="c1"># 4. 转换格式</span>
+        <span class="n">key_value_mapping</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;key_value_mapping&#39;</span><span class="p">,</span> <span class="p">{})</span>
+
+        <span class="n">df_converted</span> <span class="o">=</span> <span class="n">cross_section_to_db_format</span><span class="p">(</span>
+            <span class="n">df</span><span class="o">=</span><span class="n">df</span><span class="p">,</span>
+            <span class="n">key_columns</span><span class="o">=</span><span class="n">key_columns</span><span class="p">,</span>
+            <span class="n">value_columns</span><span class="o">=</span><span class="n">value_columns</span><span class="p">,</span>
+            <span class="n">key_value_mapping</span><span class="o">=</span><span class="n">key_value_mapping</span><span class="p">,</span>
+            <span class="n">additional_fields</span><span class="o">=</span><span class="n">additional_fields</span><span class="p">,</span>
+            <span class="n">logger</span><span class="o">=</span><span class="n">logger</span>
+        <span class="p">)</span>
+
+        <span class="c1"># 4.5 处理从date_column提取datetime</span>
+        <span class="k">if</span> <span class="s1">&#39;datetime&#39;</span> <span class="ow">in</span> <span class="n">df_converted</span><span class="o">.</span><span class="n">columns</span> <span class="ow">and</span> <span class="n">df_converted</span><span class="p">[</span><span class="s1">&#39;datetime&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">iloc</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="s1">&#39;__FROM_DATE_COLUMN__&#39;</span><span class="p">:</span>
+            <span class="c1"># metric列包含日期值，需要转换为datetime</span>
+            <span class="n">metric_col</span> <span class="o">=</span> <span class="n">key_value_mapping</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;variable&#39;</span><span class="p">,</span> <span class="s1">&#39;variable&#39;</span><span class="p">)</span>
+            <span class="n">date_format</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;date_format&#39;</span><span class="p">,</span> <span class="s1">&#39;%Y-%m-</span><span class="si">%d</span><span class="s1">&#39;</span><span class="p">)</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">df_converted</span><span class="p">[</span><span class="s1">&#39;datetime&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">to_datetime</span><span class="p">(</span><span class="n">df_converted</span><span class="p">[</span><span class="n">metric_col</span><span class="p">],</span> <span class="nb">format</span><span class="o">=</span><span class="n">date_format</span><span class="p">)</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;从 </span><span class="si">{</span><span class="n">metric_col</span><span class="si">}</span><span class="s2"> 列提取datetime成功&quot;</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;从 </span><span class="si">{</span><span class="n">metric_col</span><span class="si">}</span><span class="s2"> 列提取datetime失败: </span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                <span class="c1"># 尝试自动推断格式</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">df_converted</span><span class="p">[</span><span class="s1">&#39;datetime&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">to_datetime</span><span class="p">(</span><span class="n">df_converted</span><span class="p">[</span><span class="n">metric_col</span><span class="p">])</span>
+                    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;使用自动推断格式转换datetime成功&quot;</span><span class="p">)</span>
+                <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e2</span><span class="p">:</span>
+                    <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;自动推断格式也失败: </span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="n">e2</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                    <span class="k">raise</span>
+
+        <span class="c1"># 5. 数据验证</span>
+        <span class="n">validation_config</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;validation&#39;</span><span class="p">,</span> <span class="p">{})</span>
+        <span class="k">if</span> <span class="n">validation_config</span><span class="p">:</span>
+            <span class="n">df_converted</span><span class="p">,</span> <span class="n">validation_report</span> <span class="o">=</span> <span class="n">validate_and_fix</span><span class="p">(</span>
+                <span class="n">df_converted</span><span class="p">,</span>
+                <span class="n">validations</span><span class="o">=</span><span class="n">validation_config</span><span class="p">,</span>
+                <span class="n">logger</span><span class="o">=</span><span class="n">logger</span><span class="p">,</span>
+                <span class="n">inplace</span><span class="o">=</span><span class="kc">True</span>
+            <span class="p">)</span>
+            
+            <span class="c1"># 检查是否有严重错误</span>
+            <span class="k">if</span> <span class="s1">&#39;null_check&#39;</span> <span class="ow">in</span> <span class="n">validation_report</span><span class="p">:</span>
+                <span class="n">null_results</span> <span class="o">=</span> <span class="n">validation_report</span><span class="p">[</span><span class="s1">&#39;null_check&#39;</span><span class="p">]</span>
+                <span class="k">if</span> <span class="n">null_results</span><span class="p">:</span>
+                    <span class="k">for</span> <span class="n">col</span><span class="p">,</span> <span class="n">info</span> <span class="ow">in</span> <span class="n">null_results</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+                        <span class="k">if</span> <span class="n">info</span><span class="p">[</span><span class="s1">&#39;issues&#39;</span><span class="p">]:</span>
+                            <span class="n">errors</span><span class="o">.</span><span class="n">append</span><span class="p">({</span>
+                                <span class="s1">&#39;type&#39;</span><span class="p">:</span> <span class="s1">&#39;validation_error&#39;</span><span class="p">,</span>
+                                <span class="s1">&#39;column&#39;</span><span class="p">:</span> <span class="n">col</span><span class="p">,</span>
+                                <span class="s1">&#39;details&#39;</span><span class="p">:</span> <span class="n">info</span><span class="p">[</span><span class="s1">&#39;issues&#39;</span><span class="p">]</span>
+                            <span class="p">})</span>
+            
+            <span class="k">if</span> <span class="s1">&#39;datetime_check&#39;</span> <span class="ow">in</span> <span class="n">validation_report</span><span class="p">:</span>
+                <span class="n">datetime_results</span> <span class="o">=</span> <span class="n">validation_report</span><span class="p">[</span><span class="s1">&#39;datetime_check&#39;</span><span class="p">]</span>
+                <span class="k">if</span> <span class="n">datetime_results</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;issues&#39;</span><span class="p">):</span>
+                    <span class="n">errors</span><span class="o">.</span><span class="n">append</span><span class="p">({</span>
+                        <span class="s1">&#39;type&#39;</span><span class="p">:</span> <span class="s1">&#39;datetime_error&#39;</span><span class="p">,</span>
+                        <span class="s1">&#39;details&#39;</span><span class="p">:</span> <span class="n">datetime_results</span><span class="p">[</span><span class="s1">&#39;issues&#39;</span><span class="p">]</span>
+                    <span class="p">})</span>
+        
+        <span class="k">return</span> <span class="n">df_converted</span><span class="p">,</span> <span class="n">errors</span>
+        
+    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;处理文件失败 </span><span class="si">{</span><span class="n">filepath</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="n">errors</span><span class="o">.</span><span class="n">append</span><span class="p">({</span>
+            <span class="s1">&#39;type&#39;</span><span class="p">:</span> <span class="s1">&#39;processing_error&#39;</span><span class="p">,</span>
+            <span class="s1">&#39;message&#39;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)</span>
+        <span class="p">})</span>
+        <span class="k">return</span> <span class="kc">None</span><span class="p">,</span> <span class="n">errors</span></div>
+
+
+
+<div class="viewcode-block" id="check_existing_rows">
+<a class="viewcode-back" href="../../../api/datafeed.html#betalens.datafeed.check_existing_rows">[文档]</a>
+<span class="k">def</span> <span class="nf">check_existing_rows</span><span class="p">(</span>
+    <span class="n">cursor</span><span class="p">,</span>
+    <span class="n">df</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span>
+    <span class="n">table</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">key_columns</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">logger</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">logging</span><span class="o">.</span><span class="n">Logger</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    检查数据库中是否已存在相关数据行</span>
+<span class="sd">    </span>
+<span class="sd">    Args:</span>
+<span class="sd">        cursor: 数据库游标</span>
+<span class="sd">        df: 待检查的DataFrame</span>
+<span class="sd">        table: 目标表名</span>
+<span class="sd">        key_columns: 用于判断重复的关键列，默认使用[&#39;code&#39;, &#39;metric&#39;, &#39;datetime&#39;]</span>
+<span class="sd">        logger: 日志记录器，如果为None则使用默认logger</span>
+<span class="sd">        </span>
+<span class="sd">    Returns:</span>
+<span class="sd">        包含已存在行的DataFrame（只包含key_columns列），如果没有则返回空DataFrame</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">logger</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">logger</span> <span class="o">=</span> <span class="n">_get_default_logger</span><span class="p">()</span>
+    
+    <span class="k">if</span> <span class="n">df</span><span class="o">.</span><span class="n">empty</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">()</span>
+    
+    <span class="c1"># 确定关键列</span>
+    <span class="k">if</span> <span class="n">key_columns</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="c1"># 默认关键列</span>
+        <span class="n">default_keys</span> <span class="o">=</span> <span class="p">[</span><span class="s1">&#39;code&#39;</span><span class="p">,</span> <span class="s1">&#39;metric&#39;</span><span class="p">,</span> <span class="s1">&#39;datetime&#39;</span><span class="p">]</span>
+        <span class="n">key_columns</span> <span class="o">=</span> <span class="p">[</span><span class="n">col</span> <span class="k">for</span> <span class="n">col</span> <span class="ow">in</span> <span class="n">default_keys</span> <span class="k">if</span> <span class="n">col</span> <span class="ow">in</span> <span class="n">df</span><span class="o">.</span><span class="n">columns</span><span class="p">]</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">key_columns</span><span class="p">:</span>
+            <span class="c1"># 如果默认列不存在，使用前几列作为关键列</span>
+            <span class="n">key_columns</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">columns</span><span class="p">[:</span><span class="nb">min</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">df</span><span class="o">.</span><span class="n">columns</span><span class="p">))]</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;使用前</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">key_columns</span><span class="p">)</span><span class="si">}</span><span class="s2">列作为关键列: </span><span class="si">{</span><span class="n">key_columns</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    
+    <span class="c1"># 检查关键列是否存在</span>
+    <span class="n">missing_cols</span> <span class="o">=</span> <span class="p">[</span><span class="n">col</span> <span class="k">for</span> <span class="n">col</span> <span class="ow">in</span> <span class="n">key_columns</span> <span class="k">if</span> <span class="n">col</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">df</span><span class="o">.</span><span class="n">columns</span><span class="p">]</span>
+    <span class="k">if</span> <span class="n">missing_cols</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;关键列不存在: </span><span class="si">{</span><span class="n">missing_cols</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">()</span>
+    
+    <span class="k">try</span><span class="p">:</span>
+        <span class="c1"># 构建查询条件</span>
+        <span class="n">conditions</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">params_list</span> <span class="o">=</span> <span class="p">[]</span>
+        
+        <span class="c1"># 为每行构建OR条件</span>
+        <span class="k">for</span> <span class="n">idx</span><span class="p">,</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">df</span><span class="o">.</span><span class="n">iterrows</span><span class="p">():</span>
+            <span class="n">row_conditions</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="k">for</span> <span class="n">col</span> <span class="ow">in</span> <span class="n">key_columns</span><span class="p">:</span>
+                <span class="n">row_conditions</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">col</span><span class="si">}</span><span class="s2"> = %s&quot;</span><span class="p">)</span>
+                <span class="n">val</span> <span class="o">=</span> <span class="n">row</span><span class="p">[</span><span class="n">col</span><span class="p">]</span>
+                <span class="c1"># 处理datetime类型</span>
+                <span class="k">if</span> <span class="n">pd</span><span class="o">.</span><span class="n">api</span><span class="o">.</span><span class="n">types</span><span class="o">.</span><span class="n">is_datetime64_any_dtype</span><span class="p">(</span><span class="n">df</span><span class="p">[</span><span class="n">col</span><span class="p">])</span> <span class="ow">or</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">val</span><span class="p">,</span> <span class="n">pd</span><span class="o">.</span><span class="n">Timestamp</span><span class="p">):</span>
+                    <span class="n">params_list</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">val</span><span class="p">)</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">params_list</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">val</span><span class="p">)</span>
+            <span class="n">conditions</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;(</span><span class="si">{</span><span class="s1">&#39; AND &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">row_conditions</span><span class="p">)</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span>
+        
+        <span class="c1"># 如果有太多行，分批查询（避免SQL过长）</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">df</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">1000</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;数据量较大(</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">df</span><span class="p">)</span><span class="si">}</span><span class="s2">行)，分批检查重复...&quot;</span><span class="p">)</span>
+            <span class="n">all_existing</span> <span class="o">=</span> <span class="p">[]</span>
+            
+            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">df</span><span class="p">),</span> <span class="mi">1000</span><span class="p">):</span>
+                <span class="n">batch_df</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">iloc</span><span class="p">[</span><span class="n">i</span><span class="p">:</span><span class="n">i</span><span class="o">+</span><span class="mi">1000</span><span class="p">]</span>
+                <span class="n">batch_conditions</span> <span class="o">=</span> <span class="p">[]</span>
+                <span class="n">batch_params</span> <span class="o">=</span> <span class="p">[]</span>
+                
+                <span class="k">for</span> <span class="n">idx</span><span class="p">,</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">batch_df</span><span class="o">.</span><span class="n">iterrows</span><span class="p">():</span>
+                    <span class="n">row_conditions</span> <span class="o">=</span> <span class="p">[]</span>
+                    <span class="k">for</span> <span class="n">col</span> <span class="ow">in</span> <span class="n">key_columns</span><span class="p">:</span>
+                        <span class="n">row_conditions</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">col</span><span class="si">}</span><span class="s2"> = %s&quot;</span><span class="p">)</span>
+                        <span class="n">val</span> <span class="o">=</span> <span class="n">row</span><span class="p">[</span><span class="n">col</span><span class="p">]</span>
+                        <span class="k">if</span> <span class="n">pd</span><span class="o">.</span><span class="n">api</span><span class="o">.</span><span class="n">types</span><span class="o">.</span><span class="n">is_datetime64_any_dtype</span><span class="p">(</span><span class="n">df</span><span class="p">[</span><span class="n">col</span><span class="p">])</span> <span class="ow">or</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">val</span><span class="p">,</span> <span class="n">pd</span><span class="o">.</span><span class="n">Timestamp</span><span class="p">):</span>
+                            <span class="n">batch_params</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">val</span><span class="p">)</span>
+                        <span class="k">else</span><span class="p">:</span>
+                            <span class="n">batch_params</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">val</span><span class="p">)</span>
+                    <span class="n">batch_conditions</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;(</span><span class="si">{</span><span class="s1">&#39; AND &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">row_conditions</span><span class="p">)</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span>
+                
+                <span class="n">query</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;&quot;&quot;</span>
+<span class="s2">                SELECT DISTINCT </span><span class="si">{</span><span class="s1">&#39;, &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">key_columns</span><span class="p">)</span><span class="si">}</span>
+<span class="s2">                FROM </span><span class="si">{</span><span class="n">table</span><span class="si">}</span>
+<span class="s2">                WHERE </span><span class="si">{</span><span class="s1">&#39; OR &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">batch_conditions</span><span class="p">)</span><span class="si">}</span>
+<span class="s2">                &quot;&quot;&quot;</span>
+                
+                <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">batch_params</span><span class="p">))</span>
+                <span class="n">results</span> <span class="o">=</span> <span class="n">cursor</span><span class="o">.</span><span class="n">fetchall</span><span class="p">()</span>
+                
+                <span class="k">if</span> <span class="n">results</span><span class="p">:</span>
+                    <span class="n">batch_existing</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">results</span><span class="p">,</span> <span class="n">columns</span><span class="o">=</span><span class="n">key_columns</span><span class="p">)</span>
+                    <span class="n">all_existing</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">batch_existing</span><span class="p">)</span>
+            
+            <span class="k">if</span> <span class="n">all_existing</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">pd</span><span class="o">.</span><span class="n">concat</span><span class="p">(</span><span class="n">all_existing</span><span class="p">,</span> <span class="n">ignore_index</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span><span class="o">.</span><span class="n">drop_duplicates</span><span class="p">()</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">columns</span><span class="o">=</span><span class="n">key_columns</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c1"># 一次性查询</span>
+            <span class="n">query</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;&quot;&quot;</span>
+<span class="s2">            SELECT DISTINCT </span><span class="si">{</span><span class="s1">&#39;, &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">key_columns</span><span class="p">)</span><span class="si">}</span>
+<span class="s2">            FROM </span><span class="si">{</span><span class="n">table</span><span class="si">}</span>
+<span class="s2">            WHERE </span><span class="si">{</span><span class="s1">&#39; OR &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">conditions</span><span class="p">)</span><span class="si">}</span>
+<span class="s2">            &quot;&quot;&quot;</span>
+            
+            <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">params_list</span><span class="p">))</span>
+            <span class="n">results</span> <span class="o">=</span> <span class="n">cursor</span><span class="o">.</span><span class="n">fetchall</span><span class="p">()</span>
+            
+            <span class="k">if</span> <span class="n">results</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">results</span><span class="p">,</span> <span class="n">columns</span><span class="o">=</span><span class="n">key_columns</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">columns</span><span class="o">=</span><span class="n">key_columns</span><span class="p">)</span>
+                
+    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;检查已存在数据失败: </span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="c1"># 返回空DataFrame，让插入继续（保守策略）</span>
+        <span class="k">return</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">columns</span><span class="o">=</span><span class="n">key_columns</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="insert_dataframe">
+<a class="viewcode-back" href="../../../api/datafeed.html#betalens.datafeed.insert_dataframe">[文档]</a>
+<span class="k">def</span> <span class="nf">insert_dataframe</span><span class="p">(</span>
+    <span class="n">cursor</span><span class="p">,</span>
+    <span class="n">conn</span><span class="p">,</span>
+    <span class="n">df</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span>
+    <span class="n">table</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">batch_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1000</span><span class="p">,</span>
+    <span class="n">check_duplicates</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="n">key_columns</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">skip_duplicates</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="n">logger</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">logging</span><span class="o">.</span><span class="n">Logger</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="nb">bool</span><span class="p">,</span> <span class="nb">str</span><span class="p">,</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    将DataFrame插入数据库</span>
+<span class="sd">    </span>
+<span class="sd">    Args:</span>
+<span class="sd">        cursor: 数据库游标</span>
+<span class="sd">        conn: 数据库连接</span>
+<span class="sd">        df: 待插入的DataFrame</span>
+<span class="sd">        table: 目标表名</span>
+<span class="sd">        batch_size: 批量插入大小</span>
+<span class="sd">        check_duplicates: 是否检查数据库中已存在的数据（默认True）</span>
+<span class="sd">        key_columns: 用于判断重复的关键列，默认使用[&#39;code&#39;, &#39;metric&#39;, &#39;datetime&#39;]</span>
+<span class="sd">        skip_duplicates: 是否跳过重复数据（默认True），如果为False，重复数据会导致插入失败</span>
+<span class="sd">        logger: 日志记录器，如果为None则使用默认logger</span>
+<span class="sd">            </span>
+<span class="sd">    Returns:</span>
+<span class="sd">        (是否成功, 消息, 统计信息字典)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">logger</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">logger</span> <span class="o">=</span> <span class="n">_get_default_logger</span><span class="p">()</span>
+    
+    <span class="n">stats</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s1">&#39;total_rows&#39;</span><span class="p">:</span> <span class="nb">len</span><span class="p">(</span><span class="n">df</span><span class="p">),</span>
+        <span class="s1">&#39;new_rows&#39;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
+        <span class="s1">&#39;duplicate_rows&#39;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
+        <span class="s1">&#39;inserted_rows&#39;</span><span class="p">:</span> <span class="mi">0</span>
+    <span class="p">}</span>
+    
+    <span class="k">if</span> <span class="n">df</span><span class="o">.</span><span class="n">empty</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">True</span><span class="p">,</span> <span class="s2">&quot;DataFrame为空，跳过插入&quot;</span><span class="p">,</span> <span class="n">stats</span>
+    
+    <span class="k">try</span><span class="p">:</span>
+        <span class="c1"># 检查重复</span>
+        <span class="k">if</span> <span class="n">check_duplicates</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;检查数据库中是否已存在相关数据...&quot;</span><span class="p">)</span>
+            <span class="n">existing_df</span> <span class="o">=</span> <span class="n">check_existing_rows</span><span class="p">(</span><span class="n">cursor</span><span class="p">,</span> <span class="n">df</span><span class="p">,</span> <span class="n">table</span><span class="p">,</span> <span class="n">key_columns</span><span class="p">,</span> <span class="n">logger</span><span class="o">=</span><span class="n">logger</span><span class="p">)</span>
+            
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">existing_df</span><span class="o">.</span><span class="n">empty</span><span class="p">:</span>
+                <span class="c1"># 找出重复的行</span>
+                <span class="c1"># 合并待插入数据和已存在数据，找出重复</span>
+                <span class="n">df_keys</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="n">key_columns</span><span class="p">]</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+                <span class="n">existing_keys</span> <span class="o">=</span> <span class="n">existing_df</span><span class="p">[</span><span class="n">key_columns</span><span class="p">]</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+                
+                <span class="c1"># 确保数据类型一致（特别是datetime）</span>
+                <span class="k">for</span> <span class="n">col</span> <span class="ow">in</span> <span class="n">key_columns</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="n">col</span> <span class="ow">in</span> <span class="n">df_keys</span><span class="o">.</span><span class="n">columns</span> <span class="ow">and</span> <span class="n">col</span> <span class="ow">in</span> <span class="n">existing_keys</span><span class="o">.</span><span class="n">columns</span><span class="p">:</span>
+                        <span class="k">if</span> <span class="n">pd</span><span class="o">.</span><span class="n">api</span><span class="o">.</span><span class="n">types</span><span class="o">.</span><span class="n">is_datetime64_any_dtype</span><span class="p">(</span><span class="n">df_keys</span><span class="p">[</span><span class="n">col</span><span class="p">]):</span>
+                            <span class="n">df_keys</span><span class="p">[</span><span class="n">col</span><span class="p">]</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">to_datetime</span><span class="p">(</span><span class="n">df_keys</span><span class="p">[</span><span class="n">col</span><span class="p">])</span>
+                            <span class="n">existing_keys</span><span class="p">[</span><span class="n">col</span><span class="p">]</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">to_datetime</span><span class="p">(</span><span class="n">existing_keys</span><span class="p">[</span><span class="n">col</span><span class="p">])</span>
+                
+                <span class="c1"># 标记重复</span>
+                <span class="n">df_keys</span><span class="p">[</span><span class="s1">&#39;_temp_index&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">index</span>
+                <span class="n">existing_keys</span><span class="p">[</span><span class="s1">&#39;_exists&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">True</span>
+                
+                <span class="c1"># 合并找出重复</span>
+                <span class="n">merged</span> <span class="o">=</span> <span class="n">df_keys</span><span class="o">.</span><span class="n">merge</span><span class="p">(</span>
+                    <span class="n">existing_keys</span><span class="p">,</span>
+                    <span class="n">on</span><span class="o">=</span><span class="n">key_columns</span><span class="p">,</span>
+                    <span class="n">how</span><span class="o">=</span><span class="s1">&#39;left&#39;</span><span class="p">,</span>
+                    <span class="n">indicator</span><span class="o">=</span><span class="kc">True</span>
+                <span class="p">)</span>
+                
+                <span class="n">duplicate_mask</span> <span class="o">=</span> <span class="n">merged</span><span class="p">[</span><span class="s1">&#39;_merge&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="s1">&#39;both&#39;</span>
+                <span class="n">duplicate_indices</span> <span class="o">=</span> <span class="n">merged</span><span class="p">[</span><span class="n">duplicate_mask</span><span class="p">][</span><span class="s1">&#39;_temp_index&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+                
+                <span class="n">stats</span><span class="p">[</span><span class="s1">&#39;duplicate_rows&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">duplicate_indices</span><span class="p">)</span>
+                
+                <span class="k">if</span> <span class="n">stats</span><span class="p">[</span><span class="s1">&#39;duplicate_rows&#39;</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+                    <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+                        <span class="sa">f</span><span class="s2">&quot;发现 </span><span class="si">{</span><span class="n">stats</span><span class="p">[</span><span class="s1">&#39;duplicate_rows&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2"> 行数据在数据库中已存在&quot;</span>
+                    <span class="p">)</span>
+                    
+                    <span class="k">if</span> <span class="n">skip_duplicates</span><span class="p">:</span>
+                        <span class="c1"># 跳过重复的行</span>
+                        <span class="n">df_to_insert</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="o">~</span><span class="n">df</span><span class="o">.</span><span class="n">index</span><span class="o">.</span><span class="n">isin</span><span class="p">(</span><span class="n">duplicate_indices</span><span class="p">)]</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+                        <span class="n">stats</span><span class="p">[</span><span class="s1">&#39;new_rows&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">df_to_insert</span><span class="p">)</span>
+                        
+                        <span class="k">if</span> <span class="n">df_to_insert</span><span class="o">.</span><span class="n">empty</span><span class="p">:</span>
+                            <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+                                <span class="sa">f</span><span class="s2">&quot;所有 </span><span class="si">{</span><span class="n">stats</span><span class="p">[</span><span class="s1">&#39;total_rows&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2"> 行数据都已存在于数据库中，跳过插入&quot;</span>
+                            <span class="p">)</span>
+                            <span class="n">stats</span><span class="p">[</span><span class="s1">&#39;inserted_rows&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span>
+                            <span class="k">return</span> <span class="kc">True</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;跳过 </span><span class="si">{</span><span class="n">stats</span><span class="p">[</span><span class="s1">&#39;total_rows&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2"> 行重复数据&quot;</span><span class="p">,</span> <span class="n">stats</span>
+                    <span class="k">else</span><span class="p">:</span>
+                        <span class="c1"># 不跳过，插入会失败（由数据库约束决定）</span>
+                        <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;发现重复数据，插入可能会失败（取决于数据库约束）&quot;</span><span class="p">)</span>
+                        <span class="n">df_to_insert</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+                        <span class="n">stats</span><span class="p">[</span><span class="s1">&#39;new_rows&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">df_to_insert</span><span class="p">)</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">df_to_insert</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+                    <span class="n">stats</span><span class="p">[</span><span class="s1">&#39;new_rows&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">df_to_insert</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">df_to_insert</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+                <span class="n">stats</span><span class="p">[</span><span class="s1">&#39;new_rows&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">df_to_insert</span><span class="p">)</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;未发现重复数据，将插入所有行&quot;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">df_to_insert</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+            <span class="n">stats</span><span class="p">[</span><span class="s1">&#39;new_rows&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">df_to_insert</span><span class="p">)</span>
+        
+        <span class="k">if</span> <span class="n">df_to_insert</span><span class="o">.</span><span class="n">empty</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">True</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;跳过 </span><span class="si">{</span><span class="n">stats</span><span class="p">[</span><span class="s1">&#39;duplicate_rows&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2"> 行重复数据&quot;</span><span class="p">,</span> <span class="n">stats</span>
+        
+        <span class="c1"># 准备数据</span>
+        <span class="n">tuples</span> <span class="o">=</span> <span class="p">[</span><span class="nb">tuple</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">df_to_insert</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">()]</span>
+        <span class="n">cols</span> <span class="o">=</span> <span class="s1">&#39;,&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="nb">list</span><span class="p">(</span><span class="n">df_to_insert</span><span class="o">.</span><span class="n">columns</span><span class="p">))</span>
+        
+        <span class="c1"># SQL语句</span>
+        <span class="n">query</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;INSERT INTO </span><span class="si">{</span><span class="n">table</span><span class="si">}</span><span class="s2">(</span><span class="si">{</span><span class="n">cols</span><span class="si">}</span><span class="s2">) VALUES %s&quot;</span>
+        
+        <span class="c1"># 批量插入</span>
+        <span class="n">total_rows</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">tuples</span><span class="p">)</span>
+        <span class="n">inserted_rows</span> <span class="o">=</span> <span class="mi">0</span>
+        
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">total_rows</span><span class="p">,</span> <span class="n">batch_size</span><span class="p">):</span>
+            <span class="n">batch</span> <span class="o">=</span> <span class="n">tuples</span><span class="p">[</span><span class="n">i</span><span class="p">:</span><span class="n">i</span><span class="o">+</span><span class="n">batch_size</span><span class="p">]</span>
+            
+            <span class="n">psycopg2</span><span class="o">.</span><span class="n">extras</span><span class="o">.</span><span class="n">execute_values</span><span class="p">(</span><span class="n">cursor</span><span class="p">,</span> <span class="n">query</span><span class="p">,</span> <span class="n">batch</span><span class="p">)</span>
+            <span class="n">conn</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span>
+            
+            <span class="n">inserted_rows</span> <span class="o">+=</span> <span class="nb">len</span><span class="p">(</span><span class="n">batch</span><span class="p">)</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;已插入 </span><span class="si">{</span><span class="n">inserted_rows</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="n">total_rows</span><span class="si">}</span><span class="s2"> 行&quot;</span><span class="p">)</span>
+        
+        <span class="n">stats</span><span class="p">[</span><span class="s1">&#39;inserted_rows&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">inserted_rows</span>
+        
+        <span class="n">msg_parts</span> <span class="o">=</span> <span class="p">[</span><span class="sa">f</span><span class="s2">&quot;成功插入 </span><span class="si">{</span><span class="n">inserted_rows</span><span class="si">}</span><span class="s2"> 行&quot;</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">stats</span><span class="p">[</span><span class="s1">&#39;duplicate_rows&#39;</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">msg_parts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;，跳过 </span><span class="si">{</span><span class="n">stats</span><span class="p">[</span><span class="s1">&#39;duplicate_rows&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2"> 行重复数据&quot;</span><span class="p">)</span>
+        
+        <span class="n">message</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">msg_parts</span><span class="p">)</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;插入完成: </span><span class="si">{</span><span class="n">message</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="kc">True</span><span class="p">,</span> <span class="n">message</span><span class="p">,</span> <span class="n">stats</span>
+        
+    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;插入数据失败: </span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="n">conn</span><span class="o">.</span><span class="n">rollback</span><span class="p">()</span>
+        <span class="n">error_msg</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)</span>
+        <span class="c1"># 检查是否是重复键错误</span>
+        <span class="k">if</span> <span class="s1">&#39;duplicate&#39;</span> <span class="ow">in</span> <span class="n">error_msg</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="ow">or</span> <span class="s1">&#39;unique&#39;</span> <span class="ow">in</span> <span class="n">error_msg</span><span class="o">.</span><span class="n">lower</span><span class="p">():</span>
+            <span class="n">error_msg</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;发现重复数据: </span><span class="si">{</span><span class="n">error_msg</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="k">return</span> <span class="kc">False</span><span class="p">,</span> <span class="n">error_msg</span><span class="p">,</span> <span class="n">stats</span></div>
+
+
+
+<div class="viewcode-block" id="get_existing_dates">
+<a class="viewcode-back" href="../../../api/datafeed.html#betalens.datafeed.get_existing_dates">[文档]</a>
+<span class="k">def</span> <span class="nf">get_existing_dates</span><span class="p">(</span>
+    <span class="n">cursor</span><span class="p">,</span>
+    <span class="n">table</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">code</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">metric</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">logger</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">logging</span><span class="o">.</span><span class="n">Logger</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">datetime</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    获取数据库中已存在的日期</span>
+<span class="sd">    </span>
+<span class="sd">    Args:</span>
+<span class="sd">        cursor: 数据库游标</span>
+<span class="sd">        table: 表名</span>
+<span class="sd">        code: 代码</span>
+<span class="sd">        metric: 指标</span>
+<span class="sd">        logger: 日志记录器，如果为None则使用默认logger</span>
+<span class="sd">        </span>
+<span class="sd">    Returns:</span>
+<span class="sd">        日期列表</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">logger</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">logger</span> <span class="o">=</span> <span class="n">_get_default_logger</span><span class="p">()</span>
+    
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">query</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;&quot;&quot;</span>
+<span class="s2">        SELECT DISTINCT datetime </span>
+<span class="s2">        FROM </span><span class="si">{</span><span class="n">table</span><span class="si">}</span><span class="s2"> </span>
+<span class="s2">        WHERE code = %s AND metric = %s </span>
+<span class="s2">        ORDER BY datetime</span>
+<span class="s2">        &quot;&quot;&quot;</span>
+        
+        <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="p">(</span><span class="n">code</span><span class="p">,</span> <span class="n">metric</span><span class="p">))</span>
+        <span class="n">results</span> <span class="o">=</span> <span class="n">cursor</span><span class="o">.</span><span class="n">fetchall</span><span class="p">()</span>
+        
+        <span class="n">dates</span> <span class="o">=</span> <span class="p">[</span><span class="n">row</span><span class="p">[</span><span class="s1">&#39;datetime&#39;</span><span class="p">]</span> <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">results</span><span class="p">]</span>
+        <span class="k">return</span> <span class="n">dates</span>
+        
+    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;获取已存在日期失败: </span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="p">[]</span></div>
+
+
+
+<div class="viewcode-block" id="incremental_insert">
+<a class="viewcode-back" href="../../../api/datafeed.html#betalens.datafeed.incremental_insert">[文档]</a>
+<span class="k">def</span> <span class="nf">incremental_insert</span><span class="p">(</span>
+    <span class="n">cursor</span><span class="p">,</span>
+    <span class="n">conn</span><span class="p">,</span>
+    <span class="n">df</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span>
+    <span class="n">table</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">date_column</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;datetime&#39;</span><span class="p">,</span>
+    <span class="n">code_column</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;code&#39;</span><span class="p">,</span>
+    <span class="n">metric_column</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;metric&#39;</span><span class="p">,</span>
+    <span class="n">logger</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">logging</span><span class="o">.</span><span class="n">Logger</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    增量插入：只插入数据库中不存在的数据</span>
+<span class="sd">    </span>
+<span class="sd">    Args:</span>
+<span class="sd">        cursor: 数据库游标</span>
+<span class="sd">        conn: 数据库连接</span>
+<span class="sd">        df: 待插入的DataFrame</span>
+<span class="sd">        table: 目标表名</span>
+<span class="sd">        date_column: 日期列名</span>
+<span class="sd">        code_column: 代码列名</span>
+<span class="sd">        metric_column: 指标列名</span>
+<span class="sd">        logger: 日志记录器，如果为None则使用默认logger</span>
+<span class="sd">        </span>
+<span class="sd">    Returns:</span>
+<span class="sd">        (新增行数, 重复行数)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">logger</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">logger</span> <span class="o">=</span> <span class="n">_get_default_logger</span><span class="p">()</span>
+    
+    <span class="k">if</span> <span class="n">df</span><span class="o">.</span><span class="n">empty</span><span class="p">:</span>
+        <span class="k">return</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span>
+    
+    <span class="k">try</span><span class="p">:</span>
+        <span class="c1"># 获取所有唯一的(code, metric)组合</span>
+        <span class="n">unique_combinations</span> <span class="o">=</span> <span class="n">df</span><span class="p">[[</span><span class="n">code_column</span><span class="p">,</span> <span class="n">metric_column</span><span class="p">]]</span><span class="o">.</span><span class="n">drop_duplicates</span><span class="p">()</span>
+        
+        <span class="c1"># 对每个组合，获取已存在的日期</span>
+        <span class="n">new_data_list</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">duplicate_count</span> <span class="o">=</span> <span class="mi">0</span>
+        
+        <span class="k">for</span> <span class="n">_</span><span class="p">,</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">unique_combinations</span><span class="o">.</span><span class="n">iterrows</span><span class="p">():</span>
+            <span class="n">code</span> <span class="o">=</span> <span class="n">row</span><span class="p">[</span><span class="n">code_column</span><span class="p">]</span>
+            <span class="n">metric</span> <span class="o">=</span> <span class="n">row</span><span class="p">[</span><span class="n">metric_column</span><span class="p">]</span>
+            
+            <span class="c1"># 获取已存在的日期</span>
+            <span class="n">existing_dates</span> <span class="o">=</span> <span class="n">get_existing_dates</span><span class="p">(</span><span class="n">cursor</span><span class="p">,</span> <span class="n">table</span><span class="p">,</span> <span class="n">code</span><span class="p">,</span> <span class="n">metric</span><span class="p">,</span> <span class="n">logger</span><span class="o">=</span><span class="n">logger</span><span class="p">)</span>
+            <span class="n">existing_dates_set</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">existing_dates</span><span class="p">)</span>
+            
+            <span class="c1"># 筛选该组合的数据</span>
+            <span class="n">mask</span> <span class="o">=</span> <span class="p">(</span><span class="n">df</span><span class="p">[</span><span class="n">code_column</span><span class="p">]</span> <span class="o">==</span> <span class="n">code</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">df</span><span class="p">[</span><span class="n">metric_column</span><span class="p">]</span> <span class="o">==</span> <span class="n">metric</span><span class="p">)</span>
+            <span class="n">subset</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="n">mask</span><span class="p">]</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+            
+            <span class="c1"># 找出新数据</span>
+            <span class="k">if</span> <span class="n">existing_dates_set</span><span class="p">:</span>
+                <span class="c1"># 确保datetime列是datetime类型</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="n">pd</span><span class="o">.</span><span class="n">api</span><span class="o">.</span><span class="n">types</span><span class="o">.</span><span class="n">is_datetime64_any_dtype</span><span class="p">(</span><span class="n">subset</span><span class="p">[</span><span class="n">date_column</span><span class="p">]):</span>
+                    <span class="n">subset</span><span class="p">[</span><span class="n">date_column</span><span class="p">]</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">to_datetime</span><span class="p">(</span><span class="n">subset</span><span class="p">[</span><span class="n">date_column</span><span class="p">])</span>
+                
+                <span class="n">new_mask</span> <span class="o">=</span> <span class="o">~</span><span class="n">subset</span><span class="p">[</span><span class="n">date_column</span><span class="p">]</span><span class="o">.</span><span class="n">isin</span><span class="p">(</span><span class="n">existing_dates_set</span><span class="p">)</span>
+                <span class="n">new_data</span> <span class="o">=</span> <span class="n">subset</span><span class="p">[</span><span class="n">new_mask</span><span class="p">]</span>
+                
+                <span class="n">duplicate_count</span> <span class="o">+=</span> <span class="nb">len</span><span class="p">(</span><span class="n">subset</span><span class="p">)</span> <span class="o">-</span> <span class="nb">len</span><span class="p">(</span><span class="n">new_data</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">new_data</span> <span class="o">=</span> <span class="n">subset</span>
+            
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">new_data</span><span class="o">.</span><span class="n">empty</span><span class="p">:</span>
+                <span class="n">new_data_list</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">new_data</span><span class="p">)</span>
+        
+        <span class="c1"># 合并所有新数据</span>
+        <span class="k">if</span> <span class="n">new_data_list</span><span class="p">:</span>
+            <span class="n">new_df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">concat</span><span class="p">(</span><span class="n">new_data_list</span><span class="p">,</span> <span class="n">ignore_index</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+            
+            <span class="c1"># 插入新数据（关闭重复检查，因为已经在增量逻辑中处理了）</span>
+            <span class="n">success</span><span class="p">,</span> <span class="n">message</span><span class="p">,</span> <span class="n">stats</span> <span class="o">=</span> <span class="n">insert_dataframe</span><span class="p">(</span>
+                <span class="n">cursor</span><span class="p">,</span>
+                <span class="n">conn</span><span class="p">,</span>
+                <span class="n">new_df</span><span class="p">,</span> 
+                <span class="n">table</span><span class="p">,</span>
+                <span class="n">check_duplicates</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>  <span class="c1"># 增量插入已经检查过了</span>
+                <span class="n">logger</span><span class="o">=</span><span class="n">logger</span>
+            <span class="p">)</span>
+            
+            <span class="k">if</span> <span class="n">success</span><span class="p">:</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;增量插入完成: 新增 </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">new_df</span><span class="p">)</span><span class="si">}</span><span class="s2"> 行, 跳过 </span><span class="si">{</span><span class="n">duplicate_count</span><span class="si">}</span><span class="s2"> 行重复数据&quot;</span><span class="p">)</span>
+                <span class="k">return</span> <span class="nb">len</span><span class="p">(</span><span class="n">new_df</span><span class="p">),</span> <span class="n">duplicate_count</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;增量插入失败: </span><span class="si">{</span><span class="n">message</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                <span class="k">return</span> <span class="mi">0</span><span class="p">,</span> <span class="n">duplicate_count</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;没有新数据需要插入，所有 </span><span class="si">{</span><span class="n">duplicate_count</span><span class="si">}</span><span class="s2"> 行数据已存在&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="mi">0</span><span class="p">,</span> <span class="n">duplicate_count</span>
+            
+    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;增量插入失败: </span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="n">conn</span><span class="o">.</span><span class="n">rollback</span><span class="p">()</span>
+        <span class="k">return</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span></div>
+
+
+
+<div class="viewcode-block" id="save_error_file">
+<a class="viewcode-back" href="../../../api/datafeed.html#betalens.datafeed.save_error_file">[文档]</a>
+<span class="k">def</span> <span class="nf">save_error_file</span><span class="p">(</span>
+    <span class="n">filepath</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Path</span><span class="p">],</span>
+    <span class="n">df</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">],</span>
+    <span class="n">errors</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">Dict</span><span class="p">],</span>
+    <span class="n">error_dir</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Path</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;./errors&quot;</span><span class="p">,</span>
+    <span class="n">error_subdir</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;failed_files&quot;</span><span class="p">,</span>
+    <span class="n">logger</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">logging</span><span class="o">.</span><span class="n">Logger</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    保存错误文件和日志</span>
+<span class="sd">    </span>
+<span class="sd">    Args:</span>
+<span class="sd">        filepath: 原始文件路径</span>
+<span class="sd">        df: 处理后的DataFrame（可能为None）</span>
+<span class="sd">        errors: 错误列表</span>
+<span class="sd">        error_dir: 错误文件保存目录</span>
+<span class="sd">        error_subdir: 错误子目录</span>
+<span class="sd">        logger: 日志记录器，如果为None则使用默认logger</span>
+<span class="sd">        </span>
+<span class="sd">    Returns:</span>
+<span class="sd">        错误记录ID</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">logger</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">logger</span> <span class="o">=</span> <span class="n">_get_default_logger</span><span class="p">()</span>
+    
+    <span class="n">filepath</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">filepath</span><span class="p">)</span>
+    <span class="n">timestamp</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="s1">&#39;%Y%m</span><span class="si">%d</span><span class="s1">_%H%M%S&#39;</span><span class="p">)</span>
+    <span class="n">error_id</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">filepath</span><span class="o">.</span><span class="n">stem</span><span class="si">}</span><span class="s2">_</span><span class="si">{</span><span class="n">timestamp</span><span class="si">}</span><span class="s2">&quot;</span>
+    
+    <span class="c1"># 创建错误文件目录</span>
+    <span class="n">error_dir_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">error_dir</span><span class="p">)</span>
+    <span class="n">error_dir_path</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">parents</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    
+    <span class="c1"># 创建错误子目录</span>
+    <span class="n">error_path</span> <span class="o">=</span> <span class="n">error_dir_path</span> <span class="o">/</span> <span class="n">error_subdir</span>
+    <span class="n">error_path</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">parents</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    
+    <span class="c1"># 复制源文件</span>
+    <span class="n">source_copy</span> <span class="o">=</span> <span class="n">error_path</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">error_id</span><span class="si">}</span><span class="s2">_source</span><span class="si">{</span><span class="n">filepath</span><span class="o">.</span><span class="n">suffix</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="n">shutil</span><span class="o">.</span><span class="n">copy2</span><span class="p">(</span><span class="n">filepath</span><span class="p">,</span> <span class="n">source_copy</span><span class="p">)</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;已保存源文件: </span><span class="si">{</span><span class="n">source_copy</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    
+    <span class="c1"># 保存处理后的数据（如果有）</span>
+    <span class="k">if</span> <span class="n">df</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">df</span><span class="o">.</span><span class="n">empty</span><span class="p">:</span>
+        <span class="n">processed_file</span> <span class="o">=</span> <span class="n">error_path</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">error_id</span><span class="si">}</span><span class="s2">_processed.csv&quot;</span>
+        <span class="n">df</span><span class="o">.</span><span class="n">to_csv</span><span class="p">(</span><span class="n">processed_file</span><span class="p">,</span> <span class="n">index</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="s1">&#39;utf_8_sig&#39;</span><span class="p">)</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;已保存处理后数据: </span><span class="si">{</span><span class="n">processed_file</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    
+    <span class="c1"># 保存错误日志</span>
+    <span class="n">error_log_file</span> <span class="o">=</span> <span class="n">error_path</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">error_id</span><span class="si">}</span><span class="s2">_errors.json&quot;</span>
+    <span class="n">error_info</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s1">&#39;error_id&#39;</span><span class="p">:</span> <span class="n">error_id</span><span class="p">,</span>
+        <span class="s1">&#39;source_file&#39;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">filepath</span><span class="p">),</span>
+        <span class="s1">&#39;timestamp&#39;</span><span class="p">:</span> <span class="n">timestamp</span><span class="p">,</span>
+        <span class="s1">&#39;errors&#39;</span><span class="p">:</span> <span class="n">errors</span>
+    <span class="p">}</span>
+    
+    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">error_log_file</span><span class="p">,</span> <span class="s1">&#39;w&#39;</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+        <span class="n">json</span><span class="o">.</span><span class="n">dump</span><span class="p">(</span><span class="n">error_info</span><span class="p">,</span> <span class="n">f</span><span class="p">,</span> <span class="n">ensure_ascii</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">indent</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+    
+    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;已保存错误日志: </span><span class="si">{</span><span class="n">error_log_file</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    
+    <span class="k">return</span> <span class="n">error_id</span></div>
+
+
+
+<div class="viewcode-block" id="process_directory_tree">
+<a class="viewcode-back" href="../../../api/datafeed.html#betalens.datafeed.process_directory_tree">[文档]</a>
+<span class="k">def</span> <span class="nf">process_directory_tree</span><span class="p">(</span>
+    <span class="n">cursor</span><span class="p">,</span>
+    <span class="n">conn</span><span class="p">,</span>
+    <span class="n">root_dir</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Path</span><span class="p">],</span>
+    <span class="n">table</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">config</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
+    <span class="n">file_pattern</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;*.csv&quot;</span><span class="p">,</span>
+    <span class="n">recursive</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="n">mode</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;insert&#39;</span><span class="p">,</span>  <span class="c1"># &#39;insert&#39; or &#39;incremental&#39;</span>
+    <span class="n">error_dir</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Path</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;./errors&quot;</span><span class="p">,</span>
+    <span class="n">logger</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">logging</span><span class="o">.</span><span class="n">Logger</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    按照目录树结构处理和插入Excel文件</span>
+<span class="sd">    </span>
+<span class="sd">    Args:</span>
+<span class="sd">        cursor: 数据库游标</span>
+<span class="sd">        conn: 数据库连接</span>
+<span class="sd">        root_dir: 根目录</span>
+<span class="sd">        table: 目标表名</span>
+<span class="sd">        config: 处理配置</span>
+<span class="sd">        file_pattern: 文件匹配模式</span>
+<span class="sd">        recursive: 是否递归搜索</span>
+<span class="sd">        mode: 插入模式，&#39;insert&#39;（直接插入）或&#39;incremental&#39;（增量插入）</span>
+<span class="sd">        error_dir: 错误文件保存目录</span>
+<span class="sd">        logger: 日志记录器，如果为None则使用默认logger</span>
+<span class="sd">        </span>
+<span class="sd">    Returns:</span>
+<span class="sd">        处理统计字典</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">logger</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">logger</span> <span class="o">=</span> <span class="n">_get_default_logger</span><span class="p">()</span>
+    
+    <span class="n">root_dir</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">root_dir</span><span class="p">)</span>
+    
+    <span class="c1"># 统计信息</span>
+    <span class="n">stats</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s1">&#39;total_files&#39;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
+        <span class="s1">&#39;success_files&#39;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
+        <span class="s1">&#39;error_files&#39;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
+        <span class="s1">&#39;total_rows_inserted&#39;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
+        <span class="s1">&#39;total_rows_skipped&#39;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
+        <span class="s1">&#39;error_details&#39;</span><span class="p">:</span> <span class="p">[]</span>
+    <span class="p">}</span>
+    
+    <span class="c1"># 错误日志收集器</span>
+    <span class="n">error_log</span> <span class="o">=</span> <span class="p">[]</span>
+    
+    <span class="c1"># 查找所有文件</span>
+    <span class="k">if</span> <span class="n">recursive</span><span class="p">:</span>
+        <span class="n">files</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">root_dir</span><span class="o">.</span><span class="n">rglob</span><span class="p">(</span><span class="n">file_pattern</span><span class="p">))</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">files</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">root_dir</span><span class="o">.</span><span class="n">glob</span><span class="p">(</span><span class="n">file_pattern</span><span class="p">))</span>
+    
+    <span class="n">stats</span><span class="p">[</span><span class="s1">&#39;total_files&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">files</span><span class="p">)</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;找到 </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">files</span><span class="p">)</span><span class="si">}</span><span class="s2"> 个文件需要处理&quot;</span><span class="p">)</span>
+    
+    <span class="c1"># 处理每个文件</span>
+    <span class="k">for</span> <span class="n">file</span> <span class="ow">in</span> <span class="n">files</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;处理文件: </span><span class="si">{</span><span class="n">file</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        
+        <span class="k">try</span><span class="p">:</span>
+            <span class="c1"># 1. 处理文件</span>
+            <span class="n">df</span><span class="p">,</span> <span class="n">errors</span> <span class="o">=</span> <span class="n">process_excel_to_db_format</span><span class="p">(</span><span class="n">file</span><span class="p">,</span> <span class="n">config</span><span class="p">,</span> <span class="n">logger</span><span class="o">=</span><span class="n">logger</span><span class="p">)</span>
+            
+            <span class="k">if</span> <span class="n">df</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">errors</span><span class="p">:</span>
+                <span class="c1"># 有错误，保存错误文件</span>
+                <span class="n">error_id</span> <span class="o">=</span> <span class="n">save_error_file</span><span class="p">(</span>
+                    <span class="n">file</span><span class="p">,</span> <span class="n">df</span><span class="p">,</span> <span class="n">errors</span><span class="p">,</span> 
+                    <span class="n">error_dir</span><span class="o">=</span><span class="n">error_dir</span><span class="p">,</span> 
+                    <span class="n">logger</span><span class="o">=</span><span class="n">logger</span>
+                <span class="p">)</span>
+                <span class="n">error_log</span><span class="o">.</span><span class="n">append</span><span class="p">({</span>
+                    <span class="s1">&#39;error_id&#39;</span><span class="p">:</span> <span class="n">error_id</span><span class="p">,</span>
+                    <span class="s1">&#39;source_file&#39;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">file</span><span class="p">),</span>
+                    <span class="s1">&#39;timestamp&#39;</span><span class="p">:</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="s1">&#39;%Y%m</span><span class="si">%d</span><span class="s1">_%H%M%S&#39;</span><span class="p">),</span>
+                    <span class="s1">&#39;errors&#39;</span><span class="p">:</span> <span class="n">errors</span>
+                <span class="p">})</span>
+                <span class="n">stats</span><span class="p">[</span><span class="s1">&#39;error_files&#39;</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
+                <span class="n">stats</span><span class="p">[</span><span class="s1">&#39;error_details&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">({</span>
+                    <span class="s1">&#39;file&#39;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">file</span><span class="p">),</span>
+                    <span class="s1">&#39;error_id&#39;</span><span class="p">:</span> <span class="n">error_id</span><span class="p">,</span>
+                    <span class="s1">&#39;errors&#39;</span><span class="p">:</span> <span class="n">errors</span>
+                <span class="p">})</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;文件处理失败: </span><span class="si">{</span><span class="n">file</span><span class="si">}</span><span class="s2">, 错误ID: </span><span class="si">{</span><span class="n">error_id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                <span class="k">continue</span>
+            
+            <span class="c1"># 2. 插入数据库</span>
+            <span class="k">if</span> <span class="n">mode</span> <span class="o">==</span> <span class="s1">&#39;insert&#39;</span><span class="p">:</span>
+                <span class="c1"># 使用重复检查（默认开启）</span>
+                <span class="n">success</span><span class="p">,</span> <span class="n">message</span><span class="p">,</span> <span class="n">insert_stats</span> <span class="o">=</span> <span class="n">insert_dataframe</span><span class="p">(</span>
+                    <span class="n">cursor</span><span class="p">,</span>
+                    <span class="n">conn</span><span class="p">,</span>
+                    <span class="n">df</span><span class="p">,</span> 
+                    <span class="n">table</span><span class="p">,</span>
+                    <span class="n">check_duplicates</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+                    <span class="n">skip_duplicates</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+                    <span class="n">logger</span><span class="o">=</span><span class="n">logger</span>
+                <span class="p">)</span>
+                
+                <span class="k">if</span> <span class="n">success</span><span class="p">:</span>
+                    <span class="n">stats</span><span class="p">[</span><span class="s1">&#39;success_files&#39;</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
+                    <span class="n">stats</span><span class="p">[</span><span class="s1">&#39;total_rows_inserted&#39;</span><span class="p">]</span> <span class="o">+=</span> <span class="n">insert_stats</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;inserted_rows&#39;</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+                    <span class="n">stats</span><span class="p">[</span><span class="s1">&#39;total_rows_skipped&#39;</span><span class="p">]</span> <span class="o">+=</span> <span class="n">insert_stats</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;duplicate_rows&#39;</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+                    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;文件处理成功: </span><span class="si">{</span><span class="n">file</span><span class="si">}</span><span class="s2"> - </span><span class="si">{</span><span class="n">message</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">error_id</span> <span class="o">=</span> <span class="n">save_error_file</span><span class="p">(</span>
+                        <span class="n">file</span><span class="p">,</span> <span class="n">df</span><span class="p">,</span> <span class="p">[{</span>
+                            <span class="s1">&#39;type&#39;</span><span class="p">:</span> <span class="s1">&#39;insert_error&#39;</span><span class="p">,</span>
+                            <span class="s1">&#39;message&#39;</span><span class="p">:</span> <span class="n">message</span>
+                        <span class="p">}],</span>
+                        <span class="n">error_dir</span><span class="o">=</span><span class="n">error_dir</span><span class="p">,</span>
+                        <span class="n">logger</span><span class="o">=</span><span class="n">logger</span>
+                    <span class="p">)</span>
+                    <span class="n">error_log</span><span class="o">.</span><span class="n">append</span><span class="p">({</span>
+                        <span class="s1">&#39;error_id&#39;</span><span class="p">:</span> <span class="n">error_id</span><span class="p">,</span>
+                        <span class="s1">&#39;source_file&#39;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">file</span><span class="p">),</span>
+                        <span class="s1">&#39;timestamp&#39;</span><span class="p">:</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="s1">&#39;%Y%m</span><span class="si">%d</span><span class="s1">_%H%M%S&#39;</span><span class="p">),</span>
+                        <span class="s1">&#39;errors&#39;</span><span class="p">:</span> <span class="p">[{</span><span class="s1">&#39;type&#39;</span><span class="p">:</span> <span class="s1">&#39;insert_error&#39;</span><span class="p">,</span> <span class="s1">&#39;message&#39;</span><span class="p">:</span> <span class="n">message</span><span class="p">}]</span>
+                    <span class="p">})</span>
+                    <span class="n">stats</span><span class="p">[</span><span class="s1">&#39;error_files&#39;</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
+                    <span class="n">stats</span><span class="p">[</span><span class="s1">&#39;error_details&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">({</span>
+                        <span class="s1">&#39;file&#39;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">file</span><span class="p">),</span>
+                        <span class="s1">&#39;error_id&#39;</span><span class="p">:</span> <span class="n">error_id</span><span class="p">,</span>
+                        <span class="s1">&#39;errors&#39;</span><span class="p">:</span> <span class="p">[{</span><span class="s1">&#39;type&#39;</span><span class="p">:</span> <span class="s1">&#39;insert_error&#39;</span><span class="p">,</span> <span class="s1">&#39;message&#39;</span><span class="p">:</span> <span class="n">message</span><span class="p">}]</span>
+                    <span class="p">})</span>
+            
+            <span class="k">elif</span> <span class="n">mode</span> <span class="o">==</span> <span class="s1">&#39;incremental&#39;</span><span class="p">:</span>
+                <span class="n">new_rows</span><span class="p">,</span> <span class="n">skipped_rows</span> <span class="o">=</span> <span class="n">incremental_insert</span><span class="p">(</span>
+                    <span class="n">cursor</span><span class="p">,</span>
+                    <span class="n">conn</span><span class="p">,</span>
+                    <span class="n">df</span><span class="p">,</span> 
+                    <span class="n">table</span><span class="p">,</span>
+                    <span class="n">logger</span><span class="o">=</span><span class="n">logger</span>
+                <span class="p">)</span>
+                
+                <span class="k">if</span> <span class="n">new_rows</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="ow">or</span> <span class="n">skipped_rows</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+                    <span class="n">stats</span><span class="p">[</span><span class="s1">&#39;success_files&#39;</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
+                    <span class="n">stats</span><span class="p">[</span><span class="s1">&#39;total_rows_inserted&#39;</span><span class="p">]</span> <span class="o">+=</span> <span class="n">new_rows</span>
+                    <span class="n">stats</span><span class="p">[</span><span class="s1">&#39;total_rows_skipped&#39;</span><span class="p">]</span> <span class="o">+=</span> <span class="n">skipped_rows</span>
+                    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;文件增量插入成功: </span><span class="si">{</span><span class="n">file</span><span class="si">}</span><span class="s2">, 新增</span><span class="si">{</span><span class="n">new_rows</span><span class="si">}</span><span class="s2">行, 跳过</span><span class="si">{</span><span class="n">skipped_rows</span><span class="si">}</span><span class="s2">行&quot;</span><span class="p">)</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;文件无新数据: </span><span class="si">{</span><span class="n">file</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                    <span class="n">stats</span><span class="p">[</span><span class="s1">&#39;success_files&#39;</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
+            
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;处理文件异常 </span><span class="si">{</span><span class="n">file</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">error_id</span> <span class="o">=</span> <span class="n">save_error_file</span><span class="p">(</span>
+                <span class="n">file</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="p">[{</span>
+                    <span class="s1">&#39;type&#39;</span><span class="p">:</span> <span class="s1">&#39;exception&#39;</span><span class="p">,</span>
+                    <span class="s1">&#39;message&#39;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)</span>
+                <span class="p">}],</span>
+                <span class="n">error_dir</span><span class="o">=</span><span class="n">error_dir</span><span class="p">,</span>
+                <span class="n">logger</span><span class="o">=</span><span class="n">logger</span>
+            <span class="p">)</span>
+            <span class="n">error_log</span><span class="o">.</span><span class="n">append</span><span class="p">({</span>
+                <span class="s1">&#39;error_id&#39;</span><span class="p">:</span> <span class="n">error_id</span><span class="p">,</span>
+                <span class="s1">&#39;source_file&#39;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">file</span><span class="p">),</span>
+                <span class="s1">&#39;timestamp&#39;</span><span class="p">:</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="s1">&#39;%Y%m</span><span class="si">%d</span><span class="s1">_%H%M%S&#39;</span><span class="p">),</span>
+                <span class="s1">&#39;errors&#39;</span><span class="p">:</span> <span class="p">[{</span><span class="s1">&#39;type&#39;</span><span class="p">:</span> <span class="s1">&#39;exception&#39;</span><span class="p">,</span> <span class="s1">&#39;message&#39;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)}]</span>
+            <span class="p">})</span>
+            <span class="n">stats</span><span class="p">[</span><span class="s1">&#39;error_files&#39;</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="n">stats</span><span class="p">[</span><span class="s1">&#39;error_details&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">({</span>
+                <span class="s1">&#39;file&#39;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">file</span><span class="p">),</span>
+                <span class="s1">&#39;error_id&#39;</span><span class="p">:</span> <span class="n">error_id</span><span class="p">,</span>
+                <span class="s1">&#39;errors&#39;</span><span class="p">:</span> <span class="p">[{</span><span class="s1">&#39;type&#39;</span><span class="p">:</span> <span class="s1">&#39;exception&#39;</span><span class="p">,</span> <span class="s1">&#39;message&#39;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)}]</span>
+            <span class="p">})</span>
+    
+    <span class="c1"># 保存总错误日志</span>
+    <span class="k">if</span> <span class="n">error_log</span><span class="p">:</span>
+        <span class="n">error_dir_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">error_dir</span><span class="p">)</span>
+        <span class="n">error_dir_path</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">parents</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="n">summary_log</span> <span class="o">=</span> <span class="n">error_dir_path</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">&quot;error_summary_</span><span class="si">{</span><span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="s1">&#39;%Y%m</span><span class="si">%d</span><span class="s1">_%H%M%S&#39;</span><span class="p">)</span><span class="si">}</span><span class="s2">.json&quot;</span>
+        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">summary_log</span><span class="p">,</span> <span class="s1">&#39;w&#39;</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+            <span class="n">json</span><span class="o">.</span><span class="n">dump</span><span class="p">({</span>
+                <span class="s1">&#39;stats&#39;</span><span class="p">:</span> <span class="n">stats</span><span class="p">,</span>
+                <span class="s1">&#39;errors&#39;</span><span class="p">:</span> <span class="n">error_log</span>
+            <span class="p">},</span> <span class="n">f</span><span class="p">,</span> <span class="n">ensure_ascii</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">indent</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;已保存总错误日志: </span><span class="si">{</span><span class="n">summary_log</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    
+    <span class="c1"># 输出统计</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;=&quot;</span><span class="o">*</span><span class="mi">50</span><span class="p">)</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;处理完成统计:&quot;</span><span class="p">)</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  总文件数: </span><span class="si">{</span><span class="n">stats</span><span class="p">[</span><span class="s1">&#39;total_files&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  成功: </span><span class="si">{</span><span class="n">stats</span><span class="p">[</span><span class="s1">&#39;success_files&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  失败: </span><span class="si">{</span><span class="n">stats</span><span class="p">[</span><span class="s1">&#39;error_files&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  插入行数: </span><span class="si">{</span><span class="n">stats</span><span class="p">[</span><span class="s1">&#39;total_rows_inserted&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  跳过行数: </span><span class="si">{</span><span class="n">stats</span><span class="p">[</span><span class="s1">&#39;total_rows_skipped&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;=&quot;</span><span class="o">*</span><span class="mi">50</span><span class="p">)</span>
+    
+    <span class="k">return</span> <span class="n">stats</span></div>
+
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; 版权所有 2025, Janis。</p>
+  </div>
+
+  利用 <a href="https://www.sphinx-doc.org/">Sphinx</a> 构建，使用的 
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">主题</a>
+    由 <a href="https://readthedocs.org">Read the Docs</a> 开发.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

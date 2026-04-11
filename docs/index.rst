@@ -93,6 +93,7 @@ Betalens 文档
    guide/factor
    guide/backtest
    guide/analyst
+   guide/eventstudy
    guide/robust
 
 .. toctree::
@@ -103,6 +104,7 @@ Betalens 文档
    api/factor
    api/backtest
    api/analyst
+   api/eventstudy
    api/robust
 
 索引

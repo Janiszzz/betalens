@@ -1,0 +1,1736 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="zh-CN" data-content_root="../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>betalens.datafeed.core &mdash; Betalens 1.1.0 文档</title>
+      <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=fa44fd50" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../_static/documentation_options.js?v=ab4a11d3"></script>
+      <script src="../../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../../_static/sphinx_highlight.js?v=dc90522c"></script>
+      <script src="../../../_static/translations.js?v=beaddf03"></script>
+    <script src="../../../_static/js/theme.js"></script>
+    <link rel="index" title="索引" href="../../../genindex.html" />
+    <link rel="search" title="搜索" href="../../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../index.html" class="icon icon-home">
+            Betalens
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../search.html" method="get">
+    <input type="text" name="q" placeholder="搜索文档" aria-label="搜索文档" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="导航菜单">
+              <p class="caption" role="heading"><span class="caption-text">快速开始</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../getting-started/installation.html">安装指南</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../getting-started/installation.html#id2">环境要求</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../getting-started/installation.html#pypi">通过 PyPI 安装</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../getting-started/installation.html#id3">源码安装（推荐开发者）</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../getting-started/installation.html#id4">数据库与配置</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../getting-started/installation.html#id5">验证安装</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../getting-started/installation.html#id6">常见问题</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../../getting-started/quickstart.html">10 分钟快速上手</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../getting-started/quickstart.html#id2">1. 准备调仓日与可交易标的</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../getting-started/quickstart.html#id3">2. 批量预查询因子数据</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../getting-started/quickstart.html#id4">3. 单因子分组打标签</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../getting-started/quickstart.html#id5">4. 派生多空权重</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../getting-started/quickstart.html#id6">5. 回测组合净值</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../getting-started/quickstart.html#id7">6. 绩效分析与报告</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../getting-started/quickstart.html#double-sort">7. 双因子分组（Double Sort）</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../getting-started/quickstart.html#multi-factor-sort">8. 多因子分组（Multi-Factor Sort）</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../getting-started/quickstart.html#id8">9. 启用稳健性检验（可选）</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">用户指南</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../guide/datafeed.html">Datafeed 使用指南</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/datafeed.html#id1">模块结构</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/datafeed.html#id2">快速连接数据库</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/datafeed.html#id3">常用查询</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../guide/datafeed.html#id4">时间范围查询</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../guide/datafeed.html#id5">最近时点查询</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../guide/datafeed.html#id6">辅助查询函数</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/datafeed.html#excel-ede">Excel &amp; EDE 导入</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../guide/datafeed.html#csv-excel">CSV/Excel 文件导入</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../guide/datafeed.html#ede">EDE 文件导入</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../guide/datafeed.html#id7">批量导入</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/datafeed.html#wind">Wind 数据抓取</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/datafeed.html#id8">数据验证</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/datafeed.html#id9">增量更新</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/datafeed.html#id10">交易日辅助函数</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/datafeed.html#id11">注意事项</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../../guide/factor.html">因子模块</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/factor.html#id2">获取可交易池</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/factor.html#id7">批量预查询因子数据</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/factor.html#id8">单因子分组</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/factor.html#id11">生成单因子权重</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/factor.html#double-sort">双因子分组（Double Sort）</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/factor.html#id12">生成双因子权重</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/factor.html#multi-factor-sort">多因子分组（Multi-Factor Sort）</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/factor.html#id13">生成多因子权重</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/factor.html#id14">描述性统计</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/factor.html#id15">实践提示</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../../guide/backtest.html">回测模块</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/backtest.html#id2">权重矩阵规范</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/backtest.html#id3">回测执行</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/backtest.html#id4">主要属性</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/backtest.html#id5">内部步骤</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/backtest.html#id6">异常处理</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/backtest.html#id7">数据验证</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/backtest.html#id8">常见扩展</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../../guide/analyst.html">绩效分析模块</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/analyst.html#portfolioanalyzer">PortfolioAnalyzer</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../guide/analyst.html#id2">核心指标</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../guide/analyst.html#id3">滚动指标</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../guide/analyst.html#id4">关键属性</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/analyst.html#reportexporter">ReportExporter</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../guide/analyst.html#id5">分年度报告</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../guide/analyst.html#id6">自定义时段报告</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../guide/analyst.html#id7">基准对比报告</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../guide/analyst.html#id8">指定分析区间</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../guide/analyst.html#id9">输出方式</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/analyst.html#id10">高级用法</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../guide/analyst.html#id11">滚动指标绘图</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../guide/analyst.html#id12">自定义指标</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../guide/analyst.html#id13">多策略对比</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/analyst.html#id14">常见问题</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../../guide/eventstudy.html">事件研究模块</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/eventstudy.html#id2">模块概述</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/eventstudy.html#id3">初始化</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/eventstudy.html#id4">基础事件分析</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../guide/eventstudy.html#day-0">Day 0 成本价规则</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/eventstudy.html#id5">分析模式</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../guide/eventstudy.html#flexible">flexible 模式（默认）</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../guide/eventstudy.html#fixed">fixed 模式</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../guide/eventstudy.html#id6">持有起点偏移</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/eventstudy.html#id7">基准超额收益</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/eventstudy.html#id8">多标的平均模式</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/eventstudy.html#id9">可视化</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../guide/eventstudy.html#id10">柱状图：事件前后平均日收益</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../guide/eventstudy.html#id11">折线图：累积收益曲线</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../guide/eventstudy.html#id12">多股票单事件对比</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../guide/eventstudy.html#id13">单股票多事件对比</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/eventstudy.html#id14">完整示例</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../../guide/robust.html">稳健性检验</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/robust.html#id2">模块定位</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/robust.html#robusttest">RobustTest 流程</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/robust.html#id3">核心步骤详解</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/robust.html#id4">结果解读</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/robust.html#panel">面板回归（Panel）</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/robust.html#id5">辅助工具</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/robust.html#id6">并行 &amp; 扩展</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/robust.html#id9">最佳实践</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API 参考</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../api/datafeed.html">Datafeed API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed"><code class="docutils literal notranslate"><span class="pre">Datafeed</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.__init__"><code class="docutils literal notranslate"><span class="pre">Datafeed.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.insert_csv_file"><code class="docutils literal notranslate"><span class="pre">Datafeed.insert_csv_file()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.insert_ede_file"><code class="docutils literal notranslate"><span class="pre">Datafeed.insert_ede_file()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.batch_process_excel_files"><code class="docutils literal notranslate"><span class="pre">Datafeed.batch_process_excel_files()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.incremental_update"><code class="docutils literal notranslate"><span class="pre">Datafeed.incremental_update()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.insert_with_conflict_check"><code class="docutils literal notranslate"><span class="pre">Datafeed.insert_with_conflict_check()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.update_data"><code class="docutils literal notranslate"><span class="pre">Datafeed.update_data()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.ingest_wind_daily_market"><code class="docutils literal notranslate"><span class="pre">Datafeed.ingest_wind_daily_market()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.ingest_wind_daily_index"><code class="docutils literal notranslate"><span class="pre">Datafeed.ingest_wind_daily_index()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.ingest_wind_daily_fund"><code class="docutils literal notranslate"><span class="pre">Datafeed.ingest_wind_daily_fund()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.ingest_wind_daily_bond"><code class="docutils literal notranslate"><span class="pre">Datafeed.ingest_wind_daily_bond()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.run_query"><code class="docutils literal notranslate"><span class="pre">Datafeed.run_query()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.query_time_range"><code class="docutils literal notranslate"><span class="pre">Datafeed.query_time_range()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.query_nearest_after"><code class="docutils literal notranslate"><span class="pre">Datafeed.query_nearest_after()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.query_nearest_before"><code class="docutils literal notranslate"><span class="pre">Datafeed.query_nearest_before()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.get_latest_date"><code class="docutils literal notranslate"><span class="pre">Datafeed.get_latest_date()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.get_available_dates"><code class="docutils literal notranslate"><span class="pre">Datafeed.get_available_dates()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.validate_dataframe"><code class="docutils literal notranslate"><span class="pre">Datafeed.validate_dataframe()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.check_excel_file"><code class="docutils literal notranslate"><span class="pre">Datafeed.check_excel_file()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.truncate_table"><code class="docutils literal notranslate"><span class="pre">Datafeed.truncate_table()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.close"><code class="docutils literal notranslate"><span class="pre">Datafeed.close()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.read_file"><code class="docutils literal notranslate"><span class="pre">read_file()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.read_csv_with_encoding"><code class="docutils literal notranslate"><span class="pre">read_csv_with_encoding()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.cross_section_to_db_format"><code class="docutils literal notranslate"><span class="pre">cross_section_to_db_format()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.batch_read_files"><code class="docutils literal notranslate"><span class="pre">batch_read_files()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.batch_write_files"><code class="docutils literal notranslate"><span class="pre">batch_write_files()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.create_directory_tree"><code class="docutils literal notranslate"><span class="pre">create_directory_tree()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.check_excel_errors"><code class="docutils literal notranslate"><span class="pre">check_excel_errors()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.FillStrategy"><code class="docutils literal notranslate"><span class="pre">FillStrategy</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.FillStrategy.RAISE_ERROR"><code class="docutils literal notranslate"><span class="pre">FillStrategy.RAISE_ERROR</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.FillStrategy.DROP"><code class="docutils literal notranslate"><span class="pre">FillStrategy.DROP</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.FillStrategy.FILL_FORWARD"><code class="docutils literal notranslate"><span class="pre">FillStrategy.FILL_FORWARD</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.FillStrategy.FILL_BACKWARD"><code class="docutils literal notranslate"><span class="pre">FillStrategy.FILL_BACKWARD</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.FillStrategy.FILL_VALUE"><code class="docutils literal notranslate"><span class="pre">FillStrategy.FILL_VALUE</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.FillStrategy.FILL_MEAN"><code class="docutils literal notranslate"><span class="pre">FillStrategy.FILL_MEAN</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.FillStrategy.FILL_MEDIAN"><code class="docutils literal notranslate"><span class="pre">FillStrategy.FILL_MEDIAN</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.FillStrategy.FILL_MODE"><code class="docutils literal notranslate"><span class="pre">FillStrategy.FILL_MODE</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.FillStrategy.INTERPOLATE"><code class="docutils literal notranslate"><span class="pre">FillStrategy.INTERPOLATE</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.check_null_values"><code class="docutils literal notranslate"><span class="pre">check_null_values()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.check_datetime_column"><code class="docutils literal notranslate"><span class="pre">check_datetime_column()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.fix_null_values"><code class="docutils literal notranslate"><span class="pre">fix_null_values()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.drop_duplicates_strict"><code class="docutils literal notranslate"><span class="pre">drop_duplicates_strict()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.fix_datetime_column"><code class="docutils literal notranslate"><span class="pre">fix_datetime_column()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.validate_and_fix"><code class="docutils literal notranslate"><span class="pre">validate_and_fix()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.DataValidator"><code class="docutils literal notranslate"><span class="pre">DataValidator</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.DataValidator.__init__"><code class="docutils literal notranslate"><span class="pre">DataValidator.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.DataValidator.check_null_values"><code class="docutils literal notranslate"><span class="pre">DataValidator.check_null_values()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.DataValidator.check_datetime_column"><code class="docutils literal notranslate"><span class="pre">DataValidator.check_datetime_column()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.DataValidator.fix_null_values"><code class="docutils literal notranslate"><span class="pre">DataValidator.fix_null_values()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.DataValidator.drop_duplicates_strict"><code class="docutils literal notranslate"><span class="pre">DataValidator.drop_duplicates_strict()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.DataValidator.fix_datetime_column"><code class="docutils literal notranslate"><span class="pre">DataValidator.fix_datetime_column()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.DataValidator.validate_and_fix"><code class="docutils literal notranslate"><span class="pre">DataValidator.validate_and_fix()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.build_query"><code class="docutils literal notranslate"><span class="pre">build_query()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.generate_input_pairs"><code class="docutils literal notranslate"><span class="pre">generate_input_pairs()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.build_nearest_query"><code class="docutils literal notranslate"><span class="pre">build_nearest_query()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.query_nearest_after"><code class="docutils literal notranslate"><span class="pre">query_nearest_after()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.query_nearest_before"><code class="docutils literal notranslate"><span class="pre">query_nearest_before()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.query_time_range"><code class="docutils literal notranslate"><span class="pre">query_time_range()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.get_available_dates"><code class="docutils literal notranslate"><span class="pre">get_available_dates()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.get_latest_date"><code class="docutils literal notranslate"><span class="pre">get_latest_date()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.pivot_to_wide"><code class="docutils literal notranslate"><span class="pre">pivot_to_wide()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.align_to_dates"><code class="docutils literal notranslate"><span class="pre">align_to_dates()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.calculate_returns"><code class="docutils literal notranslate"><span class="pre">calculate_returns()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.process_excel_to_db_format"><code class="docutils literal notranslate"><span class="pre">process_excel_to_db_format()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.check_existing_rows"><code class="docutils literal notranslate"><span class="pre">check_existing_rows()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.insert_dataframe"><code class="docutils literal notranslate"><span class="pre">insert_dataframe()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.get_existing_dates"><code class="docutils literal notranslate"><span class="pre">get_existing_dates()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.incremental_insert"><code class="docutils literal notranslate"><span class="pre">incremental_insert()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.save_error_file"><code class="docutils literal notranslate"><span class="pre">save_error_file()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.process_directory_tree"><code class="docutils literal notranslate"><span class="pre">process_directory_tree()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.ConfigManager"><code class="docutils literal notranslate"><span class="pre">ConfigManager</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.ConfigManager.__init__"><code class="docutils literal notranslate"><span class="pre">ConfigManager.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.ConfigManager.load"><code class="docutils literal notranslate"><span class="pre">ConfigManager.load()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.ConfigManager.save"><code class="docutils literal notranslate"><span class="pre">ConfigManager.save()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.ConfigManager.get"><code class="docutils literal notranslate"><span class="pre">ConfigManager.get()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.ConfigManager.set"><code class="docutils literal notranslate"><span class="pre">ConfigManager.set()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.ConfigManager.get_section"><code class="docutils literal notranslate"><span class="pre">ConfigManager.get_section()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.ConfigManager.config"><code class="docutils literal notranslate"><span class="pre">ConfigManager.config</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.ConfigManager.__getitem__"><code class="docutils literal notranslate"><span class="pre">ConfigManager.__getitem__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.ConfigManager.__setitem__"><code class="docutils literal notranslate"><span class="pre">ConfigManager.__setitem__()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.get_config"><code class="docutils literal notranslate"><span class="pre">get_config()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.reset_config"><code class="docutils literal notranslate"><span class="pre">reset_config()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.get_database_config"><code class="docutils literal notranslate"><span class="pre">get_database_config()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.get_logging_config"><code class="docutils literal notranslate"><span class="pre">get_logging_config()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.get_excel_config"><code class="docutils literal notranslate"><span class="pre">get_excel_config()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.get_wind_config"><code class="docutils literal notranslate"><span class="pre">get_wind_config()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.get_ede_config"><code class="docutils literal notranslate"><span class="pre">get_ede_config()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.func_timer"><code class="docutils literal notranslate"><span class="pre">func_timer()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.get_absolute_trade_days"><code class="docutils literal notranslate"><span class="pre">get_absolute_trade_days()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.trade_days_offset"><code class="docutils literal notranslate"><span class="pre">trade_days_offset()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#id1">子模块</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#module-betalens.datafeed.core">core</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.core.func_timer"><code class="docutils literal notranslate"><span class="pre">func_timer()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.core.Datafeed"><code class="docutils literal notranslate"><span class="pre">Datafeed</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.core.get_absolute_trade_days"><code class="docutils literal notranslate"><span class="pre">get_absolute_trade_days()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.core.trade_days_offset"><code class="docutils literal notranslate"><span class="pre">trade_days_offset()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#module-betalens.datafeed.excel">excel</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.excel.read_csv_with_encoding"><code class="docutils literal notranslate"><span class="pre">read_csv_with_encoding()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.excel.read_file"><code class="docutils literal notranslate"><span class="pre">read_file()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.excel.cross_section_to_db_format"><code class="docutils literal notranslate"><span class="pre">cross_section_to_db_format()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.excel.batch_read_files"><code class="docutils literal notranslate"><span class="pre">batch_read_files()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.excel.batch_write_files"><code class="docutils literal notranslate"><span class="pre">batch_write_files()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.excel.create_directory_tree"><code class="docutils literal notranslate"><span class="pre">create_directory_tree()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.excel.apply_time_alignment"><code class="docutils literal notranslate"><span class="pre">apply_time_alignment()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.excel.check_excel_errors"><code class="docutils literal notranslate"><span class="pre">check_excel_errors()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#module-betalens.datafeed.validation">validation</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.validation.FillStrategy"><code class="docutils literal notranslate"><span class="pre">FillStrategy</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.validation.check_null_values"><code class="docutils literal notranslate"><span class="pre">check_null_values()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.validation.check_datetime_column"><code class="docutils literal notranslate"><span class="pre">check_datetime_column()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.validation.fix_null_values"><code class="docutils literal notranslate"><span class="pre">fix_null_values()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.validation.drop_duplicates_strict"><code class="docutils literal notranslate"><span class="pre">drop_duplicates_strict()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.validation.fix_datetime_column"><code class="docutils literal notranslate"><span class="pre">fix_datetime_column()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.validation.validate_and_fix"><code class="docutils literal notranslate"><span class="pre">validate_and_fix()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.validation.DataValidator"><code class="docutils literal notranslate"><span class="pre">DataValidator</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#module-betalens.datafeed.query">query</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.query.build_query"><code class="docutils literal notranslate"><span class="pre">build_query()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.query.generate_input_pairs"><code class="docutils literal notranslate"><span class="pre">generate_input_pairs()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.query.build_nearest_query"><code class="docutils literal notranslate"><span class="pre">build_nearest_query()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.query.query_nearest_after"><code class="docutils literal notranslate"><span class="pre">query_nearest_after()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.query.query_nearest_before"><code class="docutils literal notranslate"><span class="pre">query_nearest_before()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.query.query_time_range"><code class="docutils literal notranslate"><span class="pre">query_time_range()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.query.get_available_dates"><code class="docutils literal notranslate"><span class="pre">get_available_dates()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.query.get_latest_date"><code class="docutils literal notranslate"><span class="pre">get_latest_date()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.query.pivot_to_wide"><code class="docutils literal notranslate"><span class="pre">pivot_to_wide()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.query.align_to_dates"><code class="docutils literal notranslate"><span class="pre">align_to_dates()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.query.calculate_returns"><code class="docutils literal notranslate"><span class="pre">calculate_returns()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#module-betalens.datafeed.integration">integration</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.integration.process_excel_to_db_format"><code class="docutils literal notranslate"><span class="pre">process_excel_to_db_format()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.integration.check_existing_rows"><code class="docutils literal notranslate"><span class="pre">check_existing_rows()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.integration.insert_dataframe"><code class="docutils literal notranslate"><span class="pre">insert_dataframe()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.integration.get_existing_dates"><code class="docutils literal notranslate"><span class="pre">get_existing_dates()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.integration.incremental_insert"><code class="docutils literal notranslate"><span class="pre">incremental_insert()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.integration.save_error_file"><code class="docutils literal notranslate"><span class="pre">save_error_file()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.integration.process_directory_tree"><code class="docutils literal notranslate"><span class="pre">process_directory_tree()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#module-betalens.datafeed.config">config</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.config.ConfigManager"><code class="docutils literal notranslate"><span class="pre">ConfigManager</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.config.get_config"><code class="docutils literal notranslate"><span class="pre">get_config()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.config.reset_config"><code class="docutils literal notranslate"><span class="pre">reset_config()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.config.get_database_config"><code class="docutils literal notranslate"><span class="pre">get_database_config()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.config.get_logging_config"><code class="docutils literal notranslate"><span class="pre">get_logging_config()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.config.get_excel_config"><code class="docutils literal notranslate"><span class="pre">get_excel_config()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.config.get_wind_config"><code class="docutils literal notranslate"><span class="pre">get_wind_config()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.config.get_ede_config"><code class="docutils literal notranslate"><span class="pre">get_ede_config()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#module-betalens.datafeed.wind_ingest">wind_ingest</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.wind_ingest.fetch_daily_market"><code class="docutils literal notranslate"><span class="pre">fetch_daily_market()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.wind_ingest.fetch_daily_index"><code class="docutils literal notranslate"><span class="pre">fetch_daily_index()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.wind_ingest.fetch_daily_fund"><code class="docutils literal notranslate"><span class="pre">fetch_daily_fund()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.wind_ingest.fetch_daily_bond"><code class="docutils literal notranslate"><span class="pre">fetch_daily_bond()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#module-betalens.datafeed.ede_processor">ede_processor</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.ede_processor.extract_date_from_filename"><code class="docutils literal notranslate"><span class="pre">extract_date_from_filename()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.ede_processor.parse_metric_column"><code class="docutils literal notranslate"><span class="pre">parse_metric_column()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.ede_processor.extract_date_from_metric_metadata"><code class="docutils literal notranslate"><span class="pre">extract_date_from_metric_metadata()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.ede_processor.clean_ede_dataframe"><code class="docutils literal notranslate"><span class="pre">clean_ede_dataframe()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.ede_processor.identify_code_name_columns"><code class="docutils literal notranslate"><span class="pre">identify_code_name_columns()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.ede_processor.process_ede_file"><code class="docutils literal notranslate"><span class="pre">process_ede_file()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../../api/factor.html">Factor API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/factor.html#factor-factor">factor.factor</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#id1">数据准备函数</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.get_tradable_pool"><code class="docutils literal notranslate"><span class="pre">get_tradable_pool()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.pre_query_characteristic_data"><code class="docutils literal notranslate"><span class="pre">pre_query_characteristic_data()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#id2">单因子函数</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.single_characteristic"><code class="docutils literal notranslate"><span class="pre">single_characteristic()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.get_single_factor_weight"><code class="docutils literal notranslate"><span class="pre">get_single_factor_weight()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.describe_labeled_pool"><code class="docutils literal notranslate"><span class="pre">describe_labeled_pool()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#id3">双因子函数</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.double_characteristic"><code class="docutils literal notranslate"><span class="pre">double_characteristic()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.get_double_factor_weight"><code class="docutils literal notranslate"><span class="pre">get_double_factor_weight()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.describe_double_labeled_pool"><code class="docutils literal notranslate"><span class="pre">describe_double_labeled_pool()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#id4">多因子函数</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.multi_characteristic"><code class="docutils literal notranslate"><span class="pre">multi_characteristic()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.get_multi_factor_weight"><code class="docutils literal notranslate"><span class="pre">get_multi_factor_weight()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.describe_multi_labeled_pool"><code class="docutils literal notranslate"><span class="pre">describe_multi_labeled_pool()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/factor.html#factor-preprocessing">factor.preprocessing</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#id5">截面处理函数</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.winsorize_factor"><code class="docutils literal notranslate"><span class="pre">winsorize_factor()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.standardize_factor"><code class="docutils literal notranslate"><span class="pre">standardize_factor()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.neutralize_factor"><code class="docutils literal notranslate"><span class="pre">neutralize_factor()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#id6">因子对因子中性化</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.neutralize_factor_by_factor"><code class="docutils literal notranslate"><span class="pre">neutralize_factor_by_factor()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#id7">行业中性化工具</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.filter_pool_by_industry"><code class="docutils literal notranslate"><span class="pre">filter_pool_by_industry()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.apply_industry_weight_constraint"><code class="docutils literal notranslate"><span class="pre">apply_industry_weight_constraint()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#id8">一键预处理流水线</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.preprocess_factor"><code class="docutils literal notranslate"><span class="pre">preprocess_factor()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/factor.html#factor-stats">factor.stats</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#ic-icir">IC / ICIR</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.calc_ic"><code class="docutils literal notranslate"><span class="pre">calc_ic()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.calc_icir"><code class="docutils literal notranslate"><span class="pre">calc_icir()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.summarize_ic"><code class="docutils literal notranslate"><span class="pre">summarize_ic()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#fama-macbeth">Fama-MacBeth 截面回归</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.fama_macbeth"><code class="docutils literal notranslate"><span class="pre">fama_macbeth()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#id9">分组收益统计</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.group_return_summary"><code class="docutils literal notranslate"><span class="pre">group_return_summary()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../../api/backtest.html">Backtest API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.BacktestBase"><code class="docutils literal notranslate"><span class="pre">BacktestBase</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.BacktestBase.__init__"><code class="docutils literal notranslate"><span class="pre">BacktestBase.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.BacktestBase.melt_weights"><code class="docutils literal notranslate"><span class="pre">BacktestBase.melt_weights()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.BacktestBase.get_rebalance_data"><code class="docutils literal notranslate"><span class="pre">BacktestBase.get_rebalance_data()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.BacktestBase.get_position_data"><code class="docutils literal notranslate"><span class="pre">BacktestBase.get_position_data()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.BacktestBase.get_daily_position_data"><code class="docutils literal notranslate"><span class="pre">BacktestBase.get_daily_position_data()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.BacktestDataError"><code class="docutils literal notranslate"><span class="pre">BacktestDataError</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.DateMismatchError"><code class="docutils literal notranslate"><span class="pre">DateMismatchError</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.CodeMismatchError"><code class="docutils literal notranslate"><span class="pre">CodeMismatchError</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/backtest.html#backtest-backtest">backtest.backtest</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/backtest.html#backtestbase">BacktestBase</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/backtest.html#id0"><code class="docutils literal notranslate"><span class="pre">BacktestBase</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/backtest.html#id4">异常类</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/backtest.html#id5"><code class="docutils literal notranslate"><span class="pre">BacktestDataError</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/backtest.html#id6"><code class="docutils literal notranslate"><span class="pre">DateMismatchError</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/backtest.html#id7"><code class="docutils literal notranslate"><span class="pre">CodeMismatchError</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/backtest.html#id8">验证函数</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.validate_weight_input"><code class="docutils literal notranslate"><span class="pre">validate_weight_input()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.validate_query_result"><code class="docutils literal notranslate"><span class="pre">validate_query_result()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.validate_pivot_result"><code class="docutils literal notranslate"><span class="pre">validate_pivot_result()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.validate_index_alignment"><code class="docutils literal notranslate"><span class="pre">validate_index_alignment()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.validate_calculation_inputs"><code class="docutils literal notranslate"><span class="pre">validate_calculation_inputs()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.format_data_sample"><code class="docutils literal notranslate"><span class="pre">format_data_sample()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../../api/analyst.html">Analyst API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.PortfolioAnalyzer"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.PortfolioAnalyzer.__init__"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.PortfolioAnalyzer.total_return"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer.total_return()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.PortfolioAnalyzer.annualized_return"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer.annualized_return()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.PortfolioAnalyzer.annualized_volatility"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer.annualized_volatility()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.PortfolioAnalyzer.sharpe_ratio"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer.sharpe_ratio()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.PortfolioAnalyzer.max_drawdown"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer.max_drawdown()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.PortfolioAnalyzer.rolling_max_drawdown"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer.rolling_max_drawdown()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.PortfolioAnalyzer.rolling_win_rate"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer.rolling_win_rate()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.PortfolioAnalyzer.calmar_ratio"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer.calmar_ratio()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.PortfolioAnalyzer.recovery_days"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer.recovery_days()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.ReportExporter"><code class="docutils literal notranslate"><span class="pre">ReportExporter</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.ReportExporter.__init__"><code class="docutils literal notranslate"><span class="pre">ReportExporter.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.ReportExporter.generate_annual_report"><code class="docutils literal notranslate"><span class="pre">ReportExporter.generate_annual_report()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.ReportExporter.generate_custom_report"><code class="docutils literal notranslate"><span class="pre">ReportExporter.generate_custom_report()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.ReportExporter.generate_benchmark_report"><code class="docutils literal notranslate"><span class="pre">ReportExporter.generate_benchmark_report()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/analyst.html#analyst-analyst">analyst.analyst</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#portfolioanalyzer">PortfolioAnalyzer</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/analyst.html#id0"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#reportexporter">ReportExporter</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/analyst.html#id10"><code class="docutils literal notranslate"><span class="pre">ReportExporter</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../../api/eventstudy.html">EventStudy API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/eventstudy.html#betalens.eventstudy.EventStudy"><code class="docutils literal notranslate"><span class="pre">EventStudy</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/eventstudy.html#betalens.eventstudy.EventStudy.__init__"><code class="docutils literal notranslate"><span class="pre">EventStudy.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/eventstudy.html#betalens.eventstudy.EventStudy.analyze"><code class="docutils literal notranslate"><span class="pre">EventStudy.analyze()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/eventstudy.html#betalens.eventstudy.EventStudy.plot_bar"><code class="docutils literal notranslate"><span class="pre">EventStudy.plot_bar()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/eventstudy.html#betalens.eventstudy.EventStudy.plot_lines"><code class="docutils literal notranslate"><span class="pre">EventStudy.plot_lines()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/eventstudy.html#betalens.eventstudy.EventStudy.plot_multi_stocks"><code class="docutils literal notranslate"><span class="pre">EventStudy.plot_multi_stocks()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/eventstudy.html#betalens.eventstudy.EventStudy.plot_events_lines"><code class="docutils literal notranslate"><span class="pre">EventStudy.plot_events_lines()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/eventstudy.html#eventstudy-eventstudy">eventstudy.eventstudy</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/eventstudy.html#eventstudy">EventStudy</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/eventstudy.html#id0"><code class="docutils literal notranslate"><span class="pre">EventStudy</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/eventstudy.html#id6">辅助函数</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/eventstudy.html#betalens.eventstudy._get_event_dates"><code class="docutils literal notranslate"><span class="pre">_get_event_dates()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/eventstudy.html#betalens.eventstudy._calc_returns"><code class="docutils literal notranslate"><span class="pre">_calc_returns()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/eventstudy.html#betalens.eventstudy._get_day0_cost_price_loc"><code class="docutils literal notranslate"><span class="pre">_get_day0_cost_price_loc()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/eventstudy.html#betalens.eventstudy._get_window_returns"><code class="docutils literal notranslate"><span class="pre">_get_window_returns()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/eventstudy.html#betalens.eventstudy._aggregate_window_returns"><code class="docutils literal notranslate"><span class="pre">_aggregate_window_returns()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/eventstudy.html#betalens.eventstudy._compute_stats"><code class="docutils literal notranslate"><span class="pre">_compute_stats()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/eventstudy.html#betalens.eventstudy._compute_period_stats"><code class="docutils literal notranslate"><span class="pre">_compute_period_stats()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../../api/robust.html">Robust API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/robust.html#robust-robust">robust.robust</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/robust.html#robusttest">RobustTest</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/robust.html#RobustTest"><code class="docutils literal notranslate"><span class="pre">RobustTest</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/robust.html#id1">辅助函数</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/robust.html#panel"><code class="docutils literal notranslate"><span class="pre">panel()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/robust.html#bootstrap_fake_fund"><code class="docutils literal notranslate"><span class="pre">bootstrap_fake_fund()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/robust.html#parse_name_dates"><code class="docutils literal notranslate"><span class="pre">parse_name_dates()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/robust.html#get_interval"><code class="docutils literal notranslate"><span class="pre">get_interval()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/robust.html#gen_date_pairs"><code class="docutils literal notranslate"><span class="pre">gen_date_pairs()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="移动版导航菜单" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../index.html">Betalens</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content style-external-links">
+          <div role="navigation" aria-label="页面导航">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../index.html">模块代码</a></li>
+      <li class="breadcrumb-item active">betalens.datafeed.core</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>betalens.datafeed.core 源代码</h1><div class="highlight"><pre>
+<span></span><span class="c1">#%%By Janis 250226</span>
+<span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">## 研究数据库结构（摘要）</span>
+
+<span class="sd">### 表1 个券行情（日频）</span>
+<span class="sd">- 列：入库实际时间（=最早可交易时间）、windcode、中文名、数据性质（收盘价/成交量等）、数值、备注（json）</span>
+<span class="sd">- 规则：开盘价最早 09:30；其余价量最早 15:00 可确定</span>
+<span class="sd">- 处理：计算日频收益率（如 close-to-close）用于回测与挖掘</span>
+
+<span class="sd">### 表2 个券基本面（日频入库，事件驱动）</span>
+<span class="sd">- 列：入库实际时间（=最早可交易时间）、数据理论发生时间（报告期，如 0331/0630/0930/1231）、windcode、中文名、数据性质（如归母净利润）、数值、备注（json）</span>
+<span class="sd">- 规则：按公告时点入库，关注盘前/盘中/盘后；理论发生时间仅用于展示，不做因果外推</span>
+<span class="sd">- 年报次序不一：优先一致预期或线性外推作占位，尽量避免非原生数据入库</span>
+
+<span class="sd">### 表3 宏观经济（事件驱动）</span>
+<span class="sd">- 列：入库实际时间（=最早可交易时间）、数据理论发生时间（如“1月GDP”）、windcode、中文名、数据性质（可含均线算子）、数值、备注（json）</span>
+<span class="sd">- 规则：与表2一致（事件驱动、区分公告时点与发生时点）</span>
+
+<span class="sd">### 表4 因子库</span>
+<span class="sd">- 列：入库实际时间（=最早可交易时间）、数据编制方式、数值、备注（json）</span>
+
+<span class="sd">## 投资数据库结构（摘要）</span>
+<span class="sd">- 不保留完整历史</span>
+<span class="sd">- 从研究数据库按需拉取最近滚动窗口数据；其余数据在线拉取</span>
+<span class="sd">- 在线数据仅记录入库时间（可交易可用时点）</span>
+
+<span class="sd">## 投资数据库结构：</span>
+<span class="sd">- 出于投资目的，实际不需要历史数据</span>
+<span class="sd">- 从研究数据库拉取所需最近一个滚动窗口内的数据，其余全部在线拉取，并直接记录入库时间</span>
+
+<span class="sd">更新日志：</span>
+<span class="sd">2025-10-31: 重构datafeed.py，新增工具模块</span>
+<span class="sd">- excel.py: Excel文件处理模块</span>
+<span class="sd">- validation.py: 数据验证和异常检查工具</span>
+<span class="sd">- query.py: 数据库查询功能重构</span>
+<span class="sd">- integration.py: 数据库与Excel交互功能</span>
+<span class="sd">- wind_ingest.py: Wind数据抓取模块</span>
+
+<span class="sd">2025-11-03: 简化core.py为薄封装层</span>
+<span class="sd">- 移除所有业务逻辑到子模块</span>
+<span class="sd">- core.py仅保留连接管理和函数组合</span>
+<span class="sd">- 所有数据转换、插入逻辑位于子模块</span>
+<span class="sd">&#39;&#39;&#39;</span>
+<span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
+<span class="kn">import</span> <span class="nn">pandas</span> <span class="k">as</span> <span class="nn">pd</span>
+<span class="kn">import</span> <span class="nn">psycopg2</span>
+<span class="kn">import</span> <span class="nn">psycopg2.extras</span>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">itertools</span>
+<span class="kn">from</span> <span class="nn">psycopg2.extras</span> <span class="kn">import</span> <span class="n">execute_values</span>
+<span class="kn">from</span> <span class="nn">functools</span> <span class="kn">import</span> <span class="n">wraps</span>
+<span class="kn">import</span> <span class="nn">time</span>
+<span class="kn">import</span> <span class="nn">logging</span>
+<span class="kn">from</span> <span class="nn">pathlib</span> <span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">from</span> <span class="nn">datetime</span> <span class="kn">import</span> <span class="n">datetime</span>
+<span class="kn">import</span> <span class="nn">warnings</span>
+
+<span class="c1"># 导入新的工具模块（函数式）</span>
+<span class="kn">from</span> <span class="nn">.excel</span> <span class="kn">import</span> <span class="n">read_file</span><span class="p">,</span> <span class="n">cross_section_to_db_format</span><span class="p">,</span> <span class="n">check_excel_errors</span><span class="p">,</span> <span class="n">apply_time_alignment</span>
+<span class="kn">from</span> <span class="nn">.validation</span> <span class="kn">import</span> <span class="n">validate_and_fix</span>
+<span class="kn">from</span> <span class="nn">.query</span> <span class="kn">import</span> <span class="p">(</span>
+    <span class="n">query_nearest_after</span> <span class="k">as</span> <span class="n">_query_nearest_after</span><span class="p">,</span>
+    <span class="n">query_nearest_before</span> <span class="k">as</span> <span class="n">_query_nearest_before</span><span class="p">,</span>
+    <span class="n">query_time_range</span> <span class="k">as</span> <span class="n">_query_time_range</span><span class="p">,</span>
+    <span class="n">get_available_dates</span> <span class="k">as</span> <span class="n">_get_available_dates</span><span class="p">,</span>
+    <span class="n">get_latest_date</span> <span class="k">as</span> <span class="n">_get_latest_date</span><span class="p">,</span>
+    <span class="n">build_query</span> <span class="k">as</span> <span class="n">_build_query</span>
+<span class="p">)</span>
+<span class="kn">from</span> <span class="nn">.integration</span> <span class="kn">import</span> <span class="p">(</span>
+    <span class="n">process_directory_tree</span> <span class="k">as</span> <span class="n">_process_directory_tree</span><span class="p">,</span>
+    <span class="n">incremental_insert</span> <span class="k">as</span> <span class="n">_incremental_insert</span><span class="p">,</span>
+    <span class="n">insert_dataframe</span> <span class="k">as</span> <span class="n">_insert_dataframe</span><span class="p">,</span>
+    <span class="n">process_excel_to_db_format</span> <span class="k">as</span> <span class="n">_process_excel_to_db_format</span>
+<span class="p">)</span>
+<span class="kn">from</span> <span class="nn">.wind_ingest</span> <span class="kn">import</span> <span class="p">(</span>
+    <span class="n">fetch_daily_market</span> <span class="k">as</span> <span class="n">_fetch_daily_market</span><span class="p">,</span>
+    <span class="n">fetch_daily_index</span> <span class="k">as</span> <span class="n">_fetch_daily_index</span><span class="p">,</span>
+    <span class="n">fetch_daily_fund</span> <span class="k">as</span> <span class="n">_fetch_daily_fund</span><span class="p">,</span>
+    <span class="n">fetch_daily_bond</span> <span class="k">as</span> <span class="n">_fetch_daily_bond</span>
+<span class="p">)</span>
+<span class="kn">from</span> <span class="nn">.ede_processor</span> <span class="kn">import</span> <span class="p">(</span>
+    <span class="n">process_ede_file</span> <span class="k">as</span> <span class="n">_process_ede_file</span>
+<span class="p">)</span>
+<span class="kn">from</span> <span class="nn">.config</span> <span class="kn">import</span> <span class="n">get_database_config</span><span class="p">,</span> <span class="n">get_logging_config</span>
+
+<div class="viewcode-block" id="func_timer">
+<a class="viewcode-back" href="../../../api/datafeed.html#betalens.datafeed.func_timer">[文档]</a>
+<span class="k">def</span> <span class="nf">func_timer</span><span class="p">(</span><span class="n">function</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    用装饰器实现函数计时</span>
+<span class="sd">    :param function: 需要计时的函数</span>
+<span class="sd">    :return: None</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="nd">@wraps</span><span class="p">(</span><span class="n">function</span><span class="p">)</span>
+    <span class="k">def</span> <span class="nf">function_timer</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s1">&#39;[Function: </span><span class="si">{name}</span><span class="s1"> start...]&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">name</span> <span class="o">=</span> <span class="n">function</span><span class="o">.</span><span class="vm">__name__</span><span class="p">))</span>
+        <span class="n">t0</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="n">function</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+        <span class="n">t1</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s1">&#39;[Function: </span><span class="si">{name}</span><span class="s1"> finished, spent time: </span><span class="si">{time:.2f}</span><span class="s1">s]&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">name</span> <span class="o">=</span> <span class="n">function</span><span class="o">.</span><span class="vm">__name__</span><span class="p">,</span><span class="n">time</span> <span class="o">=</span> <span class="n">t1</span> <span class="o">-</span> <span class="n">t0</span><span class="p">))</span>
+        <span class="k">return</span> <span class="n">result</span>
+    <span class="k">return</span> <span class="n">function_timer</span></div>
+
+
+<div class="viewcode-block" id="Datafeed">
+<a class="viewcode-back" href="../../../api/datafeed.html#betalens.datafeed.Datafeed">[文档]</a>
+<span class="k">class</span> <span class="nc">Datafeed</span><span class="p">():</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    数据管理主类（薄封装层）</span>
+<span class="sd">    </span>
+<span class="sd">    职责：</span>
+<span class="sd">    - 管理数据库连接</span>
+<span class="sd">    - 提供统一的日志记录</span>
+<span class="sd">    - 组合子模块功能为高层API</span>
+<span class="sd">    - 不包含业务逻辑（所有逻辑在子模块中）</span>
+<span class="sd">    </span>
+<span class="sd">    使用示例：</span>
+<span class="sd">        # 创建实例（使用默认配置）</span>
+<span class="sd">        df = Datafeed(&quot;daily_market_data&quot;)</span>
+<span class="sd">        </span>
+<span class="sd">        # 创建实例（自定义数据库配置）</span>
+<span class="sd">        df = Datafeed(</span>
+<span class="sd">            table_name=&quot;daily_market_data&quot;,</span>
+<span class="sd">            db_config={</span>
+<span class="sd">                &#39;dbname&#39;: &#39;my_database&#39;,</span>
+<span class="sd">                &#39;user&#39;: &#39;my_user&#39;,</span>
+<span class="sd">                &#39;password&#39;: &#39;my_password&#39;,</span>
+<span class="sd">                &#39;host&#39;: &#39;localhost&#39;,</span>
+<span class="sd">                &#39;port&#39;: &#39;5432&#39;</span>
+<span class="sd">            }</span>
+<span class="sd">        )</span>
+<span class="sd">        </span>
+<span class="sd">        # 单文件插入</span>
+<span class="sd">        df.insert_csv_file(&quot;data.csv&quot;, config={...})</span>
+<span class="sd">        </span>
+<span class="sd">        # Wind数据抓取</span>
+<span class="sd">        df.ingest_wind_daily_market(</span>
+<span class="sd">            codes=[&#39;000001.SZ&#39;],</span>
+<span class="sd">            start_date=&#39;2024-01-01&#39;,</span>
+<span class="sd">            end_date=&#39;2024-01-31&#39;</span>
+<span class="sd">        )</span>
+<span class="sd">        </span>
+<span class="sd">        # 查询</span>
+<span class="sd">        data = df.query_time_range(</span>
+<span class="sd">            codes=[&#39;000001.SZ&#39;],</span>
+<span class="sd">            start_date=&#39;2024-01-01&#39;,</span>
+<span class="sd">            metric=&#39;收盘价(元)&#39;</span>
+<span class="sd">        )</span>
+<span class="sd">        </span>
+<span class="sd">        # 关闭</span>
+<span class="sd">        df.close()</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">_initialized</span> <span class="o">=</span> <span class="kc">False</span>
+
+<div class="viewcode-block" id="Datafeed.__init__">
+<a class="viewcode-back" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.__init__">[文档]</a>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> 
+        <span class="n">table_name</span><span class="p">,</span> 
+        <span class="n">db_config</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+        <span class="n">log_dir</span><span class="o">=</span><span class="kc">None</span>
+    <span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        初始化Datafeed实例</span>
+<span class="sd">        </span>
+<span class="sd">        Args:</span>
+<span class="sd">            table_name: 数据库表名</span>
+<span class="sd">            db_config: 数据库配置字典，包含以下键：</span>
+<span class="sd">                - dbname: 数据库名</span>
+<span class="sd">                - user: 用户名</span>
+<span class="sd">                - password: 密码</span>
+<span class="sd">                - host: 主机地址</span>
+<span class="sd">                - port: 端口</span>
+<span class="sd">                如果为None，使用config.json中的配置</span>
+<span class="sd">            log_dir: 日志目录，如果为None，使用config.json中的配置</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># 从配置文件获取默认配置</span>
+        <span class="n">default_db_config</span> <span class="o">=</span> <span class="n">get_database_config</span><span class="p">()</span>
+        <span class="n">default_log_config</span> <span class="o">=</span> <span class="n">get_logging_config</span><span class="p">()</span>
+        
+        <span class="c1"># 合并用户配置和默认配置</span>
+        <span class="k">if</span> <span class="n">db_config</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">db_config</span> <span class="o">=</span> <span class="n">default_db_config</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c1"># 使用用户提供的配置，未提供的使用默认值</span>
+            <span class="n">db_config</span> <span class="o">=</span> <span class="p">{</span><span class="o">**</span><span class="n">default_db_config</span><span class="p">,</span> <span class="o">**</span><span class="n">db_config</span><span class="p">}</span>
+        
+        <span class="c1"># 设置日志目录</span>
+        <span class="k">if</span> <span class="n">log_dir</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">log_dir</span> <span class="o">=</span> <span class="n">default_log_config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;log_dir&#39;</span><span class="p">,</span> <span class="s1">&#39;./logs&#39;</span><span class="p">)</span>
+        
+        <span class="c1"># 建立数据库连接</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">conn</span> <span class="o">=</span> <span class="n">psycopg2</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span>
+            <span class="n">dbname</span><span class="o">=</span><span class="n">db_config</span><span class="p">[</span><span class="s1">&#39;dbname&#39;</span><span class="p">],</span>
+            <span class="n">user</span><span class="o">=</span><span class="n">db_config</span><span class="p">[</span><span class="s1">&#39;user&#39;</span><span class="p">],</span>
+            <span class="n">password</span><span class="o">=</span><span class="n">db_config</span><span class="p">[</span><span class="s1">&#39;password&#39;</span><span class="p">],</span>
+            <span class="n">host</span><span class="o">=</span><span class="n">db_config</span><span class="p">[</span><span class="s1">&#39;host&#39;</span><span class="p">],</span>
+            <span class="n">port</span><span class="o">=</span><span class="n">db_config</span><span class="p">[</span><span class="s1">&#39;port&#39;</span><span class="p">]</span>
+        <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cursor</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">conn</span><span class="o">.</span><span class="n">cursor</span><span class="p">(</span><span class="n">cursor_factory</span><span class="o">=</span><span class="n">psycopg2</span><span class="o">.</span><span class="n">extras</span><span class="o">.</span><span class="n">RealDictCursor</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">sheet</span> <span class="o">=</span> <span class="n">table_name</span>
+        
+        <span class="c1"># 设置logger（用于函数式调用）</span>
+        <span class="n">log_dir_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">log_dir</span><span class="p">)</span>
+        <span class="n">log_dir_path</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">parents</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="n">log_file</span> <span class="o">=</span> <span class="n">log_dir_path</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">&quot;datafeed_</span><span class="si">{</span><span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="s1">&#39;%Y%m</span><span class="si">%d</span><span class="s1">_%H%M%S&#39;</span><span class="p">)</span><span class="si">}</span><span class="s2">.log&quot;</span>
+        
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="s1">&#39;Datafeed&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">setLevel</span><span class="p">(</span><span class="n">logging</span><span class="o">.</span><span class="n">INFO</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">handlers</span><span class="p">:</span>
+            <span class="n">fh</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">FileHandler</span><span class="p">(</span><span class="n">log_file</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)</span>
+            <span class="n">fh</span><span class="o">.</span><span class="n">setLevel</span><span class="p">(</span><span class="n">logging</span><span class="o">.</span><span class="n">INFO</span><span class="p">)</span>
+            <span class="n">ch</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">StreamHandler</span><span class="p">()</span>
+            <span class="n">ch</span><span class="o">.</span><span class="n">setLevel</span><span class="p">(</span><span class="n">logging</span><span class="o">.</span><span class="n">WARNING</span><span class="p">)</span>
+            <span class="n">formatter</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">Formatter</span><span class="p">(</span>
+                <span class="s1">&#39;</span><span class="si">%(asctime)s</span><span class="s1"> - </span><span class="si">%(name)s</span><span class="s1"> - </span><span class="si">%(levelname)s</span><span class="s1"> - </span><span class="si">%(message)s</span><span class="s1">&#39;</span>
+            <span class="p">)</span>
+            <span class="n">fh</span><span class="o">.</span><span class="n">setFormatter</span><span class="p">(</span><span class="n">formatter</span><span class="p">)</span>
+            <span class="n">ch</span><span class="o">.</span><span class="n">setFormatter</span><span class="p">(</span><span class="n">formatter</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">addHandler</span><span class="p">(</span><span class="n">fh</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">addHandler</span><span class="p">(</span><span class="n">ch</span><span class="p">)</span>
+        
+        <span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="n">_initialized</span> <span class="o">=</span> <span class="kc">True</span></div>
+
+
+    <span class="c1"># ========== 插入功能 ==========</span>
+    
+<div class="viewcode-block" id="Datafeed.insert_csv_file">
+<a class="viewcode-back" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.insert_csv_file">[文档]</a>
+    <span class="k">def</span> <span class="nf">insert_csv_file</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">filepath</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">config</span><span class="p">:</span> <span class="nb">dict</span><span class="p">,</span>
+        <span class="n">mode</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;incremental&#39;</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        单文件CSV插入（薄封装）</span>
+<span class="sd">        </span>
+<span class="sd">        组合流程：</span>
+<span class="sd">        1. excel.read_file - 读取文件</span>
+<span class="sd">        2. excel.cross_section_to_db_format - 转换格式（如果需要）</span>
+<span class="sd">        3. validation.validate_and_fix - 验证和修复（如果配置）</span>
+<span class="sd">        4. integration.insert_dataframe/incremental_insert - 插入</span>
+<span class="sd">        </span>
+<span class="sd">        Args:</span>
+<span class="sd">            filepath: 文件路径</span>
+<span class="sd">            config: 配置字典，包含：</span>
+<span class="sd">                - key_columns: 键列列表（用于cross_section转换）</span>
+<span class="sd">                - value_columns: 值列列表（可选，自动推断）</span>
+<span class="sd">                - key_value_mapping: 列名映射</span>
+<span class="sd">                - additional_fields: 额外字段</span>
+<span class="sd">                - validation: 验证配置</span>
+<span class="sd">                - apply_time_alignment: 是否应用时间对齐（开盘09:30，其他15:00）</span>
+<span class="sd">            mode: &#39;insert&#39;（直接插入）或&#39;incremental&#39;（增量插入，默认）</span>
+<span class="sd">            </span>
+<span class="sd">        Returns:</span>
+<span class="sd">            统计信息字典</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;开始处理文件: </span><span class="si">{</span><span class="n">filepath</span><span class="si">}</span><span class="s2">, 模式: </span><span class="si">{</span><span class="n">mode</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        
+        <span class="c1"># 1. 处理Excel为DB格式</span>
+        <span class="n">df</span><span class="p">,</span> <span class="n">errors</span> <span class="o">=</span> <span class="n">_process_excel_to_db_format</span><span class="p">(</span>
+            <span class="n">filepath</span><span class="o">=</span><span class="n">filepath</span><span class="p">,</span>
+            <span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">,</span>
+            <span class="n">logger</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">logger</span>
+        <span class="p">)</span>
+        
+        <span class="k">if</span> <span class="n">df</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">errors</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;文件处理失败: </span><span class="si">{</span><span class="n">errors</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="p">{</span><span class="s1">&#39;success&#39;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span> <span class="s1">&#39;errors&#39;</span><span class="p">:</span> <span class="n">errors</span><span class="p">}</span>
+        
+        <span class="c1"># 2. 可选：应用时间对齐</span>
+        <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;apply_time_alignment&#39;</span><span class="p">,</span> <span class="kc">False</span><span class="p">):</span>
+            <span class="n">df</span> <span class="o">=</span> <span class="n">apply_time_alignment</span><span class="p">(</span>
+                <span class="n">df</span><span class="p">,</span>
+                <span class="n">date_column</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;date_column&#39;</span><span class="p">,</span> <span class="s1">&#39;datetime&#39;</span><span class="p">),</span>
+                <span class="n">metric_column</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;metric_column&#39;</span><span class="p">,</span> <span class="s1">&#39;metric&#39;</span><span class="p">),</span>
+                <span class="n">logger</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">logger</span>
+            <span class="p">)</span>
+        
+        <span class="c1"># 3. 插入数据库</span>
+        <span class="k">if</span> <span class="n">mode</span> <span class="o">==</span> <span class="s1">&#39;insert&#39;</span><span class="p">:</span>
+            <span class="n">success</span><span class="p">,</span> <span class="n">message</span><span class="p">,</span> <span class="n">stats</span> <span class="o">=</span> <span class="n">_insert_dataframe</span><span class="p">(</span>
+                <span class="n">cursor</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">cursor</span><span class="p">,</span>
+                <span class="n">conn</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">conn</span><span class="p">,</span>
+                <span class="n">df</span><span class="o">=</span><span class="n">df</span><span class="p">,</span>
+                <span class="n">table</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">sheet</span><span class="p">,</span>
+                <span class="n">logger</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">logger</span>
+            <span class="p">)</span>
+            <span class="k">return</span> <span class="p">{</span><span class="s1">&#39;success&#39;</span><span class="p">:</span> <span class="n">success</span><span class="p">,</span> <span class="s1">&#39;message&#39;</span><span class="p">:</span> <span class="n">message</span><span class="p">,</span> <span class="s1">&#39;stats&#39;</span><span class="p">:</span> <span class="n">stats</span><span class="p">}</span>
+        
+        <span class="k">elif</span> <span class="n">mode</span> <span class="o">==</span> <span class="s1">&#39;incremental&#39;</span><span class="p">:</span>
+            <span class="n">new_rows</span><span class="p">,</span> <span class="n">skipped_rows</span> <span class="o">=</span> <span class="n">_incremental_insert</span><span class="p">(</span>
+                <span class="n">cursor</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">cursor</span><span class="p">,</span>
+                <span class="n">conn</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">conn</span><span class="p">,</span>
+                <span class="n">df</span><span class="o">=</span><span class="n">df</span><span class="p">,</span>
+                <span class="n">table</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">sheet</span><span class="p">,</span>
+                <span class="n">logger</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">logger</span>
+            <span class="p">)</span>
+            <span class="k">return</span> <span class="p">{</span>
+                <span class="s1">&#39;success&#39;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+                <span class="s1">&#39;new_rows&#39;</span><span class="p">:</span> <span class="n">new_rows</span><span class="p">,</span>
+                <span class="s1">&#39;skipped_rows&#39;</span><span class="p">:</span> <span class="n">skipped_rows</span>
+            <span class="p">}</span>
+        
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;未知的插入模式: </span><span class="si">{</span><span class="n">mode</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span></div>
+
+    
+<div class="viewcode-block" id="Datafeed.insert_ede_file">
+<a class="viewcode-back" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.insert_ede_file">[文档]</a>
+    <span class="k">def</span> <span class="nf">insert_ede_file</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">filepath</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">date_from</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;filename&#39;</span><span class="p">,</span>
+        <span class="n">default_datetime</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">mode</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;incremental&#39;</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        处理并插入EDE格式的Excel文件（薄封装）</span>
+<span class="sd">        </span>
+<span class="sd">        EDE格式特征：</span>
+<span class="sd">        - 第一列：证券代码</span>
+<span class="sd">        -第二列：证券简称</span>
+<span class="sd">        - 第三列及之后：指标列，格式为&quot;指标名 [元数据] 值类型 [元数据] 单位&quot;</span>
+<span class="sd">        </span>
+<span class="sd">        示例EDE格式：</span>
+<span class="sd">            证券代码    证券简称    流通A股 [交易日期] 最新 [单位] 股</span>
+<span class="sd">            002460.SZ  赣锋锂业    1,211,379,763.0000</span>
+<span class="sd">            1772.HK    赣锋锂业    1,211,379,763.0000</span>
+<span class="sd">        </span>
+<span class="sd">        处理流程：</span>
+<span class="sd">        1. 读取Excel文件</span>
+<span class="sd">        2. 清理数据（去除空值、&quot;数据来源：Wind&quot;等）</span>
+<span class="sd">        3. 识别code、name列</span>
+<span class="sd">        4. 解析metric列，提取指标名称和元数据</span>
+<span class="sd">        5. 构建日期列（从文件名或列名中提取）</span>
+<span class="sd">        6. 转换为数据库格式</span>
+<span class="sd">        7. 插入数据库</span>
+<span class="sd">        </span>
+<span class="sd">        Args:</span>
+<span class="sd">            filepath: EDE格式Excel文件路径</span>
+<span class="sd">            date_from: 日期来源，可选值：</span>
+<span class="sd">                - &#39;filename&#39;: 从文件名提取日期（如EDE20251103.xlsx -&gt; 2025-11-03 15:30:00）</span>
+<span class="sd">                - &#39;metric&#39;: 从列名中的[日期]部分提取</span>
+<span class="sd">            default_datetime: 默认日期时间（当无法从文件名或列名提取时使用）</span>
+<span class="sd">                格式：&#39;YYYY-MM-DD HH:MM:SS&#39;，如&#39;2025-11-03 15:30:00&#39;</span>
+<span class="sd">            mode: 插入模式</span>
+<span class="sd">                - &#39;incremental&#39;: 增量插入（默认），只插入新数据</span>
+<span class="sd">                - &#39;insert&#39;: 直接插入，会检查重复并跳过</span>
+<span class="sd">            </span>
+<span class="sd">        Returns:</span>
+<span class="sd">            统计信息字典，包含：</span>
+<span class="sd">                - success: 是否成功</span>
+<span class="sd">                - new_rows: 新增行数</span>
+<span class="sd">                - skipped_rows: 跳过行数</span>
+<span class="sd">                - errors: 错误列表（如果有）</span>
+<span class="sd">        </span>
+<span class="sd">        Example:</span>
+<span class="sd">            &gt;&gt;&gt; df = Datafeed(&#39;daily_market_data&#39;)</span>
+<span class="sd">            &gt;&gt;&gt; result = df.insert_ede_file(</span>
+<span class="sd">            ...     &#39;EDE20251103.xlsx&#39;,</span>
+<span class="sd">            ...     date_from=&#39;filename&#39;,</span>
+<span class="sd">            ...     mode=&#39;incremental&#39;</span>
+<span class="sd">            ... )</span>
+<span class="sd">            &gt;&gt;&gt; print(f&quot;新增{result[&#39;new_rows&#39;]}行，跳过{result[&#39;skipped_rows&#39;]}行&quot;)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;开始处理EDE文件: </span><span class="si">{</span><span class="n">filepath</span><span class="si">}</span><span class="s2">, 日期来源: </span><span class="si">{</span><span class="n">date_from</span><span class="si">}</span><span class="s2">, 模式: </span><span class="si">{</span><span class="n">mode</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        
+        <span class="c1"># 1. 处理EDE文件为DB格式</span>
+        <span class="n">df</span><span class="p">,</span> <span class="n">errors</span> <span class="o">=</span> <span class="n">_process_ede_file</span><span class="p">(</span>
+            <span class="n">filepath</span><span class="o">=</span><span class="n">filepath</span><span class="p">,</span>
+            <span class="n">date_from</span><span class="o">=</span><span class="n">date_from</span><span class="p">,</span>
+            <span class="n">default_datetime</span><span class="o">=</span><span class="n">default_datetime</span><span class="p">,</span>
+            <span class="n">logger</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">logger</span>
+        <span class="p">)</span>
+        
+        <span class="k">if</span> <span class="n">df</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">errors</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;EDE文件处理失败: </span><span class="si">{</span><span class="n">errors</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="p">{</span><span class="s1">&#39;success&#39;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span> <span class="s1">&#39;errors&#39;</span><span class="p">:</span> <span class="n">errors</span><span class="p">}</span>
+        
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;EDE文件转换完成: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">df</span><span class="p">)</span><span class="si">}</span><span class="s2"> 行数据&quot;</span><span class="p">)</span>
+        
+        <span class="c1"># 2. 插入数据库</span>
+        <span class="k">if</span> <span class="n">mode</span> <span class="o">==</span> <span class="s1">&#39;insert&#39;</span><span class="p">:</span>
+            <span class="n">success</span><span class="p">,</span> <span class="n">message</span><span class="p">,</span> <span class="n">stats</span> <span class="o">=</span> <span class="n">_insert_dataframe</span><span class="p">(</span>
+                <span class="n">cursor</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">cursor</span><span class="p">,</span>
+                <span class="n">conn</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">conn</span><span class="p">,</span>
+                <span class="n">df</span><span class="o">=</span><span class="n">df</span><span class="p">,</span>
+                <span class="n">table</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">sheet</span><span class="p">,</span>
+                <span class="n">logger</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">logger</span>
+            <span class="p">)</span>
+            <span class="k">return</span> <span class="p">{</span>
+                <span class="s1">&#39;success&#39;</span><span class="p">:</span> <span class="n">success</span><span class="p">,</span>
+                <span class="s1">&#39;message&#39;</span><span class="p">:</span> <span class="n">message</span><span class="p">,</span>
+                <span class="s1">&#39;new_rows&#39;</span><span class="p">:</span> <span class="n">stats</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;inserted_rows&#39;</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span>
+                <span class="s1">&#39;skipped_rows&#39;</span><span class="p">:</span> <span class="n">stats</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;duplicate_rows&#39;</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span>
+                <span class="s1">&#39;stats&#39;</span><span class="p">:</span> <span class="n">stats</span>
+            <span class="p">}</span>
+        
+        <span class="k">elif</span> <span class="n">mode</span> <span class="o">==</span> <span class="s1">&#39;incremental&#39;</span><span class="p">:</span>
+            <span class="n">new_rows</span><span class="p">,</span> <span class="n">skipped_rows</span> <span class="o">=</span> <span class="n">_incremental_insert</span><span class="p">(</span>
+                <span class="n">cursor</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">cursor</span><span class="p">,</span>
+                <span class="n">conn</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">conn</span><span class="p">,</span>
+                <span class="n">df</span><span class="o">=</span><span class="n">df</span><span class="p">,</span>
+                <span class="n">table</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">sheet</span><span class="p">,</span>
+                <span class="n">logger</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">logger</span>
+            <span class="p">)</span>
+            <span class="k">return</span> <span class="p">{</span>
+                <span class="s1">&#39;success&#39;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+                <span class="s1">&#39;new_rows&#39;</span><span class="p">:</span> <span class="n">new_rows</span><span class="p">,</span>
+                <span class="s1">&#39;skipped_rows&#39;</span><span class="p">:</span> <span class="n">skipped_rows</span>
+            <span class="p">}</span>
+        
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;未知的插入模式: </span><span class="si">{</span><span class="n">mode</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span></div>
+
+    
+<div class="viewcode-block" id="Datafeed.batch_process_excel_files">
+<a class="viewcode-back" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.batch_process_excel_files">[文档]</a>
+    <span class="k">def</span> <span class="nf">batch_process_excel_files</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">folder_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">config</span><span class="p">:</span> <span class="nb">dict</span><span class="p">,</span>
+        <span class="n">file_pattern</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;*.csv&quot;</span><span class="p">,</span>
+        <span class="n">recursive</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+        <span class="n">mode</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;insert&#39;</span>
+    <span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        批量处理Excel文件并插入数据库（薄封装）</span>
+<span class="sd">        </span>
+<span class="sd">        直接调用 integration.process_directory_tree</span>
+<span class="sd">        </span>
+<span class="sd">        Args:</span>
+<span class="sd">            folder_path: 文件夹路径</span>
+<span class="sd">            config: 处理配置</span>
+<span class="sd">            file_pattern: 文件匹配模式</span>
+<span class="sd">            recursive: 是否递归搜索</span>
+<span class="sd">            mode: 插入模式，&#39;insert&#39;或&#39;incremental&#39;</span>
+<span class="sd">            </span>
+<span class="sd">        Returns:</span>
+<span class="sd">            处理统计字典</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">_process_directory_tree</span><span class="p">(</span>
+            <span class="n">cursor</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">cursor</span><span class="p">,</span>
+            <span class="n">conn</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">conn</span><span class="p">,</span>
+            <span class="n">root_dir</span><span class="o">=</span><span class="n">folder_path</span><span class="p">,</span>
+            <span class="n">table</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">sheet</span><span class="p">,</span>
+            <span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">,</span>
+            <span class="n">file_pattern</span><span class="o">=</span><span class="n">file_pattern</span><span class="p">,</span>
+            <span class="n">recursive</span><span class="o">=</span><span class="n">recursive</span><span class="p">,</span>
+            <span class="n">mode</span><span class="o">=</span><span class="n">mode</span><span class="p">,</span>
+            <span class="n">logger</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">logger</span>
+        <span class="p">)</span></div>
+
+    
+<div class="viewcode-block" id="Datafeed.incremental_update">
+<a class="viewcode-back" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.incremental_update">[文档]</a>
+    <span class="k">def</span> <span class="nf">incremental_update</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">df</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span>
+        <span class="n">date_column</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;datetime&#39;</span><span class="p">,</span>
+        <span class="n">code_column</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;code&#39;</span><span class="p">,</span>
+        <span class="n">metric_column</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;metric&#39;</span>
+    <span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        增量更新数据到数据库（薄封装）</span>
+
+<span class="sd">        直接调用 integration.incremental_insert</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            df: 待更新的DataFrame</span>
+<span class="sd">            date_column: 日期列名</span>
+<span class="sd">            code_column: 代码列名</span>
+<span class="sd">            metric_column: 指标列名</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            (新增行数, 重复行数)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">new_rows</span><span class="p">,</span> <span class="n">skipped_rows</span> <span class="o">=</span> <span class="n">_incremental_insert</span><span class="p">(</span>
+            <span class="n">cursor</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">cursor</span><span class="p">,</span>
+            <span class="n">conn</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">conn</span><span class="p">,</span>
+            <span class="n">df</span><span class="o">=</span><span class="n">df</span><span class="p">,</span>
+            <span class="n">table</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">sheet</span><span class="p">,</span>
+            <span class="n">date_column</span><span class="o">=</span><span class="n">date_column</span><span class="p">,</span>
+            <span class="n">code_column</span><span class="o">=</span><span class="n">code_column</span><span class="p">,</span>
+            <span class="n">metric_column</span><span class="o">=</span><span class="n">metric_column</span><span class="p">,</span>
+            <span class="n">logger</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">logger</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="n">new_rows</span><span class="p">,</span> <span class="n">skipped_rows</span></div>
+
+
+<div class="viewcode-block" id="Datafeed.insert_with_conflict_check">
+<a class="viewcode-back" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.insert_with_conflict_check">[文档]</a>
+    <span class="k">def</span> <span class="nf">insert_with_conflict_check</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">df</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span>
+        <span class="n">date_column</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;datetime&#39;</span><span class="p">,</span>
+        <span class="n">code_column</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;code&#39;</span><span class="p">,</span>
+        <span class="n">metric_column</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;metric&#39;</span>
+    <span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        插入数据时检测重复和冲突（批量查询优化版本）</span>
+
+<span class="sd">        - 如果key(datetime, code, metric)相同但value不同：记录冲突，不插入</span>
+<span class="sd">        - 如果key和value完全相同：跳过，不插入</span>
+<span class="sd">        - 如果key不存在：插入新记录</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            df: 待插入的DataFrame，需包含columns: datetime, code, name, metric, value</span>
+<span class="sd">            date_column: 日期列名</span>
+<span class="sd">            code_column: 代码列名</span>
+<span class="sd">            metric_column: 指标列名</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            (新增行数, 跳过行数, 冲突列表)</span>
+<span class="sd">            冲突列表格式：[{datetime, code, name, metric, db_value, new_value}, ...]</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># 必需列</span>
+        <span class="n">required_cols</span> <span class="o">=</span> <span class="p">[</span><span class="n">date_column</span><span class="p">,</span> <span class="n">code_column</span><span class="p">,</span> <span class="s1">&#39;name&#39;</span><span class="p">,</span> <span class="n">metric_column</span><span class="p">,</span> <span class="s1">&#39;value&#39;</span><span class="p">]</span>
+        <span class="k">for</span> <span class="n">col</span> <span class="ow">in</span> <span class="n">required_cols</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">col</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">df</span><span class="o">.</span><span class="n">columns</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;DataFrame缺少必需列: </span><span class="si">{</span><span class="n">col</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">df</span><span class="o">.</span><span class="n">empty</span><span class="p">:</span>
+            <span class="k">return</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="p">[]</span>
+
+        <span class="c1"># 1. 批量查询所有key的现有记录</span>
+        <span class="n">keys</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="n">date_column</span><span class="p">],</span> <span class="n">row</span><span class="p">[</span><span class="n">code_column</span><span class="p">],</span> <span class="n">row</span><span class="p">[</span><span class="n">metric_column</span><span class="p">])</span>
+            <span class="k">for</span> <span class="n">_</span><span class="p">,</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">df</span><span class="o">.</span><span class="n">iterrows</span><span class="p">()</span>
+        <span class="p">]</span>
+
+        <span class="n">query</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;&quot;&quot;</span>
+<span class="s2">            SELECT t.dt, t.cd, t.mt, d.value, d.name</span>
+<span class="s2">            FROM (VALUES %s) AS t(dt, cd, mt)</span>
+<span class="s2">            LEFT JOIN </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">sheet</span><span class="si">}</span><span class="s2"> d</span>
+<span class="s2">            ON d.</span><span class="si">{</span><span class="n">date_column</span><span class="si">}</span><span class="s2"> = t.dt</span>
+<span class="s2">               AND d.</span><span class="si">{</span><span class="n">code_column</span><span class="si">}</span><span class="s2"> = t.cd</span>
+<span class="s2">               AND d.</span><span class="si">{</span><span class="n">metric_column</span><span class="si">}</span><span class="s2"> = t.mt</span>
+<span class="s2">        &quot;&quot;&quot;</span>
+
+        <span class="n">execute_values</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">cursor</span><span class="p">,</span> <span class="n">query</span><span class="p">,</span> <span class="n">keys</span><span class="p">,</span> <span class="n">template</span><span class="o">=</span><span class="s2">&quot;(</span><span class="si">%s</span><span class="s2">, </span><span class="si">%s</span><span class="s2">, </span><span class="si">%s</span><span class="s2">)&quot;</span><span class="p">,</span> <span class="n">page_size</span><span class="o">=</span><span class="mi">1000</span><span class="p">)</span>
+        <span class="n">results</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">cursor</span><span class="o">.</span><span class="n">fetchall</span><span class="p">()</span>
+
+        <span class="c1"># 构建字典：key -&gt; (value, name)</span>
+        <span class="n">existing_records</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">results</span><span class="p">:</span>
+            <span class="n">key</span> <span class="o">=</span> <span class="p">(</span><span class="n">r</span><span class="p">[</span><span class="s1">&#39;dt&#39;</span><span class="p">],</span> <span class="n">r</span><span class="p">[</span><span class="s1">&#39;cd&#39;</span><span class="p">],</span> <span class="n">r</span><span class="p">[</span><span class="s1">&#39;mt&#39;</span><span class="p">])</span>
+            <span class="n">existing_records</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;value&#39;</span><span class="p">:</span> <span class="n">r</span><span class="p">[</span><span class="s1">&#39;value&#39;</span><span class="p">],</span> <span class="s1">&#39;name&#39;</span><span class="p">:</span> <span class="n">r</span><span class="p">[</span><span class="s1">&#39;name&#39;</span><span class="p">]}</span>
+
+        <span class="c1"># 2. 在Python中比对差异</span>
+        <span class="n">rows_to_insert</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">conflicts</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">skipped_rows</span> <span class="o">=</span> <span class="mi">0</span>
+
+        <span class="k">for</span> <span class="n">_</span><span class="p">,</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">df</span><span class="o">.</span><span class="n">iterrows</span><span class="p">():</span>
+            <span class="n">datetime_val</span> <span class="o">=</span> <span class="n">row</span><span class="p">[</span><span class="n">date_column</span><span class="p">]</span>
+            <span class="n">code_val</span> <span class="o">=</span> <span class="n">row</span><span class="p">[</span><span class="n">code_column</span><span class="p">]</span>
+            <span class="n">name_val</span> <span class="o">=</span> <span class="n">row</span><span class="p">[</span><span class="s1">&#39;name&#39;</span><span class="p">]</span>
+            <span class="n">metric_val</span> <span class="o">=</span> <span class="n">row</span><span class="p">[</span><span class="n">metric_column</span><span class="p">]</span>
+            <span class="n">value_val</span> <span class="o">=</span> <span class="n">row</span><span class="p">[</span><span class="s1">&#39;value&#39;</span><span class="p">]</span>
+
+            <span class="n">key</span> <span class="o">=</span> <span class="p">(</span><span class="n">datetime_val</span><span class="p">,</span> <span class="n">code_val</span><span class="p">,</span> <span class="n">metric_val</span><span class="p">)</span>
+            <span class="n">existing</span> <span class="o">=</span> <span class="n">existing_records</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">key</span><span class="p">)</span>
+
+            <span class="k">if</span> <span class="n">existing</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">existing</span><span class="p">[</span><span class="s1">&#39;value&#39;</span><span class="p">]</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="c1"># key不存在，准备插入</span>
+                <span class="n">rows_to_insert</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">row</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="c1"># key存在，比较value</span>
+                <span class="n">db_value</span> <span class="o">=</span> <span class="n">existing</span><span class="p">[</span><span class="s1">&#39;value&#39;</span><span class="p">]</span>
+
+                <span class="c1"># 比较value（考虑浮点数精度）</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">db_value</span><span class="p">,</span> <span class="p">(</span><span class="nb">int</span><span class="p">,</span> <span class="nb">float</span><span class="p">))</span> <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value_val</span><span class="p">,</span> <span class="p">(</span><span class="nb">int</span><span class="p">,</span> <span class="nb">float</span><span class="p">)):</span>
+                        <span class="n">value_equal</span> <span class="o">=</span> <span class="nb">abs</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">db_value</span><span class="p">)</span> <span class="o">-</span> <span class="nb">float</span><span class="p">(</span><span class="n">value_val</span><span class="p">))</span> <span class="o">&lt;</span> <span class="mf">1e-9</span>
+                    <span class="k">else</span><span class="p">:</span>
+                        <span class="n">value_equal</span> <span class="o">=</span> <span class="p">(</span><span class="n">db_value</span> <span class="o">==</span> <span class="n">value_val</span><span class="p">)</span>
+                <span class="k">except</span> <span class="p">(</span><span class="ne">ValueError</span><span class="p">,</span> <span class="ne">TypeError</span><span class="p">):</span>
+                    <span class="n">value_equal</span> <span class="o">=</span> <span class="p">(</span><span class="n">db_value</span> <span class="o">==</span> <span class="n">value_val</span><span class="p">)</span>
+
+                <span class="k">if</span> <span class="ow">not</span> <span class="n">value_equal</span><span class="p">:</span>
+                    <span class="c1"># 冲突：key相同但value不同</span>
+                    <span class="n">conflicts</span><span class="o">.</span><span class="n">append</span><span class="p">({</span>
+                        <span class="s1">&#39;datetime&#39;</span><span class="p">:</span> <span class="n">datetime_val</span><span class="p">,</span>
+                        <span class="s1">&#39;code&#39;</span><span class="p">:</span> <span class="n">code_val</span><span class="p">,</span>
+                        <span class="s1">&#39;name&#39;</span><span class="p">:</span> <span class="n">name_val</span><span class="p">,</span>
+                        <span class="s1">&#39;metric&#39;</span><span class="p">:</span> <span class="n">metric_val</span><span class="p">,</span>
+                        <span class="s1">&#39;db_value&#39;</span><span class="p">:</span> <span class="n">db_value</span><span class="p">,</span>
+                        <span class="s1">&#39;new_value&#39;</span><span class="p">:</span> <span class="n">value_val</span>
+                    <span class="p">})</span>
+                    <span class="n">skipped_rows</span> <span class="o">+=</span> <span class="mi">1</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="c1"># 完全重复，跳过</span>
+                    <span class="n">skipped_rows</span> <span class="o">+=</span> <span class="mi">1</span>
+
+        <span class="c1"># 3. 批量插入新记录</span>
+        <span class="n">new_rows</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">rows_to_insert</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">rows_to_insert</span><span class="p">:</span>
+            <span class="n">insert_query</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;&quot;&quot;</span>
+<span class="s2">                INSERT INTO </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">sheet</span><span class="si">}</span><span class="s2"> (</span><span class="si">{</span><span class="n">date_column</span><span class="si">}</span><span class="s2">, </span><span class="si">{</span><span class="n">code_column</span><span class="si">}</span><span class="s2">, name, </span><span class="si">{</span><span class="n">metric_column</span><span class="si">}</span><span class="s2">, value)</span>
+<span class="s2">                VALUES %s</span>
+<span class="s2">            &quot;&quot;&quot;</span>
+            <span class="n">values</span> <span class="o">=</span> <span class="p">[</span>
+                <span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="n">date_column</span><span class="p">],</span> <span class="n">row</span><span class="p">[</span><span class="n">code_column</span><span class="p">],</span> <span class="n">row</span><span class="p">[</span><span class="s1">&#39;name&#39;</span><span class="p">],</span> <span class="n">row</span><span class="p">[</span><span class="n">metric_column</span><span class="p">],</span> <span class="n">row</span><span class="p">[</span><span class="s1">&#39;value&#39;</span><span class="p">])</span>
+                <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">rows_to_insert</span>
+            <span class="p">]</span>
+            <span class="n">execute_values</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">cursor</span><span class="p">,</span> <span class="n">insert_query</span><span class="p">,</span> <span class="n">values</span><span class="p">,</span> <span class="n">page_size</span><span class="o">=</span><span class="mi">1000</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">conn</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;插入 </span><span class="si">{</span><span class="n">new_rows</span><span class="si">}</span><span class="s2"> 行新数据&quot;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">conflicts</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;发现 </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">conflicts</span><span class="p">)</span><span class="si">}</span><span class="s2"> 条冲突记录&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">skipped_rows</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;跳过 </span><span class="si">{</span><span class="n">skipped_rows</span><span class="si">}</span><span class="s2"> 行重复/冲突数据&quot;</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">new_rows</span><span class="p">,</span> <span class="n">skipped_rows</span><span class="p">,</span> <span class="n">conflicts</span></div>
+
+
+<div class="viewcode-block" id="Datafeed.update_data">
+<a class="viewcode-back" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.update_data">[文档]</a>
+    <span class="k">def</span> <span class="nf">update_data</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">df</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span>
+        <span class="n">date_column</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;datetime&#39;</span><span class="p">,</span>
+        <span class="n">code_column</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;code&#39;</span><span class="p">,</span>
+        <span class="n">metric_column</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;metric&#39;</span>
+    <span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        使用SQL UPDATE批量更新数据</span>
+
+<span class="sd">        对于存在的记录(相同datetime, code, metric)，更新value和name</span>
+<span class="sd">        对于不存在的记录，可选择插入(upsert模式)</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            df: 待更新的DataFrame，需包含columns: datetime, code, name, metric, value</span>
+<span class="sd">            date_column: 日期列名</span>
+<span class="sd">            code_column: 代码列名</span>
+<span class="sd">            metric_column: 指标列名</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            更新行数</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># 必需列</span>
+        <span class="n">required_cols</span> <span class="o">=</span> <span class="p">[</span><span class="n">date_column</span><span class="p">,</span> <span class="n">code_column</span><span class="p">,</span> <span class="s1">&#39;name&#39;</span><span class="p">,</span> <span class="n">metric_column</span><span class="p">,</span> <span class="s1">&#39;value&#39;</span><span class="p">]</span>
+        <span class="k">for</span> <span class="n">col</span> <span class="ow">in</span> <span class="n">required_cols</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">col</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">df</span><span class="o">.</span><span class="n">columns</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;DataFrame缺少必需列: </span><span class="si">{</span><span class="n">col</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="n">updated_rows</span> <span class="o">=</span> <span class="mi">0</span>
+
+        <span class="c1"># 使用 UPSERT (INSERT ... ON CONFLICT ... DO UPDATE)</span>
+        <span class="n">upsert_query</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;&quot;&quot;</span>
+<span class="s2">            INSERT INTO </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">sheet</span><span class="si">}</span><span class="s2"> (</span><span class="si">{</span><span class="n">date_column</span><span class="si">}</span><span class="s2">, </span><span class="si">{</span><span class="n">code_column</span><span class="si">}</span><span class="s2">, name, </span><span class="si">{</span><span class="n">metric_column</span><span class="si">}</span><span class="s2">, value)</span>
+<span class="s2">            VALUES %s</span>
+<span class="s2">            ON CONFLICT (</span><span class="si">{</span><span class="n">date_column</span><span class="si">}</span><span class="s2">, </span><span class="si">{</span><span class="n">code_column</span><span class="si">}</span><span class="s2">, </span><span class="si">{</span><span class="n">metric_column</span><span class="si">}</span><span class="s2">)</span>
+<span class="s2">            DO UPDATE SET</span>
+<span class="s2">                value = EXCLUDED.value,</span>
+<span class="s2">                name = EXCLUDED.name</span>
+<span class="s2">        &quot;&quot;&quot;</span>
+
+        <span class="n">values</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="n">date_column</span><span class="p">],</span> <span class="n">row</span><span class="p">[</span><span class="n">code_column</span><span class="p">],</span> <span class="n">row</span><span class="p">[</span><span class="s1">&#39;name&#39;</span><span class="p">],</span> <span class="n">row</span><span class="p">[</span><span class="n">metric_column</span><span class="p">],</span> <span class="n">row</span><span class="p">[</span><span class="s1">&#39;value&#39;</span><span class="p">])</span>
+            <span class="k">for</span> <span class="n">_</span><span class="p">,</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">df</span><span class="o">.</span><span class="n">iterrows</span><span class="p">()</span>
+        <span class="p">]</span>
+
+        <span class="n">execute_values</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">cursor</span><span class="p">,</span> <span class="n">upsert_query</span><span class="p">,</span> <span class="n">values</span><span class="p">)</span>
+        <span class="n">updated_rows</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">cursor</span><span class="o">.</span><span class="n">rowcount</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">conn</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;更新/插入 </span><span class="si">{</span><span class="n">updated_rows</span><span class="si">}</span><span class="s2"> 行数据&quot;</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">updated_rows</span></div>
+
+    
+    <span class="c1"># ========== Wind数据抓取 ==========</span>
+    
+<div class="viewcode-block" id="Datafeed.ingest_wind_daily_market">
+<a class="viewcode-back" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.ingest_wind_daily_market">[文档]</a>
+    <span class="k">def</span> <span class="nf">ingest_wind_daily_market</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">codes</span><span class="p">:</span> <span class="nb">list</span><span class="p">,</span>
+        <span class="n">start_date</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">end_date</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">fields</span><span class="p">:</span> <span class="nb">list</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">asset_type</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;stock&#39;</span><span class="p">,</span>
+        <span class="n">mode</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;incremental&#39;</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        从Wind获取日行情并插入数据库（薄封装）</span>
+<span class="sd">        </span>
+<span class="sd">        组合流程：</span>
+<span class="sd">        1. wind_ingest.fetch_daily_market - 获取Wind数据</span>
+<span class="sd">        2. integration.incremental_insert/insert_dataframe - 插入</span>
+<span class="sd">        </span>
+<span class="sd">        Args:</span>
+<span class="sd">            codes: 代码列表</span>
+<span class="sd">            start_date: 开始日期，格式&#39;YYYY-MM-DD&#39;</span>
+<span class="sd">            end_date: 结束日期</span>
+<span class="sd">            fields: 字段列表，None使用默认字段</span>
+<span class="sd">            asset_type: 资产类型，&#39;stock&#39;, &#39;index&#39;, &#39;fund&#39;, &#39;bond&#39;</span>
+<span class="sd">            mode: 插入模式，&#39;incremental&#39;（默认）或&#39;insert&#39;</span>
+<span class="sd">            </span>
+<span class="sd">        Returns:</span>
+<span class="sd">            统计信息字典</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;开始从Wind获取数据: codes=</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">codes</span><span class="p">)</span><span class="si">}</span><span class="s2">, &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;date_range=</span><span class="si">{</span><span class="n">start_date</span><span class="si">}</span><span class="s2">~</span><span class="si">{</span><span class="n">end_date</span><span class="si">}</span><span class="s2">, asset_type=</span><span class="si">{</span><span class="n">asset_type</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
+        
+        <span class="c1"># 1. 从Wind获取数据</span>
+        <span class="n">df</span> <span class="o">=</span> <span class="n">_fetch_daily_market</span><span class="p">(</span>
+            <span class="n">codes</span><span class="o">=</span><span class="n">codes</span><span class="p">,</span>
+            <span class="n">start_date</span><span class="o">=</span><span class="n">start_date</span><span class="p">,</span>
+            <span class="n">end_date</span><span class="o">=</span><span class="n">end_date</span><span class="p">,</span>
+            <span class="n">fields</span><span class="o">=</span><span class="n">fields</span><span class="p">,</span>
+            <span class="n">asset_type</span><span class="o">=</span><span class="n">asset_type</span><span class="p">,</span>
+            <span class="n">apply_time_stamps</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+            <span class="n">logger</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">logger</span>
+        <span class="p">)</span>
+        
+        <span class="k">if</span> <span class="n">df</span><span class="o">.</span><span class="n">empty</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;未获取到任何数据&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="p">{</span><span class="s1">&#39;success&#39;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span> <span class="s1">&#39;message&#39;</span><span class="p">:</span> <span class="s1">&#39;No data fetched&#39;</span><span class="p">}</span>
+        
+        <span class="c1"># 2. 插入数据库</span>
+        <span class="k">if</span> <span class="n">mode</span> <span class="o">==</span> <span class="s1">&#39;incremental&#39;</span><span class="p">:</span>
+            <span class="n">new_rows</span><span class="p">,</span> <span class="n">skipped_rows</span> <span class="o">=</span> <span class="n">_incremental_insert</span><span class="p">(</span>
+                <span class="n">cursor</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">cursor</span><span class="p">,</span>
+                <span class="n">conn</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">conn</span><span class="p">,</span>
+                <span class="n">df</span><span class="o">=</span><span class="n">df</span><span class="p">,</span>
+                <span class="n">table</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">sheet</span><span class="p">,</span>
+                <span class="n">logger</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">logger</span>
+            <span class="p">)</span>
+            <span class="k">return</span> <span class="p">{</span>
+                <span class="s1">&#39;success&#39;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+                <span class="s1">&#39;new_rows&#39;</span><span class="p">:</span> <span class="n">new_rows</span><span class="p">,</span>
+                <span class="s1">&#39;skipped_rows&#39;</span><span class="p">:</span> <span class="n">skipped_rows</span><span class="p">,</span>
+                <span class="s1">&#39;total_fetched&#39;</span><span class="p">:</span> <span class="nb">len</span><span class="p">(</span><span class="n">df</span><span class="p">)</span>
+            <span class="p">}</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">success</span><span class="p">,</span> <span class="n">message</span><span class="p">,</span> <span class="n">stats</span> <span class="o">=</span> <span class="n">_insert_dataframe</span><span class="p">(</span>
+                <span class="n">cursor</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">cursor</span><span class="p">,</span>
+                <span class="n">conn</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">conn</span><span class="p">,</span>
+                <span class="n">df</span><span class="o">=</span><span class="n">df</span><span class="p">,</span>
+                <span class="n">table</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">sheet</span><span class="p">,</span>
+                <span class="n">logger</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">logger</span>
+            <span class="p">)</span>
+            <span class="k">return</span> <span class="p">{</span><span class="s1">&#39;success&#39;</span><span class="p">:</span> <span class="n">success</span><span class="p">,</span> <span class="s1">&#39;message&#39;</span><span class="p">:</span> <span class="n">message</span><span class="p">,</span> <span class="s1">&#39;stats&#39;</span><span class="p">:</span> <span class="n">stats</span><span class="p">}</span></div>
+
+    
+<div class="viewcode-block" id="Datafeed.ingest_wind_daily_index">
+<a class="viewcode-back" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.ingest_wind_daily_index">[文档]</a>
+    <span class="k">def</span> <span class="nf">ingest_wind_daily_index</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">codes</span><span class="p">:</span> <span class="nb">list</span><span class="p">,</span> <span class="n">start_date</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">end_date</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> 
+                                  <span class="n">fields</span><span class="p">:</span> <span class="nb">list</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">mode</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;incremental&#39;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Wind指数数据抓取（便捷封装）&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">ingest_wind_daily_market</span><span class="p">(</span><span class="n">codes</span><span class="p">,</span> <span class="n">start_date</span><span class="p">,</span> <span class="n">end_date</span><span class="p">,</span> <span class="n">fields</span><span class="p">,</span> <span class="s1">&#39;index&#39;</span><span class="p">,</span> <span class="n">mode</span><span class="p">)</span></div>
+
+    
+<div class="viewcode-block" id="Datafeed.ingest_wind_daily_fund">
+<a class="viewcode-back" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.ingest_wind_daily_fund">[文档]</a>
+    <span class="k">def</span> <span class="nf">ingest_wind_daily_fund</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">codes</span><span class="p">:</span> <span class="nb">list</span><span class="p">,</span> <span class="n">start_date</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">end_date</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+                                <span class="n">fields</span><span class="p">:</span> <span class="nb">list</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">mode</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;incremental&#39;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Wind基金数据抓取（便捷封装）&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">ingest_wind_daily_market</span><span class="p">(</span><span class="n">codes</span><span class="p">,</span> <span class="n">start_date</span><span class="p">,</span> <span class="n">end_date</span><span class="p">,</span> <span class="n">fields</span><span class="p">,</span> <span class="s1">&#39;fund&#39;</span><span class="p">,</span> <span class="n">mode</span><span class="p">)</span></div>
+
+    
+<div class="viewcode-block" id="Datafeed.ingest_wind_daily_bond">
+<a class="viewcode-back" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.ingest_wind_daily_bond">[文档]</a>
+    <span class="k">def</span> <span class="nf">ingest_wind_daily_bond</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">codes</span><span class="p">:</span> <span class="nb">list</span><span class="p">,</span> <span class="n">start_date</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">end_date</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+                                <span class="n">fields</span><span class="p">:</span> <span class="nb">list</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">mode</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;incremental&#39;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Wind债券数据抓取（便捷封装）&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">ingest_wind_daily_market</span><span class="p">(</span><span class="n">codes</span><span class="p">,</span> <span class="n">start_date</span><span class="p">,</span> <span class="n">end_date</span><span class="p">,</span> <span class="n">fields</span><span class="p">,</span> <span class="s1">&#39;bond&#39;</span><span class="p">,</span> <span class="n">mode</span><span class="p">)</span></div>
+
+    
+    <span class="c1"># ========== 查询功能（薄封装）==========</span>
+    
+<div class="viewcode-block" id="Datafeed.run_query">
+<a class="viewcode-back" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.run_query">[文档]</a>
+    <span class="nd">@func_timer</span>
+    <span class="k">def</span> <span class="nf">run_query</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">conditions</span><span class="p">:</span> <span class="nb">list</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">params</span><span class="p">:</span> <span class="nb">list</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">select_columns</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;*&#39;</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        执行自定义SQL查询（薄封装）</span>
+<span class="sd">        </span>
+<span class="sd">        替代原 query_data 方法，使用 query.build_query</span>
+<span class="sd">        </span>
+<span class="sd">        Args:</span>
+<span class="sd">            conditions: SQL条件列表，如[&#39;datetime &gt;= %s&#39;, &#39;code = %s&#39;]</span>
+<span class="sd">            params: 参数列表</span>
+<span class="sd">            select_columns: 要选择的列</span>
+<span class="sd">            </span>
+<span class="sd">        Returns:</span>
+<span class="sd">            DataFrame</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">query</span><span class="p">,</span> <span class="n">params</span> <span class="o">=</span> <span class="n">_build_query</span><span class="p">(</span>
+            <span class="n">table_name</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">sheet</span><span class="p">,</span>
+            <span class="n">conditions</span><span class="o">=</span><span class="n">conditions</span><span class="p">,</span>
+            <span class="n">params</span><span class="o">=</span><span class="n">params</span><span class="p">,</span>
+            <span class="n">select_columns</span><span class="o">=</span><span class="n">select_columns</span>
+        <span class="p">)</span>
+        
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;执行查询: </span><span class="si">{</span><span class="n">query</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="n">params</span><span class="p">)</span>
+        
+        <span class="n">result</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">cursor</span><span class="o">.</span><span class="n">fetchall</span><span class="p">())</span>
+        <span class="k">return</span> <span class="n">result</span></div>
+
+    
+<div class="viewcode-block" id="Datafeed.query_time_range">
+<a class="viewcode-back" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.query_time_range">[文档]</a>
+    <span class="nd">@func_timer</span>
+    <span class="k">def</span> <span class="nf">query_time_range</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">codes</span><span class="p">:</span> <span class="nb">list</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">start_date</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">end_date</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">metric</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">limit</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        查询指定时间范围的数据（薄封装）</span>
+
+<span class="sd">        直接调用 query.query_time_range</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            codes: 代码列表</span>
+<span class="sd">            start_date: 开始日期</span>
+<span class="sd">            end_date: 结束日期</span>
+<span class="sd">            metric: 指标</span>
+<span class="sd">            limit: 最大返回行数，None表示不限制</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            DataFrame</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">_query_time_range</span><span class="p">(</span>
+            <span class="n">cursor</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">cursor</span><span class="p">,</span>
+            <span class="n">table_name</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">sheet</span><span class="p">,</span>
+            <span class="n">codes</span><span class="o">=</span><span class="n">codes</span><span class="p">,</span>
+            <span class="n">start_date</span><span class="o">=</span><span class="n">start_date</span><span class="p">,</span>
+            <span class="n">end_date</span><span class="o">=</span><span class="n">end_date</span><span class="p">,</span>
+            <span class="n">metric</span><span class="o">=</span><span class="n">metric</span><span class="p">,</span>
+            <span class="n">limit</span><span class="o">=</span><span class="n">limit</span><span class="p">,</span>
+            <span class="n">logger</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">logger</span>
+        <span class="p">)</span></div>
+
+    
+<div class="viewcode-block" id="Datafeed.query_nearest_after">
+<a class="viewcode-back" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.query_nearest_after">[文档]</a>
+    <span class="nd">@func_timer</span>
+    <span class="k">def</span> <span class="nf">query_nearest_after</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        根据输入时间戳序列查找每个时点之后最近的有效值（薄封装）</span>
+<span class="sd">        </span>
+<span class="sd">        主要用于回测时提取价格</span>
+<span class="sd">        直接调用 query.query_nearest_after</span>
+<span class="sd">        </span>
+<span class="sd">        Args:</span>
+<span class="sd">            params (dict): 必须包含以下键：</span>
+<span class="sd">                - codes: 代码列表</span>
+<span class="sd">                - datetimes: 目标时间戳列表（格式：&#39;YYYY-MM-DD HH:MM&#39;）</span>
+<span class="sd">                - metric: 查询的指标名称</span>
+<span class="sd">                - time_tolerance: 允许的最大时间间隔（单位：小时，默认不限制）</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            DataFrame: 包含以下列：</span>
+<span class="sd">                code | input_ts | datetime | diff_hours | value | name</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># 参数校验</span>
+        <span class="n">required_keys</span> <span class="o">=</span> <span class="p">[</span><span class="s1">&#39;codes&#39;</span><span class="p">,</span> <span class="s1">&#39;datetimes&#39;</span><span class="p">,</span> <span class="s1">&#39;metric&#39;</span><span class="p">]</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">all</span><span class="p">(</span><span class="n">k</span> <span class="ow">in</span> <span class="n">params</span> <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">required_keys</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;必须提供参数: </span><span class="si">{</span><span class="n">required_keys</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="c1"># 使用函数式查询</span>
+        <span class="n">df</span> <span class="o">=</span> <span class="n">_query_nearest_after</span><span class="p">(</span>
+            <span class="n">cursor</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">cursor</span><span class="p">,</span>
+            <span class="n">table_name</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">sheet</span><span class="p">,</span>
+            <span class="n">codes</span><span class="o">=</span><span class="n">params</span><span class="p">[</span><span class="s1">&#39;codes&#39;</span><span class="p">],</span>
+            <span class="n">datetimes</span><span class="o">=</span><span class="n">params</span><span class="p">[</span><span class="s1">&#39;datetimes&#39;</span><span class="p">],</span>
+            <span class="n">metric</span><span class="o">=</span><span class="n">params</span><span class="p">[</span><span class="s1">&#39;metric&#39;</span><span class="p">],</span>
+            <span class="n">time_tolerance</span><span class="o">=</span><span class="n">params</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;time_tolerance&#39;</span><span class="p">),</span>
+            <span class="n">logger</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">logger</span>
+        <span class="p">)</span>
+        
+        <span class="k">return</span> <span class="n">df</span></div>
+
+
+<div class="viewcode-block" id="Datafeed.query_nearest_before">
+<a class="viewcode-back" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.query_nearest_before">[文档]</a>
+    <span class="nd">@func_timer</span>
+    <span class="k">def</span> <span class="nf">query_nearest_before</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        根据输入时间戳序列查找每个时点之前最近的有效值（薄封装）</span>
+<span class="sd">        </span>
+<span class="sd">        主要用于回测时提取历史价格特征</span>
+<span class="sd">        直接调用 query.query_nearest_before</span>
+<span class="sd">        </span>
+<span class="sd">        Args:</span>
+<span class="sd">            params (dict): 必须包含以下键：</span>
+<span class="sd">                - codes: 代码列表</span>
+<span class="sd">                - datetimes: 目标时间戳列表（格式：&#39;YYYY-MM-DD HH:MM&#39;）</span>
+<span class="sd">                - metric: 查询的指标名称</span>
+<span class="sd">                - time_tolerance: 允许的最大时间间隔（单位：小时，默认不限制）</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            DataFrame: 包含以下列：</span>
+<span class="sd">                code | input_ts | datetime | diff_hours | value | name</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># 参数校验</span>
+        <span class="n">required_keys</span> <span class="o">=</span> <span class="p">[</span><span class="s1">&#39;codes&#39;</span><span class="p">,</span> <span class="s1">&#39;datetimes&#39;</span><span class="p">,</span> <span class="s1">&#39;metric&#39;</span><span class="p">]</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">all</span><span class="p">(</span><span class="n">k</span> <span class="ow">in</span> <span class="n">params</span> <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">required_keys</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;必须提供参数: </span><span class="si">{</span><span class="n">required_keys</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="c1"># 使用函数式查询</span>
+        <span class="n">df</span> <span class="o">=</span> <span class="n">_query_nearest_before</span><span class="p">(</span>
+            <span class="n">cursor</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">cursor</span><span class="p">,</span>
+            <span class="n">table_name</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">sheet</span><span class="p">,</span>
+            <span class="n">codes</span><span class="o">=</span><span class="n">params</span><span class="p">[</span><span class="s1">&#39;codes&#39;</span><span class="p">],</span>
+            <span class="n">datetimes</span><span class="o">=</span><span class="n">params</span><span class="p">[</span><span class="s1">&#39;datetimes&#39;</span><span class="p">],</span>
+            <span class="n">metric</span><span class="o">=</span><span class="n">params</span><span class="p">[</span><span class="s1">&#39;metric&#39;</span><span class="p">],</span>
+            <span class="n">time_tolerance</span><span class="o">=</span><span class="n">params</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;time_tolerance&#39;</span><span class="p">),</span>
+            <span class="n">logger</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">logger</span>
+        <span class="p">)</span>
+        
+        <span class="k">return</span> <span class="n">df</span></div>
+
+    
+<div class="viewcode-block" id="Datafeed.get_latest_date">
+<a class="viewcode-back" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.get_latest_date">[文档]</a>
+    <span class="k">def</span> <span class="nf">get_latest_date</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">code</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">metric</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="kc">None</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        获取数据库中的最新日期（薄封装）</span>
+<span class="sd">        </span>
+<span class="sd">        直接调用 query.get_latest_date</span>
+<span class="sd">        </span>
+<span class="sd">        Args:</span>
+<span class="sd">            code: 代码，None表示所有代码</span>
+<span class="sd">            metric: 指标，None表示所有指标</span>
+<span class="sd">            </span>
+<span class="sd">        Returns:</span>
+<span class="sd">            最新日期</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">_get_latest_date</span><span class="p">(</span>
+            <span class="n">cursor</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">cursor</span><span class="p">,</span>
+            <span class="n">table_name</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">sheet</span><span class="p">,</span>
+            <span class="n">code</span><span class="o">=</span><span class="n">code</span><span class="p">,</span>
+            <span class="n">metric</span><span class="o">=</span><span class="n">metric</span><span class="p">,</span>
+            <span class="n">logger</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">logger</span>
+        <span class="p">)</span></div>
+
+    
+<div class="viewcode-block" id="Datafeed.get_available_dates">
+<a class="viewcode-back" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.get_available_dates">[文档]</a>
+    <span class="k">def</span> <span class="nf">get_available_dates</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">code</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">metric</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">start_date</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">end_date</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        获取指定代码和指标的可用日期列表（薄封装）</span>
+<span class="sd">        </span>
+<span class="sd">        直接调用 query.get_available_dates</span>
+<span class="sd">        </span>
+<span class="sd">        Args:</span>
+<span class="sd">            code: 代码</span>
+<span class="sd">            metric: 指标</span>
+<span class="sd">            start_date: 开始日期</span>
+<span class="sd">            end_date: 结束日期</span>
+<span class="sd">            </span>
+<span class="sd">        Returns:</span>
+<span class="sd">            日期列表</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">_get_available_dates</span><span class="p">(</span>
+            <span class="n">cursor</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">cursor</span><span class="p">,</span>
+            <span class="n">table_name</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">sheet</span><span class="p">,</span>
+            <span class="n">code</span><span class="o">=</span><span class="n">code</span><span class="p">,</span>
+            <span class="n">metric</span><span class="o">=</span><span class="n">metric</span><span class="p">,</span>
+            <span class="n">start_date</span><span class="o">=</span><span class="n">start_date</span><span class="p">,</span>
+            <span class="n">end_date</span><span class="o">=</span><span class="n">end_date</span><span class="p">,</span>
+            <span class="n">logger</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">logger</span>
+        <span class="p">)</span></div>
+
+    
+    <span class="c1"># ========== 验证功能（薄封装）==========</span>
+    
+<div class="viewcode-block" id="Datafeed.validate_dataframe">
+<a class="viewcode-back" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.validate_dataframe">[文档]</a>
+    <span class="k">def</span> <span class="nf">validate_dataframe</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">df</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span>
+        <span class="n">validations</span><span class="p">:</span> <span class="nb">dict</span>
+    <span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        验证和修复DataFrame（薄封装）</span>
+<span class="sd">        </span>
+<span class="sd">        直接调用 validation.validate_and_fix</span>
+<span class="sd">        </span>
+<span class="sd">        Args:</span>
+<span class="sd">            df: 待验证的DataFrame</span>
+<span class="sd">            validations: 验证配置</span>
+<span class="sd">            </span>
+<span class="sd">        Returns:</span>
+<span class="sd">            (修复后的DataFrame, 验证报告)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">validate_and_fix</span><span class="p">(</span>
+            <span class="n">df</span><span class="p">,</span>
+            <span class="n">validations</span><span class="o">=</span><span class="n">validations</span><span class="p">,</span>
+            <span class="n">logger</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="p">,</span>
+            <span class="n">inplace</span><span class="o">=</span><span class="kc">False</span>
+        <span class="p">)</span></div>
+
+    
+<div class="viewcode-block" id="Datafeed.check_excel_file">
+<a class="viewcode-back" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.check_excel_file">[文档]</a>
+    <span class="k">def</span> <span class="nf">check_excel_file</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">filepath</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">checks</span><span class="p">:</span> <span class="nb">dict</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        检查Excel文件中的错误（薄封装）</span>
+<span class="sd">        </span>
+<span class="sd">        直接调用 excel.check_excel_errors</span>
+<span class="sd">        </span>
+<span class="sd">        Args:</span>
+<span class="sd">            filepath: 文件路径</span>
+<span class="sd">            checks: 检查配置</span>
+<span class="sd">            </span>
+<span class="sd">        Returns:</span>
+<span class="sd">            (是否通过, 错误列表)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">df</span> <span class="o">=</span> <span class="n">read_file</span><span class="p">(</span><span class="n">filepath</span><span class="p">,</span> <span class="n">logger</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">check_excel_errors</span><span class="p">(</span><span class="n">df</span><span class="p">,</span> <span class="n">checks</span><span class="p">,</span> <span class="n">logger</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="p">)</span></div>
+
+    
+    <span class="c1"># ========== 表管理 ==========</span>
+
+<div class="viewcode-block" id="Datafeed.truncate_table">
+<a class="viewcode-back" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.truncate_table">[文档]</a>
+    <span class="k">def</span> <span class="nf">truncate_table</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        清空表中所有数据</span>
+
+<span class="sd">        WARNING: 此操作不可逆，会删除表中所有记录</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            删除的行数</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># 先查询表中的行数</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;SELECT COUNT(*) FROM </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">sheet</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="n">count</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">cursor</span><span class="o">.</span><span class="n">fetchone</span><span class="p">()[</span><span class="s1">&#39;count&#39;</span><span class="p">]</span>
+
+        <span class="c1"># 清空表</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;TRUNCATE TABLE </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">sheet</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">conn</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;已清空表 </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">sheet</span><span class="si">}</span><span class="s2">，删除 </span><span class="si">{</span><span class="n">count</span><span class="si">}</span><span class="s2"> 行数据&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">count</span></div>
+
+
+    <span class="c1"># ========== 连接管理 ==========</span>
+
+<div class="viewcode-block" id="Datafeed.close">
+<a class="viewcode-back" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.close">[文档]</a>
+    <span class="k">def</span> <span class="nf">close</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;关闭数据库连接&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">cursor</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">cursor</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">conn</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">conn</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;数据库连接已关闭&quot;</span><span class="p">)</span></div>
+</div>
+
+    
+
+
+<span class="c1"># ========== 辅助函数（保留）==========</span>
+
+<div class="viewcode-block" id="get_absolute_trade_days">
+<a class="viewcode-back" href="../../../api/datafeed.html#betalens.datafeed.get_absolute_trade_days">[文档]</a>
+<span class="k">def</span> <span class="nf">get_absolute_trade_days</span><span class="p">(</span><span class="n">begin_date</span><span class="p">,</span> <span class="n">end_date</span><span class="p">,</span> <span class="n">period</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    获取交易日序列</span>
+<span class="sd">    </span>
+<span class="sd">    Args:</span>
+<span class="sd">        begin_date: 开始日期，字符串格式</span>
+<span class="sd">        end_date: 结束日期，字符串格式</span>
+<span class="sd">        period: 周期，如&#39;D&#39;(日), &#39;W&#39;(周), &#39;M&#39;(月)</span>
+<span class="sd">        </span>
+<span class="sd">    Returns:</span>
+<span class="sd">        交易日列表</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="kn">from</span> <span class="nn">WindPy</span> <span class="kn">import</span> <span class="n">w</span>
+    <span class="n">w</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+    <span class="n">trade_days</span> <span class="o">=</span> <span class="n">w</span><span class="o">.</span><span class="n">tdays</span><span class="p">(</span><span class="n">begin_date</span><span class="p">,</span> <span class="n">end_date</span><span class="p">,</span> <span class="s2">&quot;Period=&quot;</span><span class="o">+</span><span class="n">period</span><span class="p">)</span><span class="o">.</span><span class="n">Data</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="k">return</span> <span class="n">trade_days</span></div>
+
+
+<div class="viewcode-block" id="trade_days_offset">
+<a class="viewcode-back" href="../../../api/datafeed.html#betalens.datafeed.trade_days_offset">[文档]</a>
+<span class="k">def</span> <span class="nf">trade_days_offset</span><span class="p">(</span><span class="n">begin_datetime</span><span class="p">,</span> <span class="n">offset</span><span class="p">,</span> <span class="n">period</span> <span class="o">=</span> <span class="s1">&#39;D&#39;</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    交易日偏移计算</span>
+<span class="sd">    </span>
+<span class="sd">    Args:</span>
+<span class="sd">        begin_datetime: 起始datetime对象</span>
+<span class="sd">        offset: 偏移量（整数）</span>
+<span class="sd">        period: 周期，默认&#39;D&#39;</span>
+<span class="sd">        </span>
+<span class="sd">    Returns:</span>
+<span class="sd">        偏移后的datetime对象</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="kn">from</span> <span class="nn">datetime</span> <span class="kn">import</span> <span class="n">datetime</span><span class="p">,</span> <span class="n">timedelta</span>
+    <span class="kn">from</span> <span class="nn">WindPy</span> <span class="kn">import</span> <span class="n">w</span>
+    <span class="n">time_part</span> <span class="o">=</span> <span class="n">begin_datetime</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>  <span class="c1"># datetime.time对象</span>
+
+    <span class="c1"># 格式化日期为字符串</span>
+    <span class="n">begin_date_str</span> <span class="o">=</span> <span class="n">begin_datetime</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="s1">&#39;%Y-%m-</span><span class="si">%d</span><span class="s1">&#39;</span><span class="p">)</span>
+
+    <span class="c1"># 启动 WindPy</span>
+    <span class="n">w</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+
+    <span class="c1"># 获取偏移后的交易日（仅日期部分）</span>
+    <span class="n">end_date</span> <span class="o">=</span> <span class="n">w</span><span class="o">.</span><span class="n">tdaysoffset</span><span class="p">(</span><span class="n">offset</span><span class="p">,</span> <span class="n">begin_date_str</span><span class="p">,</span> <span class="s2">&quot;Period=&quot;</span> <span class="o">+</span> <span class="n">period</span><span class="p">)</span><span class="o">.</span><span class="n">Data</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span>
+
+    <span class="c1"># 将时间部分加回去</span>
+    <span class="n">final_datetime</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">combine</span><span class="p">(</span><span class="n">end_date</span><span class="p">,</span> <span class="n">time_part</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">final_datetime</span></div>
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; 版权所有 2025, Janis。</p>
+  </div>
+
+  利用 <a href="https://www.sphinx-doc.org/">Sphinx</a> 构建，使用的 
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">主题</a>
+    由 <a href="https://readthedocs.org">Read the Docs</a> 开发.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
