@@ -17,13 +17,18 @@ class RobustTest:
         self._OX = pd.DataFrame()
         self._T = pd.DataFrame()
 
-    def _orthogonalize(self):
+    def _orthogonalize(self, baseline_X=None):
+        # 论文 Eq.(6)：初始轮去均值；有基准因子时减截距
         self._T = {}
         self._OX = pd.DataFrame()
         for i in range(self.X.shape[1]):
             Xi = self.X.iloc[:, i]
-            model = sm.OLS(Xi, sm.add_constant(self.y)).fit()
-            self._OX = pd.concat([self._OX, model.resid], axis=1)
+            if baseline_X is None or (isinstance(baseline_X, pd.DataFrame) and baseline_X.shape[1] == 0):
+                OX_i = Xi - Xi.mean()
+            else:
+                model = sm.OLS(Xi, sm.add_constant(baseline_X)).fit()
+                OX_i = Xi - model.params['const']
+            self._OX = pd.concat([self._OX, OX_i], axis=1)
             model = sm.OLS(self.y, sm.add_constant(Xi)).fit()
             self._T[self.X.columns[i]] = model.tvalues.iloc[1]
         self._OX.columns = self.X.columns
@@ -51,10 +56,11 @@ class RobustTest:
         return model.params, model.resid, model.tvalues, model.params
 
     def _fake_fund(self, X, B, OX):
-        # 对应旧版 fake_fund: 用系数重构+残差Bootstrap生成虚拟基金
+        # 论文要求：用同一索引联合重抽 X 和 OX，保留两者的时序依赖结构
         indices = np.random.choice(range(OX.shape[0]), OX.shape[0], replace=True)
+        bootstrapped_X = X.iloc[indices].reset_index(drop=True)
         bootstrapped_OX = OX.iloc[indices].reset_index(drop=True)
-        fake_y = X.mul(B.iloc[0, :], axis=1).drop('const', axis=1).sum(axis=1) + bootstrapped_OX
+        fake_y = bootstrapped_X.mul(B.iloc[0, :], axis=1).drop('const', axis=1).sum(axis=1) + bootstrapped_OX
         return fake_y
 
     def _bootstrap_once(self, n_bootstraps=1000):
@@ -84,27 +90,32 @@ class RobustTest:
         """
         self._X = self.X.copy()
         self._y = self.y.copy()
-        
+        baseline_X = pd.DataFrame(index=self.X.index)  # 累积显著因子（原始值）
+
         while True:
             if self._X.shape[0] < 100 or self._X.shape[1] == 0:
                 return pd.DataFrame()
-            
-            # 正交化: 对应旧版 neu()
+
+            # 正交化: 论文 Eq.(6) — 初始轮去均值；有基准因子时减截距
             self._T = {}
             self._OX = pd.DataFrame()
             for i in range(self._X.shape[1]):
                 Xi = self._X.iloc[:, i]
-                model = sm.OLS(Xi, sm.add_constant(self._y)).fit()
-                self._OX = pd.concat([self._OX, model.resid], axis=1)
+                if baseline_X.shape[1] == 0:
+                    OX_i = Xi - Xi.mean()
+                else:
+                    model = sm.OLS(Xi, sm.add_constant(baseline_X)).fit()
+                    OX_i = Xi - model.params['const']
+                self._OX = pd.concat([self._OX, OX_i], axis=1)
                 model = sm.OLS(self._y, sm.add_constant(Xi)).fit()
                 self._T[self._X.columns[i]] = model.tvalues.iloc[1]
             self._OX.columns = self._X.columns
             self._T = pd.DataFrame(self._T, index=[self._y.name]).T.abs()
-            
+
             # Bootstrap检验
             eff_factors, modified_p = self._bootstrap_once(n_bootstraps)
             not_eff_factors = list(set(self._X.columns) - set(eff_factors))
-            
+
             # 收敛条件: 全显著或全不显著
             if len(not_eff_factors) == 0 or len(eff_factors) == 0:
                 return pd.DataFrame({
@@ -113,14 +124,17 @@ class RobustTest:
                     'modified_p': modified_p[self._y.name].values,
                     'significant': modified_p[self._y.name].values < 0.1
                 })
-            
+
+            # 将本轮显著因子加入基准（使用原始 X 值）
+            baseline_X = pd.concat([baseline_X, self.X[eff_factors]], axis=1)
+
             # 用显著因子回归y取残差
             oy = self._y
             for fct in eff_factors:
                 EXi = self._X.loc[:, fct]
                 model = sm.OLS(oy, sm.add_constant(EXi)).fit()
                 oy = model.resid
-            
+
             # 剔除显著因子，继续迭代
             self._X = self._X[not_eff_factors]
             self._y = oy
