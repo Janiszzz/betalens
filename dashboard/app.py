@@ -3,11 +3,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import streamlit as st
-from views import eventstudy, database
+from views import eventstudy, database, factor_eval
 
 st.set_page_config(page_title="betalens 看板", layout="wide")
 
-PAGES = {"📈 事件研究": eventstudy, "🗄️ 数据库管理": database}
+PAGES = {"📈 事件研究": eventstudy, "📊 因子评价": factor_eval, "🗄️ 数据库管理": database}
 
 with st.sidebar:
     st.title("betalens 看板")

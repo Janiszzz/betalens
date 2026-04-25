@@ -61,6 +61,8 @@ from .validation import validate_and_fix
 from .query import (
     query_nearest_after as _query_nearest_after,
     query_nearest_before as _query_nearest_before,
+    query_nearest_in_range_after as _query_nearest_in_range_after,
+    query_nearest_in_range_before as _query_nearest_in_range_before,
     query_time_range as _query_time_range,
     get_available_dates as _get_available_dates,
     get_latest_date as _get_latest_date,
@@ -840,6 +842,66 @@ class Datafeed():
         return df
 
     @func_timer
+    def query_nearest_in_range_after(self, params=None):
+        """
+        在 (start, end) 区间内查找距 start 最近的有效值（薄封装）
+
+        Args:
+            params (dict): 必须包含以下键：
+                - codes: 代码列表
+                - ranges: [(start, end), ...] 区间列表
+                - metric: 指标名
+                - time_tolerance: 锚点容差（小时，可选）
+
+        Returns:
+            DataFrame: code | input_ts(=start) | datetime | diff_hours | value | name
+        """
+        required_keys = ['codes', 'ranges', 'metric']
+        if not all(k in params for k in required_keys):
+            raise ValueError(f"必须提供参数: {required_keys}")
+
+        df = _query_nearest_in_range_after(
+            cursor=self.cursor,
+            table_name=self.sheet,
+            codes=params['codes'],
+            ranges=params['ranges'],
+            metric=params['metric'],
+            time_tolerance=params.get('time_tolerance'),
+            logger=self.logger
+        )
+        return df
+
+    @func_timer
+    def query_nearest_in_range_before(self, params=None):
+        """
+        在 (start, end) 区间内查找距 end 最近的有效值（薄封装）
+
+        Args:
+            params (dict): 必须包含以下键：
+                - codes: 代码列表
+                - ranges: [(start, end), ...] 区间列表
+                - metric: 指标名
+                - time_tolerance: 锚点容差（小时，可选）
+
+        Returns:
+            DataFrame: code | input_ts(=end) | datetime | diff_hours | value | name
+        """
+        required_keys = ['codes', 'ranges', 'metric']
+        if not all(k in params for k in required_keys):
+            raise ValueError(f"必须提供参数: {required_keys}")
+
+        df = _query_nearest_in_range_before(
+            cursor=self.cursor,
+            table_name=self.sheet,
+            codes=params['codes'],
+            ranges=params['ranges'],
+            metric=params['metric'],
+            time_tolerance=params.get('time_tolerance'),
+            logger=self.logger
+        )
+        return df
+
+    @func_timer
     def query_nearest_before(self, params=None):
         """
         根据输入时间戳序列查找每个时点之前最近的有效值（薄封装）
@@ -1010,49 +1072,62 @@ class Datafeed():
 
 # ========== 辅助函数（保留）==========
 
-def get_absolute_trade_days(begin_date, end_date, period):
+def get_absolute_trade_days(begin_date, end_date, period, use_pmc=True):
     """
     获取交易日序列
-    
+
     Args:
         begin_date: 开始日期，字符串格式
         end_date: 结束日期，字符串格式
-        period: 周期，如'D'(日), 'W'(周), 'M'(月)
-        
-    Returns:
-        交易日列表
-    """
-    from WindPy import w
-    w.start()
-    trade_days = w.tdays(begin_date, end_date, "Period="+period).Data[0]
-    return trade_days
+        period: 周期，如'D'(日), 'W'(周), 'M'(月), 'Q'(季), 'S'(半年), 'Y'(年)
+        use_pmc: 默认True，使用pandas_market_calendars（中国A股/北京时区）；False时使用akshare
 
-def trade_days_offset(begin_datetime, offset, period = 'D'):
+    Returns:
+        交易日列表（datetime.datetime对象）
+    """
+    import pandas as pd
+
+    period_map = {"D": None, "W": "W", "M": "M", "Q": "Q", "S": "2Q", "Y": "Y"}
+    freq = period_map.get(period.upper())
+
+    if use_pmc:
+        import pandas_market_calendars as mcal
+        cal = mcal.get_calendar("XSHG")
+        schedule = cal.schedule(start_date=begin_date, end_date=end_date, tz="Asia/Shanghai")
+        dates = pd.to_datetime(schedule.index).tz_localize(None).to_series().reset_index(drop=True)
+    else:
+        import akshare as ak
+        df = ak.tool_trade_date_hist_sina()
+        dates = pd.to_datetime(df["trade_date"])
+        mask = (dates >= pd.Timestamp(begin_date)) & (dates <= pd.Timestamp(end_date))
+        dates = dates[mask].sort_values().reset_index(drop=True)
+
+    if freq:
+        dates = dates.groupby(dates.dt.to_period(freq)).last().reset_index(drop=True)
+
+    return [d.date() for d in dates]
+
+def trade_days_offset(begin_datetime, offset, period='D'):
     """
     交易日偏移计算
-    
+
     Args:
         begin_datetime: 起始datetime对象
         offset: 偏移量（整数）
         period: 周期，默认'D'
-        
+
     Returns:
         偏移后的datetime对象
     """
-    from datetime import datetime, timedelta
-    from WindPy import w
-    time_part = begin_datetime.time()  # datetime.time对象
+    from datetime import datetime
+    import akshare as ak
+    import pandas as pd
 
-    # 格式化日期为字符串
-    begin_date_str = begin_datetime.strftime('%Y-%m-%d')
+    df = ak.tool_trade_date_hist_sina()
+    all_days = pd.to_datetime(df["trade_date"]).sort_values().tolist()
 
-    # 启动 WindPy
-    w.start()
+    begin_date = pd.Timestamp(begin_datetime.date())
+    idx = next((i for i, d in enumerate(all_days) if d >= begin_date), None)
+    target = all_days[idx + offset]
 
-    # 获取偏移后的交易日（仅日期部分）
-    end_date = w.tdaysoffset(offset, begin_date_str, "Period=" + period).Data[0][0]
-
-    # 将时间部分加回去
-    final_datetime = datetime.combine(end_date, time_part)
-
-    return final_datetime
+    return datetime.combine(target.date(), begin_datetime.time())

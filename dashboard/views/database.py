@@ -180,6 +180,16 @@ def _cleanup_temp(key="dbm_temp_path"):
             pass
 
 
+def _cleanup_temp_list(key="dbm_temp_paths"):
+    """清理多文件临时文件列表"""
+    for path in st.session_state.get(key, []):
+        if path and os.path.exists(path):
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+
+
 def _render_upload_tab():
     # --- 配置区 ---
     col_left, col_right = st.columns(2)
@@ -210,37 +220,49 @@ def _render_upload_tab():
                 with dc2:
                     manual_time = st.time_input("时间", key="dbm_manual_time")
                 manual_dt = f"{manual_date} {manual_time}"
+        else:
+            date_source = None
+            manual_dt = None
 
-    # --- 文件上传 ---
-    uploaded = st.file_uploader(
-        "上传文件", type=["xlsx", "xls", "csv"],
-        key="dbm_uploader",
+    # --- 文件上传（支持多文件） ---
+    uploaded_files = st.file_uploader(
+        "上传文件（可多选）", type=["xlsx", "xls", "csv"],
+        key="dbm_uploader", accept_multiple_files=True,
     )
 
-    if uploaded is None:
-        # 清理状态
+    if not uploaded_files:
         for k in ["dbm_raw_df", "dbm_converted_df", "dbm_convert_errors",
-                   "dbm_upload_result"]:
+                   "dbm_upload_result", "dbm_batch_previews"]:
             st.session_state.pop(k, None)
         _cleanup_temp()
+        _cleanup_temp_list()
         return
 
-    # 保存临时文件
+    # 单文件走原有预览流程，多文件走批量流程
+    if len(uploaded_files) == 1:
+        _render_single_file_preview(
+            uploaded_files[0], fmt, date_source, manual_dt, target_table, insert_mode
+        )
+    else:
+        _render_batch_upload(
+            uploaded_files, fmt, date_source, manual_dt, target_table, insert_mode
+        )
+
+
+def _render_single_file_preview(uploaded, fmt, date_source, manual_dt, target_table, insert_mode):
+    """单文件：预览 + 转换 + 上传"""
     if st.session_state.get("dbm_temp_name") != uploaded.name:
         _cleanup_temp()
         tmp_path = _save_uploaded_file(uploaded)
         st.session_state["dbm_temp_path"] = tmp_path
         st.session_state["dbm_temp_name"] = uploaded.name
-        # 清除旧的预览
-        for k in ["dbm_raw_df", "dbm_converted_df", "dbm_convert_errors",
-                   "dbm_upload_result"]:
+        for k in ["dbm_raw_df", "dbm_converted_df", "dbm_convert_errors", "dbm_upload_result"]:
             st.session_state.pop(k, None)
 
     tmp_path = st.session_state.get("dbm_temp_path")
     if not tmp_path:
         return
 
-    # --- 原始数据预览 ---
     if "dbm_raw_df" not in st.session_state:
         try:
             raw_df = read_file(tmp_path)
@@ -265,7 +287,6 @@ def _render_upload_tab():
             st.caption("空值统计")
             st.dataframe(null_counts.rename("空值数"), width="stretch")
 
-    # --- 转换预览 ---
     if st.button("预览转换结果", key="dbm_preview_convert"):
         with st.spinner("正在转换..."):
             try:
@@ -278,14 +299,11 @@ def _render_upload_tab():
                     date_from = date_from_map.get(date_source, "filename")
                     default_dt = manual_dt if date_source == "手动指定" else None
                     converted_df, errors = process_ede_file(
-                        tmp_path,
-                        date_from=date_from,
-                        default_datetime=default_dt,
+                        tmp_path, date_from=date_from, default_datetime=default_dt,
                     )
                     st.session_state["dbm_converted_df"] = converted_df
                     st.session_state["dbm_convert_errors"] = errors
                 else:
-                    # 普通格式：直接读取，假设已经是长格式或需要用户确认列映射
                     converted_df = raw_df.copy()
                     st.session_state["dbm_converted_df"] = converted_df
                     st.session_state["dbm_convert_errors"] = []
@@ -299,7 +317,6 @@ def _render_upload_tab():
         st.subheader("🔄 转换结果预览")
         st.dataframe(converted_df.head(30), width="stretch", hide_index=True)
 
-        # 统计卡片
         mc1, mc2, mc3, mc4 = st.columns(4)
         mc1.metric("总行数", len(converted_df))
         if "code" in converted_df.columns:
@@ -316,7 +333,7 @@ def _render_upload_tab():
                     st.warning(f"[{err.get('type', '')}] {err.get('message', '')} "
                                f"{err.get('column', '')}")
 
-    # --- 普通格式列映射 ---
+    # 普通格式列映射
     if fmt == "普通 CSV/Excel" and converted_df is not None:
         required = {"datetime", "code", "name", "metric", "value"}
         existing = set(converted_df.columns)
@@ -339,11 +356,143 @@ def _render_upload_tab():
                 st.session_state["dbm_converted_df"] = df_mapped
                 st.rerun()
 
-    # --- 确认上传 ---
-    if converted_df is not None:
+    # 确认上传（始终显示，点击时若未转换则先自动转换）
+    st.divider()
+    if st.button("✅ 确认上传到数据库", key="dbm_do_upload", type="primary"):
+        df_to_upload = st.session_state.get("dbm_converted_df")
+        if df_to_upload is None:
+            # 尚未预览转换，自动执行一次转换
+            try:
+                if fmt == "EDE 格式（Wind导出）":
+                    date_from_map = {"从文件名提取": "filename", "从列名提取": "metric", "手动指定": "filename"}
+                    date_from = date_from_map.get(date_source or "", "filename")
+                    default_dt = manual_dt if date_source == "手动指定" else None
+                    df_to_upload, _ = process_ede_file(tmp_path, date_from=date_from, default_datetime=default_dt)
+                else:
+                    df_to_upload = st.session_state["dbm_raw_df"].copy()
+                st.session_state["dbm_converted_df"] = df_to_upload
+            except Exception as e:
+                st.error(f"转换失败，无法上传: {e}")
+                df_to_upload = None
+        if df_to_upload is not None:
+            _do_upload(df_to_upload, target_table, insert_mode, fmt, tmp_path)
+
+
+def _render_batch_upload(uploaded_files, fmt, date_source, manual_dt, target_table, insert_mode):
+    """多文件批量上传：转换所有文件后一键提交"""
+    st.info(f"已选择 {len(uploaded_files)} 个文件，将批量插入到 `{target_table}`")
+
+    # 检测文件列表是否变化，变化则重置状态
+    file_names = [f.name for f in uploaded_files]
+    if st.session_state.get("dbm_batch_names") != file_names:
+        _cleanup_temp_list()
+        tmp_paths = [_save_uploaded_file(f) for f in uploaded_files]
+        st.session_state["dbm_temp_paths"] = tmp_paths
+        st.session_state["dbm_batch_names"] = file_names
+        st.session_state.pop("dbm_batch_previews", None)
+        st.session_state.pop("dbm_upload_result", None)
+
+    tmp_paths = st.session_state.get("dbm_temp_paths", [])
+
+    # 转换预览按钮
+    if st.button("预览所有文件转换结果", key="dbm_batch_preview"):
+        previews = []
+        date_from_map = {"从文件名提取": "filename", "从列名提取": "metric", "手动指定": "filename"}
+        date_from = date_from_map.get(date_source or "", "filename") if fmt == "EDE 格式（Wind导出）" else "filename"
+        default_dt = manual_dt if date_source == "手动指定" else None
+
+        with st.spinner("正在转换所有文件..."):
+            for fname, tmp_path in zip(file_names, tmp_paths):
+                try:
+                    if fmt == "EDE 格式（Wind导出）":
+                        df, errors = process_ede_file(
+                            tmp_path, date_from=date_from, default_datetime=default_dt,
+                        )
+                    else:
+                        df = read_file(tmp_path)
+                        errors = []
+                    previews.append({"name": fname, "df": df, "errors": errors, "ok": True})
+                except Exception as e:
+                    previews.append({"name": fname, "df": None, "errors": [], "ok": False, "err": str(e)})
+        st.session_state["dbm_batch_previews"] = previews
+
+    previews = st.session_state.get("dbm_batch_previews")
+    if previews:
+        st.subheader("🔄 批量转换预览")
+        total_rows = 0
+        all_ok = True
+        for item in previews:
+            icon = "✅" if item["ok"] else "❌"
+            with st.expander(f"{icon} {item['name']}", expanded=not item["ok"]):
+                if item["ok"]:
+                    df = item["df"]
+                    total_rows += len(df)
+                    c1, c2 = st.columns([3, 1])
+                    with c1:
+                        st.dataframe(df.head(10), width="stretch", hide_index=True)
+                    with c2:
+                        st.metric("行数", len(df))
+                        if "datetime" in df.columns:
+                            dt_col = pd.to_datetime(df["datetime"], errors="coerce")
+                            st.caption(f"{dt_col.min():%Y-%m-%d} ~\n{dt_col.max():%Y-%m-%d}")
+                    if item["errors"]:
+                        st.warning(f"{len(item['errors'])} 条转换警告")
+                else:
+                    st.error(f"转换失败: {item['err']}")
+                    all_ok = False
+
         st.divider()
-        if st.button("✅ 确认上传到数据库", key="dbm_do_upload", type="primary"):
-            _do_upload(converted_df, target_table, insert_mode, fmt, tmp_path)
+        st.metric("合计行数", total_rows)
+
+        # 批量提交按钮
+        btn_disabled = not all_ok
+        if btn_disabled:
+            st.warning("部分文件转换失败，请修正后再提交")
+        if st.button(
+            f"✅ 确认批量上传到数据库（{len(previews)} 个文件，共 {total_rows} 行）",
+            key="dbm_batch_do_upload", type="primary", disabled=btn_disabled,
+        ):
+            _do_batch_upload(previews, target_table, insert_mode)
+
+
+def _do_batch_upload(previews, target_table, insert_mode):
+    """批量执行多文件上传"""
+    total_new, total_skipped, total_conflicts = 0, 0, []
+    with st.status("批量上传中...", expanded=True) as status:
+        try:
+            df_feed = Datafeed(target_table)
+            for item in previews:
+                df = item["df"]
+                fname = item["name"]
+                st.write(f"正在插入 `{fname}`（{len(df)} 行）...")
+                if insert_mode == "增量插入":
+                    new_rows, skipped = df_feed.incremental_update(df)
+                    total_new += new_rows
+                    total_skipped += skipped
+                elif insert_mode == "冲突检查插入":
+                    new_rows, skipped, conflicts = df_feed.insert_with_conflict_check(df)
+                    total_new += new_rows
+                    total_skipped += skipped
+                    total_conflicts.extend(conflicts)
+                else:
+                    updated = df_feed.update_data(df)
+                    total_new += updated
+            df_feed.close()
+            status.update(label="批量上传完成", state="complete")
+        except Exception as e:
+            status.update(label="上传失败", state="error")
+            st.error(f"上传失败: {e}")
+            return
+
+    rc1, rc2, rc3 = st.columns(3)
+    rc1.metric("新增行数", total_new)
+    rc2.metric("跳过行数", total_skipped)
+    rc3.metric("冲突数", len(total_conflicts))
+    if total_conflicts:
+        st.subheader("⚠️ 冲突详情")
+        st.dataframe(pd.DataFrame(total_conflicts), width="stretch", hide_index=True)
+    if total_new > 0:
+        st.success(f"批量上传完成，共插入 {total_new} 行")
 
 
 def _do_upload(converted_df, target_table, insert_mode, fmt, tmp_path):

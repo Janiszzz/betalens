@@ -360,7 +360,9 @@ def validate_calculation_inputs(*args, **kwargs):
 
 class BacktestBase(object):
     def __init__(self, weight, symbol, amount,
-                 ftc=0.0, ptc=0.0, verbose=True):
+                 ftc=0.0, ptc=0.0, verbose=True,
+                 metric="收盘价(元)", time_tolerance=24,
+                 table_name="daily_market"):
         # === 输入验证：weight ===
         try:
             validate_weight_input(weight)
@@ -392,6 +394,9 @@ class BacktestBase(object):
         self.position = 0
         self.trades = 0
         self.verbose = verbose
+        self.metric = metric
+        self.time_tolerance = time_tolerance
+        self.table_name = table_name
 
         self.get_rebalance_data()
         self.get_position_data()
@@ -404,6 +409,51 @@ class BacktestBase(object):
             return 0
         except:
             return 1
+
+    def _pivot_nearest_prices(self, raw, metric, weight_codes):
+        """
+        把 query_nearest_{after,before} 返回的长表转为宽表。
+        每个 input_ts 一行，避免不同 code 的真实 datetime 不同导致行爆炸。
+
+        Returns:
+            prices: DataFrame, index=input_ts(DatetimeIndex), columns=code, 值=metric
+            actual_dt: DataFrame, 同形状，值=每格真实成交 datetime（审计用）
+        """
+        required = {'code', 'input_ts', 'datetime', metric}
+        missing = required - set(raw.columns)
+        if missing:
+            raise BacktestDataError(
+                f"查询结果缺少列 {missing}\n实际列: {list(raw.columns)}"
+            )
+
+        # SQL 层已保证 (code, input_ts) 唯一；此处再 defensive drop
+        raw = raw.drop_duplicates(subset=['code', 'input_ts'], keep='first')
+
+        prices = raw.pivot(index='input_ts', columns='code', values=metric)
+        actual_dt = raw.pivot(index='input_ts', columns='code', values='datetime')
+        prices.columns.name = ""
+        actual_dt.columns.name = ""
+
+        # 仅保留 weight 里请求过的 code 列顺序（missing 的由上游 on_missing_code 流程处理）
+        present = [c for c in weight_codes if c in prices.columns]
+        prices = prices[present]
+        actual_dt = actual_dt[present]
+
+        # 共享成交日诊断：某 code 下两个不同调仓日被同一成交日兜底，提示
+        # time_tolerance 过大或数据稀疏
+        for code in actual_dt.columns:
+            col = actual_dt[code].dropna()
+            dup_mask = col.duplicated(keep=False)
+            if dup_mask.any():
+                sample = col[dup_mask].unique()[:3]
+                warnings.warn(
+                    f"[time_tolerance 过大/数据稀疏] code={code} 下有 "
+                    f"{int(dup_mask.sum())} 条调仓日被同一成交日兜底，"
+                    f"示例 datetime={list(sample)}，"
+                    f"建议收紧 time_tolerance 或检查数据完整性",
+                    UserWarning,
+                )
+        return prices, actual_dt
     def get_rebalance_data(self):
         """
         获取调仓日数据，包含日期和标的匹配验证
@@ -412,8 +462,8 @@ class BacktestBase(object):
             DateMismatchError: 当权重日期在数据库中无对应数据时
             CodeMismatchError: 当权重标的在数据库中无数据时（严格模式）
         """
-        db = Datafeed("daily_market_data")
-        
+        db = Datafeed(self.table_name)
+
         # 获取权重中的标的列表（排除cash）
         if 'cash' in self.weight.columns:
             weight_codes = list(self.weight.columns.drop('cash'))
@@ -421,32 +471,37 @@ class BacktestBase(object):
             weight_codes = list(self.weight.columns)
         
         # 确保日期格式正确
-        weight_dates = [pd.Timestamp(dt).strftime('%Y-%m-%d %H:%M:%S')
-                       if isinstance(dt, (pd.Timestamp, pd.DatetimeIndex)) 
-                       else str(dt) 
-                       for dt in self.weight.index]
-        
+        weight_ts = [pd.Timestamp(dt) for dt in self.weight.index]
+        weight_dates = [ts.strftime('%Y-%m-%d %H:%M:%S') for ts in weight_ts]
+
+        # 构造区间：当前调仓日 ~ 下一调仓日；末点 = 最后调仓日 + time_tolerance 小时
+        ranges = []
+        for i in range(len(weight_ts) - 1):
+            ranges.append((weight_dates[i], weight_dates[i + 1]))
+        last_end = weight_ts[-1] + pd.Timedelta(hours=self.time_tolerance)
+        ranges.append((weight_dates[-1], last_end.strftime('%Y-%m-%d %H:%M:%S')))
+
         params = {
             'codes': weight_codes,
-            'datetimes': weight_dates,
-            'metric': "收盘价(元)",
-            'time_tolerance': 24
+            'ranges': ranges,
+            'metric': self.metric,
+            'time_tolerance': self.time_tolerance,
         }
-        
+
         # === 数据库查询 ===
         try:
-            self.cost_price = db.query_nearest_after(params)
+            self.cost_price = db.query_nearest_in_range_after(params)
         except Exception as e:
             raise BacktestDataError(
                 f"数据库查询失败: {e}\n"
-                f"查询参数: codes={len(weight_codes)}个, datetimes={len(weight_dates)}个\n"
+                f"查询参数: codes={len(weight_codes)}个, ranges={len(ranges)}个\n"
                 f"修复建议: 检查数据库连接和查询参数"
             ) from e
-        
+
         # === 验证查询结果 ===
         expected_columns = ['code', 'input_ts', 'datetime', params['metric']]
         try:
-            validate_query_result(self.cost_price, expected_columns, "query_nearest_after")
+            validate_query_result(self.cost_price, expected_columns, "query_nearest_in_range_after")
         except BacktestDataError as e:
             error_msg = (
                 f"数据库查询结果验证失败:\n  {str(e)}\n"
@@ -464,28 +519,29 @@ class BacktestBase(object):
             )
         
         try:
-            self.cost_price = pd.pivot_table(
-                self.cost_price, 
-                values=params['metric'], 
-                index=['input_ts', 'datetime'], 
-                columns=['code']
+            self.cost_price, self.actual_datetime = self._pivot_nearest_prices(
+                self.cost_price, params['metric'], weight_codes,
             )
-        except KeyError as e:
+        except BacktestDataError:
+            raise
+        except Exception as e:
             raise BacktestDataError(
-                f"pivot_table 失败，缺少必需的列: {e}\n"
-                f"实际列名: {list(self.cost_price.columns)}\n"
+                f"_pivot_nearest_prices 失败: {e}\n"
+                f"实际列名: {list(self.cost_price.columns) if isinstance(self.cost_price, pd.DataFrame) else 'N/A'}\n"
                 f"修复建议: 检查数据库查询返回的列结构"
             ) from e
-        
-        self.cost_price.columns.name = ""
-        self.cost_price['cash'] = 1
-        
-        # === 验证 pivot_table 结果 ===
+
+        # DB 返回可能为 decimal.Decimal，统一转 float 避免与 float 权重相乘报错
+        self.cost_price = self.cost_price.apply(pd.to_numeric, errors='coerce')
+        self.cost_price['cash'] = 1.0
+        # actual_datetime 不添加 cash 列（cash 无真实成交数据）
+
+        # === 验证 pivot 结果 ===
         try:
             validate_pivot_result(
-                self.cost_price, 
+                self.cost_price,
                 expected_codes=weight_codes,
-                index_levels=['input_ts', 'datetime']
+                index_levels=['input_ts'],
             )
         except BacktestDataError as e:
             error_msg = (
@@ -496,7 +552,7 @@ class BacktestBase(object):
         
         # === 日期匹配检查 ===
         try:
-            db_input_ts_raw = self.cost_price.index.get_level_values('input_ts')
+            db_input_ts_raw = self.cost_price.index
             db_input_ts = set([
                 pd.Timestamp(ts).strftime('%Y-%m-%d %H:%M:%S')
                 if isinstance(ts, (pd.Timestamp, pd.DatetimeIndex))
@@ -505,10 +561,9 @@ class BacktestBase(object):
             ])
         except (KeyError, AttributeError) as e:
             raise BacktestDataError(
-                f"无法获取 input_ts 层级: {e}\n"
+                f"无法解析 cost_price.index: {e}\n"
                 f"索引类型: {type(self.cost_price.index)}\n"
-                f"索引层级: {self.cost_price.index.names if isinstance(self.cost_price.index, pd.MultiIndex) else '单层索引'}\n"
-                f"修复建议: 检查 pivot_table 的 index 参数"
+                f"修复建议: 检查 _pivot_nearest_prices 返回值"
             ) from e
         
         weight_input_ts = set(weight_dates)
@@ -568,15 +623,13 @@ class BacktestBase(object):
         
         # === 更新 start/end ===
         try:
-            datetime_level = self.cost_price.index.get_level_values('datetime')
-            self.start = datetime_level[0]
-            self.end = datetime_level[-1]
-        except (KeyError, AttributeError, IndexError) as e:
+            self.start = self.cost_price.index[0]
+            self.end = self.cost_price.index[-1]
+        except (AttributeError, IndexError) as e:
             raise BacktestDataError(
-                f"无法从 cost_price.index 提取 datetime: {e}\n"
+                f"无法从 cost_price.index 取首尾: {e}\n"
                 f"索引类型: {type(self.cost_price.index)}\n"
-                f"索引层级: {self.cost_price.index.names if isinstance(self.cost_price.index, pd.MultiIndex) else '单层索引'}\n"
-                f"修复建议: 检查 pivot_table 的 index 参数是否包含 'datetime'"
+                f"修复建议: 确认 _pivot_nearest_prices 返回非空 DataFrame"
             ) from e
         
         # === 更新权重索引以匹配价格数据 ===
@@ -689,7 +742,7 @@ class BacktestBase(object):
 
     def get_daily_position_data(self):
         import datetime as dt
-        db = Datafeed("daily_market_data")
+        db = Datafeed(self.table_name)
         
         # === 准备查询参数 ===
         if 'cash' in self.weight.columns:
@@ -721,7 +774,7 @@ class BacktestBase(object):
                 codes=query_codes,
                 start_date=start_date_str,
                 end_date=end_date_str,
-                metric="收盘价(元)"
+                metric=self.metric,
             )
         except Exception as e:
             raise BacktestDataError(
@@ -791,7 +844,7 @@ class BacktestBase(object):
             
             # 计算持仓金额
             self.position = self.weight.mul(self.amount, axis=0)
-            
+            self.position['cash'] = 0
             # 检查索引对齐
             if not validate_index_alignment(self.position, self.cost_price, "position", "cost_price"):
                 # 尝试对齐
@@ -835,28 +888,29 @@ class BacktestBase(object):
                 f"cost_price 样本:\n  {format_data_sample(self.cost_price)}"
             ) from e
         
-        # === 处理 MultiIndex ===
+        # === 处理索引（pivot 后 cost_price/position 已是单层 DatetimeIndex）===
         try:
-            # 检查是否有 input_ts level
+            # 历史兼容：若调用方自行构造了带 input_ts level 的 MultiIndex，降回单层
             if isinstance(self.position.index, pd.MultiIndex):
                 if 'input_ts' in self.position.index.names:
                     self.position = self.position.droplevel('input_ts')
                 else:
                     warnings.warn(
                         f"position.index 是 MultiIndex 但不包含 'input_ts' level\n"
-                        f"索引层级: {self.position.index.names}\n"
-                        f"修复建议: 检查索引结构",
-                        UserWarning
+                        f"索引层级: {self.position.index.names}",
+                        UserWarning,
                     )
-            
-            # 删除重复索引
+
+            # 索引去重（按索引值，而非按行值——避免误删持仓相同的两期）
             if self.position.index.duplicated().any():
-                dup_count = self.position.index.duplicated().sum()
+                dup_count = int(self.position.index.duplicated().sum())
                 warnings.warn(
-                    f"position 包含 {dup_count} 个重复索引，将删除重复项",
-                    UserWarning
+                    f"position 包含 {dup_count} 个重复索引，保留最后一条",
+                    UserWarning,
                 )
-                self.position = self.position.drop_duplicates()
+                self.position = self.position[
+                    ~self.position.index.duplicated(keep='last')
+                ]
             
         except Exception as e:
             raise BacktestDataError(

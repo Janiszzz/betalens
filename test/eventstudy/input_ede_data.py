@@ -2,7 +2,7 @@ import sys
 from pathlib import Path
 
 # 将项目根目录添加到 Python 路径
-project_root = Path(__file__).resolve().parent.parent.parent
+project_root = Path(__file__).resolve().parent.parent.parent / "betalens"
 sys.path.insert(0, str(project_root))
 
 from datafeed import Datafeed
@@ -40,7 +40,7 @@ if mode == 'clear':
 print(f"✓ 使用 {mode} 模式")
 
 # 批量处理Wind长格式文件（CSV/Excel）
-folder_path = Path(r'C:\Users\Janis\OneDrive\factor-frame\betalens\tests\eventstudy\data')
+folder_path = Path(r'C:\Users\Janis\Desktop\一些数据\全A后复权')
 data_files = (
     list(folder_path.glob('*.csv')) +
     list(folder_path.glob('*.xls')) +

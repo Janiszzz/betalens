@@ -247,9 +247,12 @@ def single_characteristic(pre_queried_data, metric, quantiles):
         return df
 
     # 按时间分组，对每组进行分位数分组
-    labeled_pool = labeled_pool.groupby('input_ts', as_index=False).apply(
-        lambda group: single_sort(group, [metric], quantiles)
-    )
+    # include_groups=False 避免 pandas FutureWarning；分组键 input_ts 会落在
+    # 结果 MultiIndex 的 level 0，用 reset_index(level=0) 恢复为列
+    labeled_pool = labeled_pool.groupby('input_ts').apply(
+        lambda group: single_sort(group, [metric], quantiles),
+        include_groups=False,
+    ).reset_index(level=0)
     labeled_pool.set_index(['input_ts', 'code'], inplace=True)
 
     # 将metric信息存储为列名后缀，而非DataFrame属性（更规范）
@@ -567,11 +570,11 @@ def get_single_factor_weight(labeled_pool, params):
         group = group.copy()
         weight_col = factor_key + '_weight'
         label_col = factor_key + '_label'
-        group[weight_col] = 0
+        group[weight_col] = 0.0
         max_label = group[label_col].max()
         min_label = group[label_col].min()
-        group[weight_col] = np.where(group[label_col] == max_label, 1,
-                                     np.where(group[label_col] == min_label, -1, 0))
+        group[weight_col] = np.where(group[label_col] == max_label, 1.0,
+                                     np.where(group[label_col] == min_label, -1.0, 0.0))
         group = group[group[weight_col] != 0]
         return group
     
@@ -580,7 +583,7 @@ def get_single_factor_weight(labeled_pool, params):
         group = group.copy()
         weight_col = factor_key + '_weight'
         label_col = factor_key + '_label'
-        group[weight_col] = 0
+        group[weight_col] = 0.0
         
         # 步骤2: 获取可选的高级参数
         group_weights = params.get('group_weights', {})  # 组间权重比例配置
