@@ -225,6 +225,166 @@ Wind 数据抓取
        metric_column='metric'
    )
 
+行业分类查询
+------------
+
+行业归属是 **point-in-time 状态数据**：某股票从某日起属于某行业，直到下次变更。
+betalens 不另造存储模型，而是复用长格式时序表（``industry`` 表），约定：
+
+- ``metric``：分类体系名，如 ``申万一级行业``、``申万二级行业（2021）``
+- ``value``：行业代码数值部分（如 ``480301``），便于索引分组
+- ``remark``（JSONB）：``{"ind_name", "ind_code", "scheme"}``，存行业中文名等
+- ``datetime``：该归属关系的生效时点（最早可知日）
+
+查询语义 = 取 ``datetime <= 查询日`` 的最近一条，天然避免前视偏差。
+
+正查 / 反查
+~~~~~~~~~~~
+
+.. code-block:: python
+
+   from betalens.datafeed import query_industry, get_industry_members
+
+   # 正查：某股票在某日所属行业（注意 table_name 默认 'industry'，
+   # 申万分类数据在 'industry' 表，须显式指定）
+   df = query_industry(
+       cursor,
+       codes=["000001.SZ"],
+       dates=["2023-06-30"],
+       scheme="申万一级行业",          # 不带版本后缀 → 自动选版本，见下
+       table_name="industry",
+   )
+   # 返回列：code | query_date | effective_dt | sec_name |
+   #         industry_value | ind_name | ind_code | scheme
+
+   # 反查：某日某行业的成分股
+   members = get_industry_members(
+       cursor, industry="银行", date="2023-06-30",
+       scheme="申万一级行业", table_name="industry",
+   )
+
+.. _industry-version-autoselect:
+
+版本自动选择（申万 2014/2021 多版本）
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+申万行业分类历经多次改版（2014-02-21、2021-07-30），**同一 6 位行业代码在不同
+版本含义不同**。入库时按「计入日期」落到版本族，metric 带版本后缀区分：
+``申万一级行业（旧版）`` / ``申万一级行业（2014）`` / ``申万一级行业（2021）``。
+
+查询时无需关心版本——``scheme`` **不带版本后缀**（``申万一级行业``）即触发版本
+自动选择：底层用 ``metric LIKE '申万一级行业%'`` 匹配全部版本，配合
+``ORDER BY datetime DESC`` 取最近一条，结果**天然落到查询日生效的那个版本**，
+无需硬编码任何版本边界日期：
+
+.. code-block:: python
+
+   # 同一只股票，按查询日自动落到对应版本
+   df = query_industry(cursor, codes=["000001.SZ"],
+                       dates=["2010-06-30", "2018-06-30", "2023-06-30"],
+                       scheme="申万一级行业", table_name="industry")
+   # 2010 → 旧版（effective_dt=1991-04-03）
+   # 2018 → 2014 版（effective_dt=2014-02-21，银行）
+   # 2023 → 2021 版（effective_dt=2021-07-30，银行）
+
+   # 带版本后缀 → LIKE 退化为精确匹配，只查该版本
+   df = query_industry(cursor, codes=["000001.SZ"], dates=["2023-06-30"],
+                       scheme="申万一级行业（2021）", table_name="industry")
+
+   # exact=True → 强制精确匹配（关闭自动选择），对旧无后缀 metric 向后兼容
+   df = query_industry(cursor, codes=["000001.SZ"], dates=["2023-06-30"],
+                       scheme="申万一级行业", table_name="industry", exact=True)
+
+.. note::
+
+   原理是「版本族记录的生效日天然落在各自版本区间内」，所以匹配全部版本 + 取最近
+   一条 = 按日期选版本。将来申万出新版本，**入库时加新后缀即可，查询代码不用动**。
+
+入库长表（申万分类示例）
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+把申万长表（``股票代码 / 计入日期 / 行业代码(6位) / 更新日期``）写入 ``industry``
+表的要点：
+
+- **6 位行业代码按每两位拆三级**：前 2 位 = 一级、前 4 位 = 二级、全 6 位 = 三级，
+  各自一条 metric，``value`` 存对应数值（如 ``48`` / ``4803`` / ``480301``）。
+- **证券代码转 wind 格式**：首位 ``6`` → ``.SH``，``0/3`` → ``.SZ``，
+  ``4/8/9`` → ``.BJ``（北交所 ``8xxxxx`` / ``9xxxxx`` / ``689xxx`` 等）。
+- **中文行业名按版本字典解析**写入 ``remark.ind_name``（同一代码不同版本含义不同，
+  须用对应版本字典）；旧版无字典覆盖时留空。
+- **``name`` 列（证券中文简称）NOT NULL**：从含 wind 代码↔简称的现表补；历史/退市股
+  无简称时用 wind 代码占位。
+- ``remark`` 是 dict，``execute_values`` 不自动转 JSONB，入库前注册适配器：
+  ``psycopg2.extensions.register_adapter(dict, psycopg2.extras.Json)``。
+- 用 :func:`~betalens.datafeed.incremental_insert` 按 ``(datetime, code, metric)``
+  去重写入，可重复运行。
+
+指数股票池查询
+--------------
+
+指数成分股池与行业归属同属 **point-in-time 状态数据**：某指数从某调整日起拥有一组
+成分股，直到下次调整。betalens 复用长格式时序表（``index_universe`` 表），**每个生效日
+存为一行**，成分股列表整体放入 ``remark``：
+
+- ``code``：指数代码（如 ``000906.SH``）
+- ``name``：指数名称（如 ``中证800``）
+- ``metric``：固定为 ``universe``，标识成分股池
+- ``value``：成分股数量（便于校验）
+- ``remark``（JSONB）：``{"index_code", "index_name", "constituents": [...]}``，成分股列表存这里
+- ``datetime``：该股票池的生效时点（最早可知日）
+
+查询语义与 :func:`~betalens.datafeed.query_nearest_before` 同构——取 ``datetime <= 查询日``
+的最近一条，天然避免前视偏差。
+
+查询成分股列表
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   from betalens.datafeed import get_index_universe, get_index_universe_date
+
+   # 返回某指数某日生效的成分股代码列表（point-in-time）
+   codes = get_index_universe(cursor, "000906.SH", "2024-03-01")
+   # => ['000001.SZ', '000002.SZ', ...]，约 800 只
+   # 实际取的是 <=2024-03-01 的最近生效日（如 2023-12-11）
+
+   # 查实际生效的快照日期（便于排查）
+   eff_dt = get_index_universe_date(cursor, "000906.SH", "2024-03-01")
+   # => Timestamp('2023-12-11 00:00:00')
+
+   # 早于首个生效日 → 返回空列表
+   get_index_universe(cursor, "000906.SH", "2000-01-01")   # => []
+
+.. note::
+
+   :func:`~betalens.datafeed.query_nearest_before` 的 SELECT 只返回 ``value``/``name``，
+   **不返回 remark**。故 :func:`~betalens.datafeed.get_index_universe` 先用它定位最近
+   生效日，再按精确 ``datetime`` 补一条小查询取出 ``remark.constituents``。
+   ``cursor`` 兼容 ``RealDictCursor`` 与普通 cursor。
+
+入库宽表（成分进出记录）
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+成分进出记录通常是 **宽表快照**：第一列为序号，其余每列列名为生效日期，列下方为该日
+成分股 WindCode。脚本 ``makeupdatabase/load_index_universe.py`` 负责整理入库：
+
+- **每个日期列整理成一行**：``datetime``=生效日、``code``=指数代码、``metric='universe'``、
+  ``value``=成分股数量、``remark.constituents``=该列非空去重保序的代码列表。
+- ``remark`` 是 dict，``execute_values`` 不自动转 JSONB，入库前注册适配器：
+  ``psycopg2.extensions.register_adapter(dict, psycopg2.extras.Json)``。
+- 用 :func:`~betalens.datafeed.incremental_insert` 按 ``(datetime, code, metric)``
+  去重写入，可重复运行。
+
+.. code-block:: bash
+
+   # 建表（复用通用 DDL 模板）
+   python betalens/datafeed/makeupdatabase/create_database.py --tables index_universe
+
+   # 入库（默认指向中证800；可换其他指数）
+   python betalens/datafeed/makeupdatabase/load_index_universe.py \
+       --index-code 000906.SH --index-name 中证800 \
+       --excel <成分进出记录.xlsx> --sheet Sheet2
+
 交易日辅助函数
 --------------
 

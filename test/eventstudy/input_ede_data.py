@@ -40,7 +40,7 @@ if mode == 'clear':
 print(f"✓ 使用 {mode} 模式")
 
 # 批量处理Wind长格式文件（CSV/Excel）
-folder_path = Path(r'C:\Users\Janis\Desktop\一些数据\全A后复权')
+folder_path = Path(r'C:\Users\Janis\OneDrive\betalens\test\eventstudy\data')
 data_files = (
     list(folder_path.glob('*.csv')) +
     list(folder_path.glob('*.xls')) +

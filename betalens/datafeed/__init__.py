@@ -62,6 +62,19 @@ from .query import (
     calculate_returns
 )
 
+# 导入行业归属查询模块（函数式）
+from .industry import (
+    query_industry,
+    get_industry_members,
+    build_industry_records
+)
+
+# 导入指数历史股票池查询模块（函数式）
+from .universe import (
+    get_index_universe,
+    get_index_universe_date
+)
+
 # 导入数据库Excel集成模块（函数式）
 from .integration import (
     process_excel_to_db_format,
@@ -125,7 +138,16 @@ __all__ = [
     'pivot_to_wide',
     'align_to_dates',
     'calculate_returns',
-    
+
+    # 行业归属查询（函数式）
+    'query_industry',
+    'get_industry_members',
+    'build_industry_records',
+
+    # 指数历史股票池查询（函数式）
+    'get_index_universe',
+    'get_index_universe_date',
+
     # 数据库Excel集成（函数式）
     'process_excel_to_db_format',
     'check_existing_rows',

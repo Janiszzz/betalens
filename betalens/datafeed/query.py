@@ -113,7 +113,7 @@ def build_nearest_in_range_query(
     构建区间内最近时点匹配查询
 
     在每个 (code, start_ts, end_ts) 区间内，按方向查找距锚点最近的数据：
-    - direction='after'：锚点为 start_ts，区间过滤 t.datetime > start AND t.datetime <= end
+    - direction='after'：锚点为 start_ts，区间过滤 t.datetime > start AND t.datetime < end
     - direction='before'：锚点为 end_ts，区间过滤 t.datetime <= end AND t.datetime >= start
 
     Args:
@@ -133,7 +133,7 @@ def build_nearest_in_range_query(
     if direction == 'after':
         # 锚点 = start_ts
         anchor_select = 'i.start_ts AS input_ts'
-        range_condition = 'AND t.datetime >= i.start_ts AND t.datetime < i.end_ts'
+        range_condition = 'AND t.datetime > i.start_ts AND t.datetime < i.end_ts'
         time_diff_expr = 't.datetime - i.start_ts'
         order_by = 'ASC'
     elif direction == 'before':
@@ -435,7 +435,7 @@ def query_nearest_in_range_after(
     """
     在每个 (start, end) 区间内查询距 start 最近的有效值（向后查）
 
-    时间结构：start <= t.datetime - epsilon, t.datetime <= end，锚点 = start
+    时间结构：start <= t.datetime - epsilon, t.datetime < end，锚点 = start
 
     Args:
         cursor: 数据库游标

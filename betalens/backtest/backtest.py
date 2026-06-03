@@ -1016,7 +1016,7 @@ class BacktestBase(object):
                 )
             
             self.nav = (self.daily_amount / self.initial_amount)
-            
+
             # 检查净值结果
             if self.nav.isnull().any():
                 warnings.warn(
@@ -1024,12 +1024,54 @@ class BacktestBase(object):
                     f"修复建议: 检查 daily_amount 和 initial_amount",
                     UserWarning
                 )
-            
+
         except Exception as e:
             raise BacktestDataError(
                 f"计算 daily_amount/nav 失败: {e}\n"
                 f"position 样本:\n  {format_data_sample(self.position)}\n"
                 f"close_price_ts 样本:\n  {format_data_sample(close_price_ts)}"
             ) from e
-        
+
         return self.daily_amount
+
+    def dump_to_excel(self, filepath: str) -> str:
+        """
+        将 bt 实例的所有数据导出到一个 Excel 文件备查（每个属性一个 sheet）
+
+        - DataFrame / Series 直接写入对应 sheet
+        - 标量参数汇总到 'meta' sheet
+
+        Args:
+            filepath: 输出 Excel 路径
+
+        Returns:
+            实际写入的文件路径
+        """
+        df_attrs = [
+            'weight', 'cost_price', 'actual_datetime', 'cost_ret',
+            'amount', 'position', 'daily_amount', 'nav',
+        ]
+        meta_keys = [
+            'symbol', 'metric', 'table_name', 'time_tolerance',
+            'initial_amount', 'ftc', 'ptc', 'start', 'end',
+            'units', 'trades',
+        ]
+
+        with pd.ExcelWriter(filepath, engine='openpyxl') as writer:
+            meta_rows = []
+            for k in meta_keys:
+                if hasattr(self, k):
+                    meta_rows.append({'key': k, 'value': getattr(self, k)})
+            pd.DataFrame(meta_rows).to_excel(writer, sheet_name='meta', index=False)
+
+            for name in df_attrs:
+                obj = getattr(self, name, None)
+                if obj is None:
+                    continue
+                if isinstance(obj, pd.Series):
+                    obj = obj.to_frame(name=name)
+                if isinstance(obj, pd.DataFrame):
+                    sheet = name[:31]  # Excel sheet 名最长 31
+                    obj.to_excel(writer, sheet_name=sheet)
+
+        return filepath

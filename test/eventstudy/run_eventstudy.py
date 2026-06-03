@@ -25,7 +25,7 @@ from betalens.eventstudy.eventstudy import EventStudy
 save_results = False  # 设为True时保存所有Excel和图表文件
 # =====================================
 
-output_file = r'events.xlsx'
+output_file = r'C:\Users\Janis\OneDrive\betalens\test\eventstudy\events.xlsx'
 # 读取事件序列（保持精确到秒的datetime）
 events_df = pd.read_excel(output_file)
 events_df['date'] = pd.to_datetime(events_df['date'])
@@ -42,7 +42,7 @@ close_price_metric = "收盘价"
 event_study = EventStudy(df_market)
 
 # 事件研究参数
-code = '868008.WI'
+code = '000001.SH'
 window_before = 20  # 事件前10天
 window_after = 20   # 事件后10天
 

@@ -146,18 +146,21 @@ factor.preprocessing
    :param method: ``'zscore'`` (x-mean)/std | ``'rank'`` rank/N 映射到(0,1) | ``'minmax'`` 缩放到[0,1]
    :return: 标准化后的 Series
 
-.. py:function:: neutralize_factor(factor_series, industry_labels=None, log_market_cap=None)
+.. py:function:: neutralize_factor(factor_series, industry_labels=None, log_market_cap=None, return_stats=False)
 
    OLS 残差中性化（单截面）。对行业哑变量 + log(市值) 做截面 OLS，返回残差。
+   行业标签既可直接传入，也可由 ``preprocess_factor(industry_scheme=...)`` 自动从 industry 表注入。
 
    :param factor_series: 因子值 Series，index=code（已标准化）
    :param industry_labels: 行业标签 Series，index=code（None 则跳过）
    :param log_market_cap: log 市值 Series，index=code（None 则跳过）
-   :return: 残差 Series，index=code
+   :param return_stats: True 时额外返回回归诊断 dict（``n_obs`` / ``n_industry_dummies`` / ``r2`` / ``skipped``）
+   :return: 残差 Series；``return_stats=True`` 时返回 ``(残差 Series, stats dict)``
 
    .. code-block:: python
 
       >>> neutralize_factor(s, industry_labels=ind, log_market_cap=lmc)
+      >>> resid, stats = neutralize_factor(s, industry_labels=ind, return_stats=True)
 
 因子对因子中性化
 ~~~~~~~~~~~~~~~~
@@ -179,6 +182,22 @@ factor.preprocessing
 
 行业中性化工具
 ~~~~~~~~~~~~~~
+
+.. py:function:: query_industry_panel(pre_queried_data, scheme='申万一级行业', industry_table='industry', verbose=True)
+
+   面板行业查询：为 ``pre_queried_data`` 的每个 (input_ts, code) 取 point-in-time 行业名。
+   逐期调用 :func:`betalens.datafeed.query_industry`（datetime<=查询日 的最近一条，天然防前视），复用现有 API。
+
+   :param pre_queried_data: 含 input_ts, code 列（``pre_query_characteristic_data()`` 的输出）
+   :param scheme: 分类体系（metric），不带版本后缀时自动落到查询日生效的版本
+   :param industry_table: 行业表名，默认 ``'industry'``
+   :param verbose: True 时打印行业分布 / 缺失 / 面板平衡诊断
+   :return: Series，MultiIndex=(input_ts, code)，值为 ind_name
+
+   .. code-block:: python
+
+      >>> ind_panel = query_industry_panel(pre_queried_data, '申万一级行业')
+      >>> ind_panel.xs(ts)  # 取某期 code->行业
 
 .. py:function:: filter_pool_by_industry(labeled_pool, industry_map, include_industries)
 
@@ -202,21 +221,31 @@ factor.preprocessing
 一键预处理流水线
 ~~~~~~~~~~~~~~~~
 
-.. py:function:: preprocess_factor(pre_queried_data, metric, winsorize_method='mad', winsorize_n=3.0, standardize_method='zscore', industry_col=None, log_mktcap_col=None)
+.. py:function:: preprocess_factor(pre_queried_data, metric, winsorize_method='mad', winsorize_n=3.0, standardize_method='zscore', industry_col=None, log_mktcap_col=None, industry_scheme=None, industry_table='industry', verbose=True)
 
    逐截面（按 input_ts）依次执行：去空值 → 去极值 → 标准化 → 中性化。
+
+   行业标签来源：``industry_scheme`` 给定（推荐）则自动从 industry 表 point-in-time 查询，
+   并打印行业分布 / 缺失 / 面板平衡及中性化执行摘要；``industry_col`` 给定则用调用方预先
+   merge 的行业列（旧行为）。市值中性化仍由 ``log_mktcap_col`` 手动提供。
 
    :param pre_queried_data: ``pre_query_characteristic_data()`` 的输出
    :param metric: 因子列名
    :param winsorize_method: ``'mad'`` | ``'percentile'`` | ``'std'``
    :param winsorize_n: 去极值阈值
    :param standardize_method: ``'zscore'`` | ``'rank'`` | ``'minmax'``
-   :param industry_col: pre_queried_data 中的行业列名（None 跳过行业中性化）
+   :param industry_col: pre_queried_data 中的行业列名（None 跳过）
    :param log_mktcap_col: pre_queried_data 中的 log 市值列名（None 跳过市值中性化）
+   :param industry_scheme: 自动查 industry 表的分类体系名，如 ``'申万一级行业'``；给定即自动注入行业标签并打印诊断（优先于 industry_col）
+   :param industry_table: 行业表名，默认 ``'industry'``
+   :param verbose: True 时打印行业诊断与中性化执行摘要
    :return: 同 pre_queried_data 格式的 DataFrame，{metric} 列已替换为处理后的值
 
    .. code-block:: python
 
+      >>> # 自动查表 + 诊断打印（推荐）
+      >>> cleaned = preprocess_factor(raw_data, 'ROE', industry_scheme='申万一级行业')
+      >>> # 旧用法：调用方自带行业列
       >>> cleaned = preprocess_factor(raw_data, 'ROE', industry_col='industry')
       >>> labeled = single_characteristic(cleaned, 'ROE', quantiles={'ROE': 10})
 

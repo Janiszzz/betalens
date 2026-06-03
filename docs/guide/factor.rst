@@ -44,6 +44,52 @@
 - ``diff_hours``: 时间差（小时）
 - ``name``: 股票名称
 
+因子预处理与行业中性化
+----------------------
+
+在分组打标签之前，建议先用 ``preprocess_factor`` 做一键预处理：逐截面（按 ``input_ts``）
+依次执行 **去空值 → 去极值 → 标准化 → 中性化**。
+
+.. code-block:: python
+
+   from betalens.factor.preprocessing import preprocess_factor
+
+   cleaned = preprocess_factor(
+       pre_queried_data,
+       metric="ROE",
+       winsorize_method="mad",       # 去极值
+       standardize_method="zscore",  # 标准化
+       industry_scheme="申万一级行业",  # 自动查 industry 表做行业中性化
+   )
+
+行业中性化有两种标签来源：
+
+- ``industry_scheme``（推荐）：自动逐期调用 :func:`betalens.datafeed.query_industry`
+  从 ``industry`` 表取 point-in-time 行业（datetime≤调仓日的最近一条，天然防前视），
+  无需事先把行业列 merge 进数据。不带版本后缀（如 ``"申万一级行业"``）时自动落到查询日生效的版本。
+- ``industry_col``：使用调用方预先 merge 进 ``pre_queried_data`` 的行业列（旧行为）。
+
+市值中性化仍由 ``log_mktcap_col`` 手动提供（先用 ``pre_query_characteristic_data`` 查"市值"再取 log）。
+
+**自动诊断打印**：传入 ``industry_scheme`` 且 ``verbose=True``（默认）时，会打印三类统计，
+便于判断中性化是否可靠：
+
+- **行业分布**：各行业占比、平均每期成分股数、行业总数
+- **缺失情况**：行业标签缺失率、因子值缺失率、按期最低/最高覆盖率
+- **面板平衡**：每期股票数与有效行业数的 min/median/max，行业数过少（<3）时告警
+
+随后打印 **中性化执行摘要**：成功/跳过期数、平均回归 R²（行业+市值对因子的解释度）、
+平均行业哑变量数与有效样本数。某期行业全缺失或样本不足（< 哑变量数+5）时会被跳过且不报错。
+
+若只想单独取面板行业标签（如做行业内分析），可直接用 ``query_industry_panel``：
+
+.. code-block:: python
+
+   from betalens.factor.preprocessing import query_industry_panel
+
+   ind_panel = query_industry_panel(pre_queried_data, scheme="申万一级行业")
+   ind_panel.xs(ts)  # 取某期 code -> 行业名
+
 单因子分组
 ----------
 

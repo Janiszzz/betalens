@@ -52,6 +52,14 @@ integration
    :undoc-members:
    :show-inheritance:
 
+universe
+~~~~~~~~
+
+.. automodule:: betalens.datafeed.universe
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 config
 ~~~~~~
 

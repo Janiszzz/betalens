@@ -7,12 +7,13 @@
 描述: 为 datafeed 模块创建 PostgreSQL 数据库和表结构
 
 使用方法:
-    python create_database.py [--force] [--no-indexes] [--no-comments]
+    python create_database.py [--force] [--no-indexes] [--no-comments] [--tables TABLE ...]
 
 选项:
     --force: 强制删除已存在的表并重新创建（危险！）
     --no-indexes: 不创建索引（用于大批量数据导入前）
     --no-comments: 不添加表和列注释
+    --tables: 仅创建指定的表（可多选），默认创建全部
 """
 
 import sys
@@ -44,14 +45,33 @@ logger = logging.getLogger('DatabaseCreator')
 # ============================================================================
 
 # 表名列表
-TABLES = ['daily_market', 'fundamentals', 'macro', 'factors']
+TABLES = ['daily_market', 'fundamentals', 'macro', 'factors', 'industry', 'index_universe']
 
 # 表说明
 TABLE_DESCRIPTIONS = {
     'daily_market': '个券行情（日频）- 开盘价最早09:30，其余价量最早15:00',
     'fundamentals': '个券基本面（日频入库，事件驱动）- 按公告时点入库',
     'macro': '宏观经济数据（事件驱动）- 区分公告时点与发生时点',
-    'factors': '因子库 - 存储计算好的因子数据'
+    'factors': '因子库 - 存储计算好的因子数据',
+    'industry': '证券分类归属（point-in-time）- 行业/指数成分等，datetime为生效时点',
+    'index_universe': '指数历史股票池（point-in-time快照）- datetime为生效时点，remark.constituents存成分股列表'
+}
+
+# industry表特殊列注释
+INDUSTRY_COLUMN_COMMENTS = {
+    'datetime': '归属关系生效时点（最早可知日）',
+    'metric': '分类体系（如：申万一级行业、中信一级行业）',
+    'value': '行业代码数值部分（如801780），便于索引分组',
+    'remark': '备注JSONB，约定 {ind_name, ind_code, scheme}'
+}
+
+# index_universe表特殊列注释
+INDEX_UNIVERSE_COLUMN_COMMENTS = {
+    'datetime': '股票池生效时点（最早可知日）',
+    'code': '指数代码（WindCode格式，如000906.SH）',
+    'metric': '固定为 universe（标识成分股池）',
+    'value': '成分股数量（便于校验）',
+    'remark': '备注JSONB，约定 {index_code, index_name, constituents}'
 }
 
 # 列注释（所有表共享）
@@ -165,6 +185,10 @@ def get_comment_sql(table_name: str) -> List[Tuple[str, tuple]]:
         comments = {**COLUMN_COMMENTS, **MACRO_COLUMN_COMMENTS}
     elif table_name == 'factors':
         comments = {**COLUMN_COMMENTS, **FACTORS_COLUMN_COMMENTS}
+    elif table_name == 'industry':
+        comments = {**COLUMN_COMMENTS, **INDUSTRY_COLUMN_COMMENTS}
+    elif table_name == 'index_universe':
+        comments = {**COLUMN_COMMENTS, **INDEX_UNIVERSE_COLUMN_COMMENTS}
     else:
         comments = COLUMN_COMMENTS
 
@@ -317,7 +341,9 @@ def table_exists(cursor, table_name: str) -> bool:
         """,
         (table_name,)
     )
-    return cursor.fetchone()["exists"]
+    row = cursor.fetchone()
+    # 兼容普通cursor(tuple)与RealDictCursor(dict)
+    return row["exists"] if isinstance(row, dict) else row[0]
 
 
 def drop_table(cursor, table_name: str):
@@ -538,8 +564,13 @@ def main():
                         help='不添加表和列注释')
     parser.add_argument('--verify-only', action='store_true',
                         help='仅验证schema，不创建表')
+    parser.add_argument('--tables', nargs='+', choices=TABLES, metavar='TABLE',
+                        help=f'仅创建指定的表（可多选），可选: {", ".join(TABLES)}；默认创建全部')
 
     args = parser.parse_args()
+
+    # 确定本次要处理的表
+    target_tables = args.tables if args.tables else TABLES
 
     # 获取数据库配置
     try:
@@ -591,7 +622,7 @@ def main():
                 logger.info(f"已连接到数据库 {db_config['dbname']}")
 
                 # 处理每个表
-                for table_name in TABLES:
+                for table_name in target_tables:
                     logger.info(f"\n处理表: {table_name}")
 
                     # 检查表是否存在
