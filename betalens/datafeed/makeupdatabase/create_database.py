@@ -45,7 +45,7 @@ logger = logging.getLogger('DatabaseCreator')
 # ============================================================================
 
 # 表名列表
-TABLES = ['daily_market', 'fundamentals', 'macro', 'factors', 'industry', 'index_universe']
+TABLES = ['daily_market', 'fundamentals', 'macro', 'factors', 'industry', 'index_universe', 'trade_status']
 
 # 表说明
 TABLE_DESCRIPTIONS = {
@@ -54,7 +54,8 @@ TABLE_DESCRIPTIONS = {
     'macro': '宏观经济数据（事件驱动）- 区分公告时点与发生时点',
     'factors': '因子库 - 存储计算好的因子数据',
     'industry': '证券分类归属（point-in-time）- 行业/指数成分等，datetime为生效时点',
-    'index_universe': '指数历史股票池（point-in-time快照）- datetime为生效时点，remark.constituents存成分股列表'
+    'index_universe': '指数历史股票池（point-in-time快照）- datetime为生效时点，remark.constituents存成分股列表',
+    'trade_status': '个券交易状态（稀疏存储）- 仅存异常状态与首次正常交易日，正常交易日由查询时推断'
 }
 
 # industry表特殊列注释
@@ -101,6 +102,14 @@ MACRO_COLUMN_COMMENTS = {
 FACTORS_COLUMN_COMMENTS = {
     'metric': '因子名称/数据编制方式',
     'remark': '备注信息，可包含因子计算参数和元数据'
+}
+
+# trade_status表特殊列注释
+TRADE_STATUS_COLUMN_COMMENTS = {
+    'datetime': '状态生效日（停牌日或首次正常交易日），最早可知时点',
+    'metric': '固定为 交易状态',
+    'value': '状态编码：1=正常交易（仅首次正常交易日入库做锚点），0=异常（停牌/暂停上市等）',
+    'remark': '备注JSONB，约定 {status:状态文本, first_normal:bool}。first_normal=true 标记首次正常交易日'
 }
 
 
@@ -189,6 +198,8 @@ def get_comment_sql(table_name: str) -> List[Tuple[str, tuple]]:
         comments = {**COLUMN_COMMENTS, **INDUSTRY_COLUMN_COMMENTS}
     elif table_name == 'index_universe':
         comments = {**COLUMN_COMMENTS, **INDEX_UNIVERSE_COLUMN_COMMENTS}
+    elif table_name == 'trade_status':
+        comments = {**COLUMN_COMMENTS, **TRADE_STATUS_COLUMN_COMMENTS}
     else:
         comments = COLUMN_COMMENTS
 

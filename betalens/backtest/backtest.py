@@ -362,14 +362,17 @@ class BacktestBase(object):
     def __init__(self, weight, symbol, amount,
                  ftc=0.0, ptc=0.0, verbose=True,
                  metric="收盘价(元)", time_tolerance=24,
-                 table_name="daily_market"):
+                 table_name="daily_market",
+                 check_trade_status=True,
+                 trade_status_mode='to_cash',
+                 trade_status_table='trade_status'):
         # === 输入验证：weight ===
         try:
             validate_weight_input(weight)
         except BacktestDataError as e:
             error_msg = f"weight 输入验证失败:\n  {str(e)}\n  数据样本:\n  {format_data_sample(weight)}"
             raise BacktestDataError(error_msg) from e
-        
+
         self.cost_ret = None
         self.weight = weight.copy()  # 使用副本避免修改原始数据
         self.symbol = symbol
@@ -397,6 +400,9 @@ class BacktestBase(object):
         self.metric = metric
         self.time_tolerance = time_tolerance
         self.table_name = table_name
+        self.check_trade_status = check_trade_status
+        self.trade_status_mode = trade_status_mode
+        self.trade_status_table = trade_status_table
 
         self.get_rebalance_data()
         self.get_position_data()
@@ -454,14 +460,92 @@ class BacktestBase(object):
                     UserWarning,
                 )
         return prices, actual_dt
+    def _apply_trade_status(self):
+        """
+        在每个调仓日检查异常交易状态的股票，统计提示并按 trade_status_mode 处理。
+
+        模式（trade_status_mode）：
+            'to_cash'   : 默认。异常股票当期权重置0，资金留现金（假设买卖失败）
+            'as_normal' : 忽略停牌，假设仍能正常买卖，仅打印统计提示
+            'report_only': 仅统计提示，不改动权重
+
+        异常定义：trade_status 表查询返回 value != 1（0=停牌等异常，-1=未上市/无法交易）。
+        """
+        mode = self.trade_status_mode
+        if mode not in ('to_cash', 'as_normal', 'report_only'):
+            raise BacktestDataError(
+                f"无效的 trade_status_mode: {mode}，"
+                f"应为 'to_cash'/'as_normal'/'report_only'"
+            )
+
+        weight_codes = [c for c in self.weight.columns if c != 'cash']
+        dates = [pd.Timestamp(d).strftime('%Y-%m-%d') for d in self.weight.index]
+
+        ts_db = Datafeed(self.trade_status_table)
+        try:
+            status = ts_db.query_trade_status({'codes': weight_codes, 'dates': dates})
+        finally:
+            ts_db.close()
+
+        if status is None or status.empty:
+            return
+
+        # 仅保留异常记录（value != 1），且当期该股有持仓权重
+        abnormal = status[status['value'] != 1].copy()
+        abnormal['date'] = pd.to_datetime(abnormal['datetime']).dt.strftime('%Y-%m-%d')
+
+        # 权重索引按自然日映射到实际时间戳（索引可能带 15:00:01 等时间）
+        date_to_ts = {}
+        for ts in self.weight.index:
+            date_to_ts.setdefault(pd.Timestamp(ts).strftime('%Y-%m-%d'), ts)
+
+        total_abnormal = 0
+        affected_dates = []
+        for date_str, grp in abnormal.groupby('date'):
+            ts = date_to_ts.get(date_str)
+            if ts is None:
+                continue
+            # 当期实际有持仓（权重非0）的异常股票
+            held = [c for c in grp['code'] if c in self.weight.columns
+                    and self.weight.at[ts, c] != 0]
+            if not held:
+                continue
+            total_abnormal += len(held)
+            affected_dates.append(date_str)
+
+            if self.verbose:
+                detail = grp[grp['code'].isin(held)][['code', 'status_text']]
+                print(f"  [交易状态] {date_str} 异常持仓 {len(held)} 只: "
+                      f"{detail.to_dict('records')}")
+
+            if mode == 'to_cash':
+                for c in held:
+                    self.weight.at[ts, c] = 0.0
+
+        if total_abnormal and self.verbose:
+            print(f"  [交易状态] 模式={mode}，共 {len(affected_dates)} 个调仓日、"
+                  f"{total_abnormal} 个异常持仓"
+                  f"{'，已置零转现金' if mode == 'to_cash' else ''}")
+
     def get_rebalance_data(self):
         """
         获取调仓日数据，包含日期和标的匹配验证
-        
+
         Raises:
             DateMismatchError: 当权重日期在数据库中无对应数据时
             CodeMismatchError: 当权重标的在数据库中无数据时（严格模式）
         """
+        # 换仓前先检查交易状态：统计异常持仓并按 mode 处理权重
+        if self.check_trade_status:
+            try:
+                self._apply_trade_status()
+            except BacktestDataError:
+                raise
+            except Exception as e:
+                if self.verbose:
+                    warnings.warn(
+                        f"交易状态检查失败（已跳过，不影响回测）: {e}", UserWarning)
+
         db = Datafeed(self.table_name)
 
         # 获取权重中的标的列表（排除cash）

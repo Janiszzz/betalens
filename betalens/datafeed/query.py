@@ -714,6 +714,110 @@ def get_latest_date(
     return None
 
 
+def query_trade_status(
+    cursor,
+    table_name: str,
+    codes: Optional[List[str]],
+    dates: List[str],
+    metric: str = '交易状态',
+    logger: Optional[logging.Logger] = None
+) -> pd.DataFrame:
+    """
+    查询个券交易状态（适配稀疏存储）
+
+    表中仅存异常状态(value=0)与首次正常交易日锚点(value=1, remark.first_normal=true)。
+    本函数在 Python 端把稀疏记录解析为每个 (code, date) 的完整状态：
+        -1 = 无法交易（首次正常交易日之前，视为未上市/未交易）
+         0 = 异常（停牌等，status_text 给出文本）
+         1 = 正常交易
+
+    Args:
+        cursor: 数据库游标（RealDictCursor）
+        table_name: 表名（trade_status）
+        codes: 代码列表；None 表示全市场（取所有有锚点的代码）
+        dates: 日期列表，格式 'YYYY-MM-DD' 或带时间，按自然日匹配
+        metric: 指标名，默认 '交易状态'
+        logger: 日志记录器
+
+    Returns:
+        DataFrame，列：code, datetime(=输入日), value(-1/0/1), status_text, name
+    """
+    if logger is None:
+        logger = _get_default_logger()
+    if not dates:
+        raise ValueError("dates不能为空")
+
+    # 输入日期归一到自然日
+    date_days = sorted({pd.Timestamp(d).normalize() for d in dates})
+    day_start = date_days[0]
+    day_end = date_days[-1] + pd.Timedelta(days=1)
+
+    # 1) 查首次正常交易日锚点（每个 code 一条）
+    anchor_conds = ["metric = %s", "value = 1"]
+    anchor_params: List = [metric]
+    if codes:
+        anchor_conds.append(f"code IN ({','.join(['%s'] * len(codes))})")
+        anchor_params.extend(codes)
+    anchor_sql = (
+        f"SELECT code, name, MIN(datetime) AS first_normal "
+        f"FROM {table_name} WHERE {' AND '.join(anchor_conds)} GROUP BY code, name"
+    )
+    cursor.execute(anchor_sql, anchor_params)
+    anchor_rows = cursor.fetchall()
+    first_normal = {r['code']: pd.Timestamp(r['first_normal']).normalize() for r in anchor_rows}
+    name_map = {r['code']: r['name'] for r in anchor_rows}
+
+    # 2) 查请求日期范围内的异常记录
+    abn_conds = ["metric = %s", "value = 0",
+                 "datetime >= %s::TIMESTAMP", "datetime < %s::TIMESTAMP"]
+    abn_params: List = [metric, str(day_start), str(day_end)]
+    if codes:
+        abn_conds.append(f"code IN ({','.join(['%s'] * len(codes))})")
+        abn_params.extend(codes)
+    abn_sql = (
+        f"SELECT code, name, datetime, remark "
+        f"FROM {table_name} WHERE {' AND '.join(abn_conds)}"
+    )
+    cursor.execute(abn_sql, abn_params)
+    abn_rows = cursor.fetchall()
+    # (code, day) -> status_text
+    abnormal: Dict[Tuple[str, pd.Timestamp], str] = {}
+    for r in abn_rows:
+        day = pd.Timestamp(r['datetime']).normalize()
+        remark = r.get('remark') or {}
+        status_text = remark.get('status') if isinstance(remark, dict) else None
+        abnormal[(r['code'], day)] = status_text or '异常'
+        name_map.setdefault(r['code'], r['name'])
+
+    # 3) 目标代码集合：显式 codes 或全部有锚点的 code
+    target_codes = codes if codes else list(first_normal.keys())
+
+    # 4) 解析每个 (code, day) 的状态
+    records = []
+    for code in target_codes:
+        fn = first_normal.get(code)
+        for day in date_days:
+            if (code, day) in abnormal:
+                value, text = 0, abnormal[(code, day)]
+            elif fn is None or day < fn:
+                value, text = -1, '无法交易'
+            else:
+                value, text = 1, '交易'
+            records.append({
+                'code': code,
+                'datetime': day,
+                'value': value,
+                'status_text': text,
+                'name': name_map.get(code),
+            })
+
+    df = pd.DataFrame(
+        records, columns=['code', 'datetime', 'value', 'status_text', 'name']
+    )
+    logger.info(f"query_trade_status: {len(target_codes)}个代码 × {len(date_days)}个日期 = {len(df)} 条状态")
+    return df
+
+
 # DataFrame辅助函数（保持为独立函数）
 def pivot_to_wide(
     df: pd.DataFrame,

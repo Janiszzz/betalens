@@ -64,6 +64,7 @@ from .query import (
     query_nearest_in_range_after as _query_nearest_in_range_after,
     query_nearest_in_range_before as _query_nearest_in_range_before,
     query_time_range as _query_time_range,
+    query_trade_status as _query_trade_status,
     get_available_dates as _get_available_dates,
     get_latest_date as _get_latest_date,
     build_query as _build_query
@@ -801,6 +802,36 @@ class Datafeed():
             end_date=end_date,
             metric=metric,
             limit=limit,
+            logger=self.logger
+        )
+
+    @func_timer
+    def query_trade_status(self, params=None):
+        """
+        查询个券交易状态（薄封装），适配 trade_status 表的稀疏存储
+
+        直接调用 query.query_trade_status，在 Python 端把稀疏记录解析为
+        每个 (code, date) 的完整状态。
+
+        Args:
+            params (dict): 必须包含以下键：
+                - codes: 代码列表；None 表示全市场（取所有有锚点的代码）
+                - dates: 日期列表（格式 'YYYY-MM-DD' 或带时间，按自然日匹配）
+                - metric: 指标名（可选，默认 '交易状态'）
+
+        Returns:
+            DataFrame: code | datetime | value(-1/0/1) | status_text | name
+                value: 1=正常交易, 0=异常(停牌等), -1=无法交易(首次正常交易日之前)
+        """
+        if 'dates' not in params:
+            raise ValueError("必须提供参数: ['dates']")
+
+        return _query_trade_status(
+            cursor=self.cursor,
+            table_name=self.sheet,
+            codes=params.get('codes'),
+            dates=params['dates'],
+            metric=params.get('metric', '交易状态'),
             logger=self.logger
         )
     

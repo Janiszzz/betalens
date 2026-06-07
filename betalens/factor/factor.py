@@ -54,52 +54,52 @@ from analyst import PortfolioAnalyzer, ReportExporter
 
 '''
 
-def get_tradable_pool(date_list):
+def get_tradable_pool(date_list, include_abnormal=False):
     """
-    获取可交易股票池
-    
+    获取可交易股票池（基于 trade_status 表）
+
     Args:
         date_list: 日期列表
-        
+        include_abnormal: 是否将异常交易状态（停牌等）的股票纳入计算
+            - False（默认）：仅纳入正常交易（value==1）的股票，保持原行为
+            - True：纳入所有已上市股票（value!=-1，即正常 + 异常停牌），
+              仅排除首次正常交易日之前（未上市/无法交易）
+
     Returns:
         date_ranges: 日期范围列表
         code_ranges: 每个日期对应的股票代码列表
     """
-    from datetime import timedelta
-    
-    # 创建一次Datafeed实例，避免重复连接
-    data = Datafeed("fundamentals")
+    # 基于 trade_status 表查询，稀疏存储由 query_trade_status 解析为完整状态
+    data = Datafeed("trade_status")
     df = pd.DataFrame()
 
     try:
-        for date in date_list:
-            start = date + timedelta(hours=9)
-            end = date + timedelta(hours=15)
-            
-            # 使用 query_time_range 替代已废弃的 query_data
-            request = data.query_time_range(
-                codes=None,  # None表示查询所有代码
-                start_date=str(start),
-                end_date=str(end),
-                metric="交易状态"
-            )
-            
-            # 筛选交易状态为1的记录
-            request = request.loc[request['value'] == 1]
-            df = pd.concat([df, request[['datetime', 'code']]], ignore_index=True)
+        dates = [pd.Timestamp(d).strftime('%Y-%m-%d') for d in date_list]
+        request = data.query_trade_status({'codes': None, 'dates': dates})
 
+        if not request.empty:
+            if include_abnormal:
+                # 纳入所有已上市股票（排除 -1 无法交易）
+                request = request.loc[request['value'] != -1]
+            else:
+                # 仅正常交易
+                request = request.loc[request['value'] == 1]
+
+        df = request[['datetime', 'code']].copy()
+
+        df['datetime'] = pd.to_datetime(df['datetime'])
         date_ranges = df['datetime'].dt.date.drop_duplicates().tolist()
         grouped = df.groupby(df['datetime'].dt.date)['code'].apply(list).reset_index()
         code_ranges = grouped['code'].tolist()
 
         return date_ranges, code_ranges
-    
+
     finally:
         # 确保关闭数据库连接
         data.close()
 
 
-def pre_query_characteristic_data(date_list, metric, time_tolerance=24*2*365, table_name="fundamentals", date_ranges=None, code_ranges=None):
+def pre_query_characteristic_data(date_list, metric, time_tolerance=24*2*365, table_name="fundamentals", date_ranges=None, code_ranges=None, include_abnormal=False):
     """
     批量预查询公司特征数据，生成符合特征排序函数要求的DataFrame
 
@@ -114,6 +114,8 @@ def pre_query_characteristic_data(date_list, metric, time_tolerance=24*2*365, ta
         table_name: 数据库表名，默认 "fundamentals"
         date_ranges: 可选，日期范围列表（如果提供，将跳过 get_tradable_pool 调用）
         code_ranges: 可选，每个日期对应的股票代码列表（如果提供，必须与 date_ranges 同时提供且长度相等）
+        include_abnormal: 是否将异常交易状态（停牌等）的股票纳入计算，默认 False（仅正常交易）。
+            仅在未显式提供 date_ranges/code_ranges、需内部调用 get_tradable_pool 时生效
 
     Returns:
         DataFrame，包含以下列：
@@ -151,7 +153,7 @@ def pre_query_characteristic_data(date_list, metric, time_tolerance=24*2*365, ta
             raise ValueError("date_ranges 和 code_ranges 的长度必须相等")
     
     if date_ranges is None or code_ranges is None:
-        date_ranges, code_ranges = get_tradable_pool(date_list)
+        date_ranges, code_ranges = get_tradable_pool(date_list, include_abnormal=include_abnormal)
     
     # 创建Datafeed实例
     data = Datafeed(table_name)
