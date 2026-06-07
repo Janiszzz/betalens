@@ -57,6 +57,8 @@ from analyst import PortfolioAnalyzer, ReportExporter
 def get_tradable_pool(date_list, include_abnormal=False):
     """
     获取可交易股票池（基于 trade_status 表）
+    注意不要在因子逻辑中引入是否停牌的未来函数。这要根据具体的因子而定：
+    如果属于盘后计算的因子，则可以假设剔除停牌股票（仅 value==1 正常交易），因为停牌状态在当日是已知的，不应影响因子计算。这会对策略产生流动性的影响，要注意。
 
     Args:
         date_list: 日期列表

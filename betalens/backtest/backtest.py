@@ -116,7 +116,7 @@ def validate_weight_input(weight):
     if 'cash' not in weight.columns:
         warnings.warn(
             f"weight 缺少 'cash' 列，将在后续处理中添加（值为1）\n"
-            f"修复建议: 添加 cash 列: weight['cash'] = 1.0",
+            f"修复建议: 添加 cash 列: weight['cash'] = 0.0",
             UserWarning
         )
     
@@ -365,7 +365,8 @@ class BacktestBase(object):
                  table_name="daily_market",
                  check_trade_status=True,
                  trade_status_mode='to_cash',
-                 trade_status_table='trade_status'):
+                 trade_status_table='trade_status',
+                 lot_size=100):
         # === 输入验证：weight ===
         try:
             validate_weight_input(weight)
@@ -403,7 +404,22 @@ class BacktestBase(object):
         self.check_trade_status = check_trade_status
         self.trade_status_mode = trade_status_mode
         self.trade_status_table = trade_status_table
+        self.lot_size = int(lot_size)
+        if self.lot_size < 1:
+            raise BacktestDataError(
+                f"lot_size 必须为正整数，当前: {lot_size}")
 
+        # 提前校验模式，避免查库后才报错
+        _valid_modes = ('to_cash', 'hold', 'redistribute', 'as_normal', 'report_only')
+        if self.trade_status_mode not in _valid_modes:
+            raise BacktestDataError(
+                f"无效的 trade_status_mode: {self.trade_status_mode}，"
+                f"应为 {_valid_modes} 之一"
+            )
+
+        # 提取交易状态（一等流程）：建立 self.trade_status / self.trade_status_matrix，
+        # 并按 trade_status_mode 调整 self.weight，须在 get_rebalance_data 之前完成
+        self.get_trade_status()
         self.get_rebalance_data()
         self.get_position_data()
         self.get_daily_position_data()
@@ -460,72 +476,166 @@ class BacktestBase(object):
                     UserWarning,
                 )
         return prices, actual_dt
-    def _apply_trade_status(self):
+
+    def get_trade_status(self):
         """
-        在每个调仓日检查异常交易状态的股票，统计提示并按 trade_status_mode 处理。
+        从数据库提取调仓日的个券交易状态（一等流程，与 get_rebalance_data 并列）。
 
-        模式（trade_status_mode）：
-            'to_cash'   : 默认。异常股票当期权重置0，资金留现金（假设买卖失败）
-            'as_normal' : 忽略停牌，假设仍能正常买卖，仅打印统计提示
-            'report_only': 仅统计提示，不改动权重
+        建立两份实例数据供审计与后续处理：
+            self.trade_status: 长表 DataFrame，列 code/datetime/value/status_text/name
+                value: 1=正常交易, 0=停牌等异常, -1=未上市/无法交易
+            self.trade_status_matrix: 宽表矩阵，index=调仓日(与 weight 对齐), columns=code,
+                值为 value（-1/0/1）；查询失败或关闭检查时为 None
 
-        异常定义：trade_status 表查询返回 value != 1（0=停牌等异常，-1=未上市/无法交易）。
+        提取完成后，若 check_trade_status 为真，调用 _apply_trade_status 按
+        trade_status_mode 调整 self.weight。本方法须在 get_rebalance_data 之前执行。
         """
-        mode = self.trade_status_mode
-        if mode not in ('to_cash', 'as_normal', 'report_only'):
-            raise BacktestDataError(
-                f"无效的 trade_status_mode: {mode}，"
-                f"应为 'to_cash'/'as_normal'/'report_only'"
-            )
+        self.trade_status = None
+        self.trade_status_matrix = None
 
-        weight_codes = [c for c in self.weight.columns if c != 'cash']
-        dates = [pd.Timestamp(d).strftime('%Y-%m-%d') for d in self.weight.index]
-
-        ts_db = Datafeed(self.trade_status_table)
-        try:
-            status = ts_db.query_trade_status({'codes': weight_codes, 'dates': dates})
-        finally:
-            ts_db.close()
-
-        if status is None or status.empty:
+        if not self.check_trade_status:
             return
 
-        # 仅保留异常记录（value != 1），且当期该股有持仓权重
-        abnormal = status[status['value'] != 1].copy()
-        abnormal['date'] = pd.to_datetime(abnormal['datetime']).dt.strftime('%Y-%m-%d')
+        weight_codes = [c for c in self.weight.columns if c != 'cash']
+        if not weight_codes:
+            return
+        dates = [pd.Timestamp(d).strftime('%Y-%m-%d') for d in self.weight.index]
 
-        # 权重索引按自然日映射到实际时间戳（索引可能带 15:00:01 等时间）
+        # === 数据库查询 ===
+        try:
+            ts_db = Datafeed(self.trade_status_table)
+            try:
+                status = ts_db.query_trade_status(
+                    {'codes': weight_codes, 'dates': dates})
+            finally:
+                ts_db.close()
+        except Exception as e:
+            if self.verbose:
+                warnings.warn(
+                    f"交易状态提取失败（已跳过，按正常交易处理）: {e}", UserWarning)
+            return
+
+        if status is None or status.empty:
+            if self.verbose:
+                warnings.warn(
+                    f"交易状态表 {self.trade_status_table} 无返回数据，"
+                    f"按正常交易处理", UserWarning)
+            return
+
+        self.trade_status = status
+
+        # 构造宽表矩阵（调仓日 × code），index 对齐 weight.index
+        try:
+            mat = status.copy()
+            mat['date'] = pd.to_datetime(mat['datetime']).dt.strftime('%Y-%m-%d')
+            wide = mat.pivot_table(
+                index='date', columns='code', values='value', aggfunc='first')
+            # 把日期索引映射回 weight 的实际时间戳索引
+            date_to_ts = {}
+            for ts in self.weight.index:
+                date_to_ts.setdefault(pd.Timestamp(ts).strftime('%Y-%m-%d'), ts)
+            wide.index = [date_to_ts.get(d, pd.Timestamp(d)) for d in wide.index]
+            wide = wide.reindex(index=self.weight.index)
+            wide.columns.name = ""
+            self.trade_status_matrix = wide
+        except Exception as e:
+            if self.verbose:
+                warnings.warn(f"构造交易状态矩阵失败（不影响处理）: {e}", UserWarning)
+
+        # === 按模式应用到权重 ===
+        self._apply_trade_status()
+
+    def _apply_trade_status(self):
+        """
+        按 trade_status_mode 处理 self.weight 中停牌（value==0）的持仓。
+
+        仅“停牌”(value==0) 视为异常需要处理；未上市(-1) 交由 get_rebalance_data
+        的 missing_codes 逻辑处理。
+
+        模式（trade_status_mode）：
+            'to_cash'     : 默认。停牌股当期权重置0，资金留现金（假设买卖失败）
+            'hold'        : 停牌无法调仓，沿用上一调仓日权重（持仓被动冻结）
+            'redistribute': 停牌股权重按比例分给当期可交易持仓，整行重新归一
+            'as_normal'   : 忽略停牌，假设仍能正常买卖，仅统计提示
+            'report_only' : 仅统计提示，不改动权重
+        """
+        if self.trade_status is None or self.trade_status.empty:
+            return
+
+        mode = self.trade_status_mode
+
+        # 停牌记录（value==0），定位到 weight 的实际时间戳
+        suspended = self.trade_status[self.trade_status['value'] == 0].copy()
+        if suspended.empty:
+            return
+        suspended['date'] = pd.to_datetime(
+            suspended['datetime']).dt.strftime('%Y-%m-%d')
+
         date_to_ts = {}
         for ts in self.weight.index:
             date_to_ts.setdefault(pd.Timestamp(ts).strftime('%Y-%m-%d'), ts)
 
-        total_abnormal = 0
+        index_list = list(self.weight.index)
+        total_suspended = 0
         affected_dates = []
-        for date_str, grp in abnormal.groupby('date'):
+
+        for date_str, grp in suspended.groupby('date'):
             ts = date_to_ts.get(date_str)
             if ts is None:
                 continue
-            # 当期实际有持仓（权重非0）的异常股票
+            # 当期实际有持仓（权重非0）的停牌股票
             held = [c for c in grp['code'] if c in self.weight.columns
                     and self.weight.at[ts, c] != 0]
             if not held:
                 continue
-            total_abnormal += len(held)
+            total_suspended += len(held)
             affected_dates.append(date_str)
 
             if self.verbose:
                 detail = grp[grp['code'].isin(held)][['code', 'status_text']]
-                print(f"  [交易状态] {date_str} 异常持仓 {len(held)} 只: "
+                print(f"  [交易状态] {date_str} 停牌持仓 {len(held)} 只: "
                       f"{detail.to_dict('records')}")
 
+            if mode in ('as_normal', 'report_only'):
+                continue
+
             if mode == 'to_cash':
+                # 停牌股权重置0，资金自然留现金（cash 列由后续流程补足）
                 for c in held:
                     self.weight.at[ts, c] = 0.0
 
-        if total_abnormal and self.verbose:
+            elif mode == 'hold':
+                # 沿用上一调仓日的整行权重（无法调仓→持仓冻结）
+                pos = index_list.index(ts)
+                if pos == 0:
+                    # 首期无上期可沿用，退化为 to_cash
+                    for c in held:
+                        self.weight.at[ts, c] = 0.0
+                    if self.verbose:
+                        print(f"  [交易状态] {date_str} 为首期，hold 退化为 to_cash")
+                else:
+                    prev_ts = index_list[pos - 1]
+                    self.weight.loc[ts] = self.weight.loc[prev_ts].values
+
+            elif mode == 'redistribute':
+                # 停牌股权重清零后，将整行剩余权重重新归一到可交易持仓
+                for c in held:
+                    self.weight.at[ts, c] = 0.0
+                row = self.weight.loc[ts]
+                row_sum = row.sum()
+                if row_sum > 0:
+                    self.weight.loc[ts] = (row / row_sum).values
+
+        if total_suspended and self.verbose:
+            note = {
+                'to_cash': '，已置零转现金',
+                'hold': '，已沿用上期权重',
+                'redistribute': '，已重新归一到可交易持仓',
+                'as_normal': '，按正常交易处理',
+                'report_only': '，仅统计未改动',
+            }.get(mode, '')
             print(f"  [交易状态] 模式={mode}，共 {len(affected_dates)} 个调仓日、"
-                  f"{total_abnormal} 个异常持仓"
-                  f"{'，已置零转现金' if mode == 'to_cash' else ''}")
+                  f"{total_suspended} 个停牌持仓{note}")
 
     def get_rebalance_data(self):
         """
@@ -759,69 +869,81 @@ class BacktestBase(object):
                     f"weight 索引: {self.weight.index[:3].tolist()}"
                 ) from e
         
-        # === 计算 amount ===
+        # === 逐期迭代：整数手取整 → actual_weight + 现金，并递推总资产 amount ===
+        # 最小买入单位 lot_size 股，非整数手无法成交，余款转入 cash。
+        # 当期可买手数依赖当期总资产 A_t，而 A_t 又由上期实际持仓收益递推，
+        # 存在逐期依赖，无法向量化（原 cumprod 方案），须按调仓日顺序迭代。
         try:
-            # 检查 shift 操作
-            weight_shifted = self.weight.shift(1)
-            if weight_shifted.iloc[0].notna().any():
-                warnings.warn(
-                    f"weight.shift(1) 第一行包含非NaN值，这可能导致计算错误\n"
-                    f"修复建议: 确保第一行应为NaN或零",
-                    UserWarning
-                )
-            
-            self.amount = self.cost_ret * weight_shifted
-            
-            # 检查乘法结果
-            if self.amount.isnull().any().any():
-                nan_count = self.amount.isnull().sum().sum()
-                warnings.warn(
-                    f"amount 计算后包含 {nan_count} 个 NaN 值\n"
-                    f"修复建议: 检查 cost_ret 和 weight 的数据完整性",
-                    UserWarning
-                )
-            
-            # 计算累计金额
-            sum_series = self.amount.sum(axis=1) + 1
-            
-            # 检查是否有负值或零值（可能导致 cumprod 异常）
-            if (sum_series <= 0).any():
-                negative_count = (sum_series <= 0).sum()
-                warnings.warn(
-                    f"amount.sum(axis=1)+1 包含 {negative_count} 个非正值\n"
-                    f"修复建议: 检查权重和收益率数据",
-                    UserWarning
-                )
-            
-            self.amount['amount'] = sum_series.cumprod() * self.initial_amount
-            
-            # 检查最终结果
-            if self.amount['amount'].isnull().any():
+            stock_cols = [c for c in self.weight.columns if c != 'cash']
+            all_cols = stock_cols + ['cash']
+            index_list = list(self.weight.index)
+            lot = self.lot_size
+
+            A = float(self.initial_amount)
+            amount_list = []
+            actual_rows = []
+
+            for pos, ts in enumerate(index_list):
+                amount_list.append(A)  # 本调仓日（分配前）总资产
+
+                target_w = self.weight.loc[ts]
+                price = self.cost_price.loc[ts]
+                aw = {c: 0.0 for c in all_cols}
+                spent = 0.0
+
+                if A != 0:
+                    for code in stock_cols:
+                        w = target_w.get(code, 0.0)
+                        p = price.get(code, np.nan)
+                        if w == 0 or pd.isna(w) or pd.isna(p) or p <= 0:
+                            continue
+                        # 目标股数 → 向零截断到整数手 → 实际成交股数/市值
+                        shares = (w * A) / p
+                        lots = np.trunc(shares / lot)
+                        actual_value = lots * lot * p
+                        aw[code] = actual_value / A
+                        spent += actual_value
+                    aw['cash'] = (A - spent) / A  # 余款（含未投资部分）转现金
+
+                actual_rows.append(aw)
+
+                # 递推到下一调仓日：实际权重 × 持有期收益（现金收益为0）
+                if pos < len(index_list) - 1:
+                    nxt = self.cost_ret.iloc[pos + 1]
+                    period_ret = sum(
+                        aw[c] * float(nxt.get(c, 0.0))
+                        for c in stock_cols
+                        if not pd.isna(nxt.get(c, 0.0))
+                    )
+                    A = A * (1.0 + period_ret)
+            # __ITER_TAIL__
+            # actual_weight：实际成交的整数手权重 + 余现金，供后续收益/持仓计算
+            self.actual_weight = pd.DataFrame(
+                actual_rows, index=self.weight.index, columns=all_cols
+            ).fillna(0.0)
+            # amount：各调仓日（分配前）总资产
+            self.amount = pd.Series(
+                amount_list, index=self.weight.index, name='amount'
+            )
+
+            if self.amount.isnull().any():
                 raise BacktestDataError(
-                    f"amount 计算后包含 NaN 值\n"
-                    f"修复建议: 检查输入数据和计算过程"
+                    f"amount 计算后包含 NaN 值\n修复建议: 检查输入数据和计算过程"
                 )
-            
-            try:
-                if pd.api.types.is_numeric_dtype(self.amount['amount']):
-                    if np.isinf(self.amount['amount']).any():
-                        warnings.warn(
-                            f"amount 包含 Inf 值\n"
-                            f"修复建议: 检查数据是否有异常大的收益率",
-                            UserWarning
-                        )
-            except (TypeError, ValueError):
-                pass
-            
-            self.amount = self.amount['amount']
-            
+            if np.isinf(self.amount.values).any():
+                warnings.warn(
+                    f"amount 包含 Inf 值\n修复建议: 检查是否有异常大的收益率",
+                    UserWarning
+                )
+        except BacktestDataError:
+            raise
         except Exception as e:
             raise BacktestDataError(
                 f"计算 amount 失败: {e}\n"
                 f"cost_ret 样本:\n  {format_data_sample(self.cost_ret)}\n"
                 f"weight 样本:\n  {format_data_sample(self.weight)}"
             ) from e
-        
+
         return self.amount
 
     def get_daily_position_data(self):
@@ -918,17 +1040,18 @@ class BacktestBase(object):
             raise BacktestDataError(error_msg) from e
         
         # === 计算持仓 ===
+        # 用 actual_weight（整数手成交权重 + 余现金）而非目标 weight，
+        # 整数手取整与现金留存才能真正反映到持仓/每日净值中。
         try:
             # 验证计算输入
             validate_calculation_inputs(
-                weight=self.weight,
+                actual_weight=self.actual_weight,
                 amount=self.amount,
                 cost_price=self.cost_price
             )
-            
-            # 计算持仓金额
-            self.position = self.weight.mul(self.amount, axis=0)
-            self.position['cash'] = 0
+
+            # 持仓金额 = 实际权重 × 当期总资产（含 cash 列）
+            self.position = self.actual_weight.mul(self.amount, axis=0)
             # 检查索引对齐
             if not validate_index_alignment(self.position, self.cost_price, "position", "cost_price"):
                 # 尝试对齐
@@ -940,8 +1063,8 @@ class BacktestBase(object):
                         f"position 索引: {self.position.index[:3].tolist()}\n"
                         f"cost_price 索引: {self.cost_price.index[:3].tolist()}"
                     ) from e
-            
-            # 除以成本价得到持仓数量
+
+            # 除以成本价得到持仓数量（cash 价=1 → 现金份额=现金额；股票为整数手）
             self.position = self.position.div(self.cost_price)
             
             # 检查除法结果
@@ -1132,7 +1255,7 @@ class BacktestBase(object):
             实际写入的文件路径
         """
         df_attrs = [
-            'weight', 'cost_price', 'actual_datetime', 'cost_ret',
+            'weight', 'actual_weight', 'cost_price', 'actual_datetime', 'cost_ret',
             'amount', 'position', 'daily_amount', 'nav',
         ]
         meta_keys = [

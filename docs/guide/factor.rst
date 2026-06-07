@@ -14,10 +14,18 @@
    rebalance_days = get_absolute_trade_days("2022-01-01", "2022-12-31", "M")
    date_ranges, code_ranges = get_tradable_pool(rebalance_days)
 
+   # 纳入停牌等异常状态股票（默认 False，仅取正常交易）
+   date_ranges, code_ranges = get_tradable_pool(rebalance_days, include_abnormal=True)
+
 逻辑要点：
 
-- 对每个调仓日调用 :class:`betalens.datafeed.Datafeed`，过滤交易状态 ``value == 1`` 的证券
+- 基于 ``trade_status`` 表（见 :doc:`datafeed`），调 :func:`~betalens.datafeed.query_trade_status`
+  解析各调仓日的个券交易状态（``1`` 正常 / ``0`` 停牌 / ``-1`` 未上市）
+- ``include_abnormal=False``（默认）只纳入 ``value == 1`` 的证券，保持原行为；
+  ``include_abnormal=True`` 纳入所有已上市证券（``value != -1``，含停牌）
 - 返回 ``date_ranges``（日期列表）与 ``code_ranges``（与日期一一对应的代码列表）
+- ``pre_query_characteristic_data`` 也接受 ``include_abnormal`` 并透传（仅在内部
+  调用 ``get_tradable_pool`` 时生效）
 
 批量预查询因子数据
 ------------------
