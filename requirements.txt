@@ -5,6 +5,10 @@ psycopg2-binary>=2.9.0
 
 # Visualization
 matplotlib>=3.4.0
+plotly>=5.0.0
+
+# Dashboard (optional)
+streamlit>=1.30.0
 
 # Excel processing
 openpyxl>=3.0.0

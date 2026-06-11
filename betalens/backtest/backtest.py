@@ -926,6 +926,60 @@ class BacktestBase(object):
                 amount_list, index=self.weight.index, name='amount'
             )
 
+            # === 调仓记录表（成交流水）===
+            # 逐调仓日记录每只标的的实际成交：成交量 = 本期实际持股 − 上期实际持股，
+            # >0 记买入(buy)、<0 记卖出(sell)、=0 不记（无成交）。
+            # 注意：清仓标的本期权重为 0，必须靠"与上期持股差"才能捕捉到其卖出，
+            # 不能用"本期权重非零"过滤，否则会漏掉全部卖出记录。
+            lot = self.lot_size
+            stock_set = [c for c in self.weight.columns if c != 'cash']
+            rebal_rows = []
+            prev_shares = {c: 0.0 for c in stock_set}  # 上一调仓日实际持股数
+            for pos, ts in enumerate(self.weight.index):
+                A = float(amount_list[pos])
+                aw_row = actual_rows[pos]
+                price_row = self.cost_price.loc[ts]
+                # 本期各标的实际持股数（整数手；aw*A/p 理论已是整手，trunc 消浮点）
+                cur_shares = {}
+                for code in stock_set:
+                    aw = float(aw_row.get(code, 0.0))
+                    p = price_row.get(code, np.nan)
+                    if aw == 0 or pd.isna(p) or p <= 0:
+                        cur_shares[code] = 0.0
+                    else:
+                        cur_shares[code] = np.trunc(aw * A / p / lot) * lot
+                # 与上期比较，记录双向成交
+                for code in stock_set:
+                    cur = cur_shares[code]
+                    prev = prev_shares[code]
+                    delta = cur - prev
+                    if delta == 0:
+                        continue  # 无成交
+                    p = price_row.get(code, np.nan)
+                    p = float(p) if not pd.isna(p) else np.nan
+                    trade_shares = abs(delta)
+                    rebal_rows.append({
+                        'datetime': ts,
+                        'code': code,
+                        'direction': 'buy' if delta > 0 else 'sell',
+                        'target_weight': float(self.weight.at[ts, code])
+                            if code in self.weight.columns else 0.0,
+                        'actual_weight': float(aw_row.get(code, 0.0)),
+                        'price': p,
+                        'shares': trade_shares,           # 成交股数（正）
+                        'lots': trade_shares / lot,        # 成交手数（正）
+                        'value': trade_shares * p if not pd.isna(p) else np.nan,  # 成交额（正）
+                        'holding_shares': cur,             # 成交后持股数
+                        'holding_value': cur * p if not pd.isna(p) else np.nan,   # 成交后持仓市值
+                    })
+                prev_shares = cur_shares
+            self.rebalance_log = pd.DataFrame(
+                rebal_rows,
+                columns=['datetime', 'code', 'direction', 'target_weight',
+                         'actual_weight', 'price', 'shares', 'lots', 'value',
+                         'holding_shares', 'holding_value'],
+            )
+
             if self.amount.isnull().any():
                 raise BacktestDataError(
                     f"amount 计算后包含 NaN 值\n修复建议: 检查输入数据和计算过程"
@@ -1192,8 +1246,25 @@ class BacktestBase(object):
             self.position = self.position[common_cols]
             close_price_ts = close_price_ts[common_cols]
             
+            # 每标的每日持仓金额 = 持仓数量 × 当日收盘价（cash 价=1 → 现金额）
+            self.daily_position_value = self.position.mul(close_price_ts, axis=0).astype(float)
+            # 日频损益：每标的市场损益 = 昨日持仓数量 × 当日价格变动。
+            # 不能用 daily_position_value.diff()——换仓日 position 跳变，diff 会把
+            # 新建/调整仓位的买卖现金搬移 (pos[t]-pos[t-1])·P[t] 误算成损益。
+            # position.shift(1)·close.diff() 只保留 pos[t-1]·(P[t]-P[t-1]) 这一真实
+            # 市场损益项；现金价恒为 1，其损益恒为 0。
+            self.daily_pnl = (
+                self.position.shift(1)
+                .mul(close_price_ts.diff(), axis=0)
+                .fillna(0.0)
+            )
+            # 组合层每日损益 = 各标的市场损益之和（与逐标的口径一致，可直接用于归因）。
+            # 注：组合每日总市值变化见 daily_amount.diff()，换仓日会含执行价与收盘价差异。
+            self.daily_pnl_total = self.daily_pnl.sum(axis=1)
+            self.daily_pnl_total.name = 'daily_pnl'
+
             # 计算每日市值
-            self.daily_amount = self.position.mul(close_price_ts, axis=0).sum(axis=1).astype(float)
+            self.daily_amount = self.daily_position_value.sum(axis=1).astype(float)
             
             # 检查计算结果
             if self.daily_amount.isnull().any():
@@ -1257,6 +1328,7 @@ class BacktestBase(object):
         df_attrs = [
             'weight', 'actual_weight', 'cost_price', 'actual_datetime', 'cost_ret',
             'amount', 'position', 'daily_amount', 'nav',
+            'daily_position_value', 'daily_pnl', 'daily_pnl_total', 'rebalance_log',
         ]
         meta_keys = [
             'symbol', 'metric', 'table_name', 'time_tolerance',
@@ -1279,6 +1351,8 @@ class BacktestBase(object):
                     obj = obj.to_frame(name=name)
                 if isinstance(obj, pd.DataFrame):
                     sheet = name[:31]  # Excel sheet 名最长 31
-                    obj.to_excel(writer, sheet_name=sheet)
+                    # rebalance_log 用默认整数索引，无需写出
+                    write_index = name != 'rebalance_log'
+                    obj.to_excel(writer, sheet_name=sheet, index=write_index)
 
         return filepath

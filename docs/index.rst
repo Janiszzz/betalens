@@ -43,10 +43,10 @@ Betalens 文档
    from betalens.datafeed import Datafeed, get_absolute_trade_days
    from betalens.factor.factor import (
        get_tradable_pool, pre_query_characteristic_data,
-       single_factor, get_single_factor_weight
+       single_characteristic, get_single_factor_weight
    )
    from betalens.backtest import BacktestBase
-   from betalens.analyst import PortfolioAnalyzer, ReportExporter
+   from betalens.analyst import Analyst
 
    # 1. 准备数据
    trading_days = get_absolute_trade_days("2020-04-30", "2024-04-30", "Y")
@@ -67,13 +67,9 @@ Betalens 文档
    # 4. 回测
    engine = BacktestBase(weight=weights, symbol="Dividend", amount=1_000_000)
 
-   # 5. 绩效分析
-   analyzer = PortfolioAnalyzer(engine.nav)
-   print(f"Sharpe: {analyzer.sharpe_ratio():.4f}")
-   print(f"Max Drawdown: {analyzer.max_drawdown():.2%}")
-
-   exporter = ReportExporter(analyzer)
-   exporter.generate_annual_report()
+   # 5. 绩效分析（一键门面）
+   a = Analyst.from_backtest(engine, name="Dividend")
+   a.report(to_excel="report.xlsx", to_html="report.html")
 
 文档目录
 --------

@@ -106,17 +106,15 @@
 
 .. code-block:: python
 
-   from betalens.analyst import PortfolioAnalyzer, ReportExporter
+   from betalens.analyst import Analyst
 
-   analyzer = PortfolioAnalyzer(nav_series=nav)
-   exporter = ReportExporter(analyzer)
+   # 一键门面：自动接 nav/持仓/损益/调仓记录
+   a = Analyst.from_backtest(engine, name="DemoFactor")
+   a.report(to_excel="report.xlsx", to_html="report.html")
 
-   print("Sharpe:", analyzer.sharpe_ratio())
-   print("Max Drawdown:", analyzer.max_drawdown())
-   exporter.generate_annual_report()
-   exporter.generate_custom_report("2020-01-01", "2024-04-30")
-
-`ReportExporter` 支持 CLI 表格与 Excel 输出，可搭配基准序列生成超额收益分析。
+`Analyst` 一键产出 CLI 指标表、Excel 报告与 plotly 交互 HTML，涵盖收益/回撤/风险/换手/
+归因等多维指标，并自动为证券代码匹配中文名。旧接口 `PortfolioAnalyzer` / `ReportExporter`
+仍兼容。详见 :doc:`../guide/analyst`。
 
 7. 双因子分组（Double Sort）
 ----------------------------
