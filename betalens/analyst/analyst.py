@@ -450,7 +450,8 @@ class Analyst:
         if an.weight is not None:
             figs['权重堆积'] = P.plot_weight_concentration(
                 M.weight_hhi(an.weight),
-                M.avg_holdings_count(an.weight)['per_period'])
+                M.avg_holdings_count(an.weight)['per_period'],
+                weight=an.weight, name_map=self.name_map)
         if an.daily_pnl is not None:
             figs['收益贡献'] = P.plot_contribution_bar(
                 M.return_contribution(an.daily_pnl), self.name_map)

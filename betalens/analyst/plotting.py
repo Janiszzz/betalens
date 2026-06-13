@@ -87,19 +87,65 @@ def plot_contribution_bar(contrib: pd.DataFrame, name_map: dict = None,
 
 
 def plot_weight_concentration(hhi: pd.Series, count: pd.Series,
+                              weight: "pd.DataFrame | None" = None,
+                              name_map: "dict | None" = None,
+                              top: int = 8, max_codes: int = 15, max_periods: int = 12,
                               title: str = '权重堆积与持仓数') -> bytes:
-    """HHI 集中度 + 持仓数双轴图"""
-    fig, ax1 = plt.subplots(figsize=(11, 3.5))
-    ax1.plot(hhi.index, hhi.values, color='#9467bd', linewidth=1, label='HHI 集中度')
-    ax1.set_ylabel('HHI', color='#9467bd')
-    ax1.tick_params(axis='y', labelcolor='#9467bd')
-    ax2 = ax1.twinx()
-    ax2.plot(count.index, count.values, color='#8c564b', linewidth=1,
-             alpha=0.6, label='持仓数')
-    ax2.set_ylabel('持仓数', color='#8c564b')
-    ax2.tick_params(axis='y', labelcolor='#8c564b')
-    ax1.set_title(title, fontsize=13)
-    ax1.grid(alpha=0.3)
+    """HHI 集中度 + 持仓数双轴图；传入 weight 时在下方附时序持仓权重表一览"""
+    name_map = name_map or {}
+
+    def _draw_dual(ax1):
+        ax1.plot(hhi.index, hhi.values, color='#9467bd', linewidth=1, label='HHI 集中度')
+        ax1.set_ylabel('HHI', color='#9467bd')
+        ax1.tick_params(axis='y', labelcolor='#9467bd')
+        ax2 = ax1.twinx()
+        ax2.plot(count.index, count.values, color='#8c564b', linewidth=1,
+                 alpha=0.6, label='持仓数')
+        ax2.set_ylabel('持仓数', color='#8c564b')
+        ax2.tick_params(axis='y', labelcolor='#8c564b')
+        ax1.set_title(title, fontsize=13)
+        ax1.grid(alpha=0.3)
+
+    if weight is None:
+        fig, ax1 = plt.subplots(figsize=(11, 3.5))
+        _draw_dual(ax1)
+        return _fig_to_bytes(fig)
+
+    # 时序持仓表：选标（每期前 top 大的并集，按累计权重排序截断），采样日期
+    w = weight.sort_index().fillna(0.0)
+    if 'cash' in w.columns:
+        w = w.drop(columns='cash')
+    selected = set()
+    for _, row in w.iterrows():
+        nz = row[row > 0]
+        if len(nz):
+            selected.update(nz.nlargest(top).index)
+    order = w[list(selected)].sum().sort_values(ascending=False).index.tolist()[:max_codes]
+    if len(w) > max_periods:
+        pos = np.unique(np.linspace(0, len(w) - 1, max_periods).round().astype(int))
+        w = w.iloc[pos]
+    mat = w[order].T  # 行=标的，列=日期
+
+    dates = [d.strftime('%y/%m/%d') if hasattr(d, 'strftime') else str(d) for d in mat.columns]
+    rows = [label(c, name_map) for c in order]
+    vmax = mat.values.max() or 1.0
+    greens = plt.get_cmap('Greens')
+    cell_text = [[f'{v:.0%}' if v > 0 else '' for v in mat.loc[c].values] for c in order]
+    cell_colours = [[greens(0.15 + 0.6 * v / vmax) if v > 0 else 'white'
+                     for v in mat.loc[c].values] for c in order]
+
+    table_h = max(1.5, 0.32 * len(order) + 0.6)
+    fig = plt.figure(figsize=(11, 3.5 + table_h))
+    gs = fig.add_gridspec(2, 1, height_ratios=[3.5, table_h], hspace=0.35)
+    _draw_dual(fig.add_subplot(gs[0]))
+    axt = fig.add_subplot(gs[1])
+    axt.axis('off')
+    axt.set_title('时序持仓权重一览', fontsize=11, pad=4)
+    tbl = axt.table(cellText=cell_text, cellColours=cell_colours,
+                    rowLabels=rows, colLabels=dates, loc='center', cellLoc='center')
+    tbl.auto_set_font_size(False)
+    tbl.set_fontsize(7)
+    tbl.scale(1, 1.2)
     return _fig_to_bytes(fig)
 
 

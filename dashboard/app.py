@@ -3,15 +3,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import streamlit as st
-from views import eventstudy, database, factor_eval, factor_pipeline, portfolio, tdx_factors
+from views import eventstudy, database, factor_eval, portfolio, factor_classes
 
 st.set_page_config(page_title="betalens 看板", layout="wide")
 
 PAGES = {
     "📈 事件研究": eventstudy,
     "📊 因子评价": factor_eval,
-    "🔬 因子流水线": factor_pipeline,
-    "📡 通达信因子": tdx_factors,
+    "📡 因子回测": factor_classes,
     "💼 策略评价": portfolio,
     "🗄️ 数据库管理": database,
 }

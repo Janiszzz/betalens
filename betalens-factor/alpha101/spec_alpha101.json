@@ -1,0 +1,28 @@
+{
+  "class": "alpha101",
+  "template_module": "factor_template",
+  "out_dir": "c:/Users/Janis/OneDrive/betalens-factor/alpha101",
+  "source": "WorldQuant 101 Formulaic Alphas (Kakushadze 2016)",
+  "defaults": {
+    "direction": "positive",
+    "index_code": "000906.SH",
+    "use_industry": true,
+    "use_mktcap": false,
+    "industry_scheme": "申万一级行业",
+    "backtest_metric": "开盘价(元)",
+    "start_date": "2024-01-01",
+    "end_date": "2025-12-31",
+    "rebal_freq": "D",
+    "n_quantiles": 20,
+    "include_profiling": true
+  },
+  "factors": [
+    {
+      "name": "ALPHA12",
+      "formula": "sign(delta(volume,1)) * (-1 * delta(close,1))",
+      "logic": "量增价跌/量缩价涨 → 因子值高（看多）",
+      "inputs": {"close_wide": "收盘价(元)", "volume_wide": "成交量(股)"},
+      "compute_kwargs": {}
+    }
+  ]
+}
