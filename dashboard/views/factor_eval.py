@@ -20,14 +20,14 @@ from betalens.factor.stats import (
 
 
 def render():
-    st.header("因子评价")
+    with st.sidebar:
+        st.divider()
+        sub = st.radio("", ["择时因子评价", "截面因子评价"],
+                       label_visibility="collapsed", key="fe_sub")
 
-    tab_timing, tab_cs = st.tabs(["择时因子评价", "截面因子评价"])
-
-    with tab_timing:
+    if sub == "择时因子评价":
         _render_timing_tab()
-
-    with tab_cs:
+    else:
         _render_cross_section_tab()
 
 

@@ -27,15 +27,16 @@ MAX_QUERY_ROWS = 50000
 
 
 def render():
-    st.header("数据库管理")
-    tab_manage, tab_upload, tab_query = st.tabs(
-        ["🛠️ 数据库管理", "📤 数据上传", "🔍 数据查询"]
-    )
-    with tab_manage:
+    with st.sidebar:
+        st.divider()
+        sub = st.radio("", ["🛠️ 数据库管理", "📤 数据上传", "🔍 数据查询"],
+                       label_visibility="collapsed", key="db_sub")
+
+    if sub == "🛠️ 数据库管理":
         _render_manage_tab()
-    with tab_upload:
+    elif sub == "📤 数据上传":
         _render_upload_tab()
-    with tab_query:
+    else:
         _render_query_tab()
 
 

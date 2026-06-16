@@ -31,11 +31,6 @@ def _capture_plot(plot_fn, **kwargs) -> bytes:
 
 
 def render():
-    st.header("事件研究分析")
-
-    # ── 布局：左侧步骤导航 + 右侧内容 ───────────────────────────────────────
-    left, right = st.columns([1, 4])
-
     # ── 初始化 session state ─────────────────────────────────────────────────
     for key, default in [
         ("es_events", None),
@@ -48,11 +43,12 @@ def render():
 
     step = st.session_state["es_step"]
 
-    with left:
-        st.subheader("步骤")
+    with st.sidebar:
+        st.divider()
+        st.caption("步骤进度")
         _step_indicator(step)
 
-    with right:
+    if True:
         # ── 步骤 0：上传事件文件 ─────────────────────────────────────────────
         if step == 0:
             st.subheader(STEPS[0])

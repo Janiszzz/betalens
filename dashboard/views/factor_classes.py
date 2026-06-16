@@ -37,14 +37,14 @@ def _load_page(path: Path):
 
 
 def render():
-    st.title("📡 因子回测")
     classes = _discover_classes()
     if not classes:
         st.warning(f"未在 {_FACTOR_ROOT} 下发现任何 page_*.py 因子类页面。")
         return
 
-    cls = st.radio("因子类", list(classes.keys()), horizontal=True, key="fc_class")
-    st.divider()
+    with st.sidebar:
+        st.divider()
+        cls = st.radio("因子类", list(classes.keys()), label_visibility="collapsed", key="fc_class")
     try:
         page = _load_page(classes[cls])
         page.render()
