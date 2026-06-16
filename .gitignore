@@ -16,6 +16,9 @@ __pycache__/
 #构建产物
 build/
 dist/
+dashboard/frontend/dist/
+dashboard/frontend/node_modules/
+dashboard/frontend/tsconfig.tsbuildinfo
 *.egg-info/
 .eggs/
 
