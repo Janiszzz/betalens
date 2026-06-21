@@ -49,9 +49,63 @@ export type RunResult = {
     drawdown: Array<Record<string, number | string>>;
     dailyPnl: Array<Record<string, number | string>>;
     dailyAmount: Array<Record<string, number | string>>;
-    positionValue: Array<Record<string, number | string>>;
+    positionWeight: Array<Record<string, number | string>>;
+    rebalanceHoldings: Array<Record<string, number | string | null>>;
   };
-  trades: Array<Record<string, unknown>>;
-  positions: Array<Record<string, unknown>>;
+  tables: {
+    trades: TableMeta;
+    positions: TableMeta;
+  };
   downloads: Record<string, { path: string | null; exists: boolean }>;
+};
+
+export type TableMeta = {
+  total: number;
+  columns: string[];
+};
+
+export type TablePage = {
+  rows: Array<Record<string, unknown>>;
+  total: number;
+  page: number;
+  size: number;
+  pages: number;
+};
+
+export type EventFile = {
+  id: string;
+  name: string;
+  path: string;
+  eventCount: number;
+  dateFrom: string;
+  dateTo: string;
+  columns: string[];
+  sample: Array<Record<string, unknown>>;
+  error?: string;
+};
+
+export type EventFilesResponse = {
+  defaults: Record<string, unknown>;
+  files: EventFile[];
+};
+
+export type EventStudyResult = {
+  eventFile: {
+    id: string;
+    name: string;
+    path: string;
+  };
+  parameters: Record<string, unknown>;
+  summary: Record<string, number | string | string[] | null>;
+  charts: {
+    dailyStats: Array<Record<string, number | string | null>>;
+    cumulativeStats: Array<Record<string, number | string | null>>;
+    returnsMatrix: Array<Record<string, number | string | null>>;
+    cumulativeReturnsMatrix: Array<Record<string, number | string | null>>;
+  };
+  tables: {
+    dailyStats: Array<Record<string, unknown>>;
+    cumulativeStats: Array<Record<string, unknown>>;
+    events: Array<Record<string, unknown>>;
+  };
 };

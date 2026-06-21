@@ -19,13 +19,14 @@ import logging
 logging.getLogger("IndexUniverseQuery").setLevel(logging.WARNING)
 
 _CLASS_DIR = Path(__file__).resolve().parent.parent   # alpha101/
-sys.path.insert(0, str(_CLASS_DIR.parent))            # betalens-factor/
-from factor_template import FactorSpec, FactorPipeline
+sys.path.insert(0, str(_CLASS_DIR))                   # alpha101/（类模板所在）
+from factor_template_alpha101 import (
+    FactorSpec, FactorPipeline, sign, delta, clean_inf,
+)
 
 
 def compute_alpha12(close_wide, volume_wide):
-    factor = np.sign(volume_wide.diff(1)) * (-1 * close_wide.diff(1))
-    return factor.replace([np.inf, -np.inf], np.nan)
+    return clean_inf(sign(delta(volume_wide, 1)) * (-1 * delta(close_wide, 1)))
 
 
 spec = FactorSpec(

@@ -63,15 +63,175 @@ def _series_points(series: pd.Series | None, name: str) -> list[dict[str, Any]]:
     return [{"date": pd.Timestamp(idx).strftime("%Y-%m-%d"), name: _clean_scalar(val)} for idx, val in s.items()]
 
 
-def _wide_long_records(df: pd.DataFrame | None, value_name: str) -> list[dict[str, Any]]:
+def _wide_long_records(
+    df: pd.DataFrame | None, value_name: str, top_n: int | None = None
+) -> list[dict[str, Any]]:
     if df is None or df.empty:
         return []
     wide = df.copy().sort_index().replace([np.inf, -np.inf], np.nan)
+    # 图表只画前 top_n 个品种,宽股票池下据此裁剪传输量
+    if top_n is not None and wide.shape[1] > top_n:
+        ranking = wide.abs().max().sort_values(ascending=False)
+        wide = wide[list(ranking.head(top_n).index)]
     records: list[dict[str, Any]] = []
     for dt, row in wide.iterrows():
         date = pd.Timestamp(dt).strftime("%Y-%m-%d")
         for code, value in row.dropna().items():
             records.append({"date": date, "code": str(code), value_name: _clean_scalar(value)})
+    return records
+
+
+def _position_weight_records(
+    daily_position_value: pd.DataFrame | None,
+    top: int = 10,
+    max_codes: int = 25,
+) -> list[dict[str, Any]]:
+    if daily_position_value is None or daily_position_value.empty:
+        return []
+    dpv = daily_position_value.copy().sort_index().replace([np.inf, -np.inf], np.nan)
+    weights = dpv.div(dpv.sum(axis=1), axis=0).fillna(0.0)
+    stock_cols = [c for c in weights.columns if str(c) != "cash"]
+    stock_w = weights[stock_cols] if stock_cols else pd.DataFrame(index=weights.index)
+    name_map = get_name_map([str(c) for c in stock_cols])
+
+    selected: set[Any] = set()
+    for _, row in stock_w.iterrows():
+        non_zero = row[row > 0]
+        if len(non_zero):
+            selected.update(non_zero.nlargest(top).index)
+
+    selected_cols = list(selected)
+    if len(selected_cols) > max_codes:
+        peak = stock_w[selected_cols].max().sort_values(ascending=False)
+        selected_cols = list(peak.index[:max_codes])
+
+    order = (
+        stock_w[selected_cols].sum().sort_values(ascending=False).index.tolist()
+        if selected_cols
+        else []
+    )
+    other_cols = [c for c in stock_cols if c not in set(order)]
+
+    plot_df = pd.DataFrame(index=weights.index)
+    for col in order:
+        plot_df[str(col)] = weights[col]
+    if other_cols:
+        plot_df["其他"] = weights[other_cols].sum(axis=1)
+    if "cash" in weights.columns:
+        plot_df["现金"] = weights["cash"]
+
+    records: list[dict[str, Any]] = []
+    for dt, row in plot_df.iterrows():
+        date = pd.Timestamp(dt).strftime("%Y-%m-%d")
+        for code, weight in row.items():
+            if pd.isna(weight) or float(weight) <= 0:
+                continue
+            display_name = str(code) if code in ("其他", "现金") else label(str(code), name_map)
+            records.append(
+                {
+                    "date": date,
+                    "code": str(code),
+                    "name": display_name,
+                    "weight": _clean_scalar(weight),
+                }
+            )
+    return records
+
+
+def _normalize_factor_values(factor_values: pd.DataFrame | None) -> pd.DataFrame:
+    if factor_values is None or factor_values.empty:
+        return pd.DataFrame(columns=["signal_date", "date_key", "code", "factor_value", "group"])
+
+    df = factor_values.copy()
+    rename_map = {
+        "信号日": "signal_date",
+        "input_ts": "signal_date",
+        "date": "signal_date",
+        "datetime": "signal_date",
+        "股票代码": "code",
+        "code": "code",
+        "因子值": "factor_value",
+        "factor_value": "factor_value",
+        "分组": "group",
+        "group": "group",
+    }
+    df = df.rename(columns={col: rename_map.get(str(col), str(col)) for col in df.columns})
+    required = {"signal_date", "code", "factor_value"}
+    if not required.issubset(df.columns):
+        return pd.DataFrame(columns=["signal_date", "date_key", "code", "factor_value", "group"])
+
+    df["signal_date"] = pd.to_datetime(df["signal_date"], errors="coerce")
+    df = df.dropna(subset=["signal_date", "code"])
+    df["date_key"] = df["signal_date"].dt.strftime("%Y-%m-%d")
+    df["code"] = df["code"].astype(str)
+    if "group" not in df.columns:
+        df["group"] = None
+    return df[["signal_date", "date_key", "code", "factor_value", "group"]]
+
+
+def _factor_lookup_for_date(factor_df: pd.DataFrame, dt: pd.Timestamp) -> dict[str, dict[str, Any]]:
+    if factor_df.empty:
+        return {}
+
+    date_key = dt.strftime("%Y-%m-%d")
+    day_df = factor_df[factor_df["date_key"] == date_key]
+    if day_df.empty:
+        prior = factor_df[factor_df["signal_date"] <= dt]
+        if prior.empty:
+            return {}
+        latest = prior["signal_date"].max()
+        day_df = prior[prior["signal_date"] == latest]
+
+    return {
+        str(row["code"]): {
+            "signalDate": pd.Timestamp(row["signal_date"]).strftime("%Y-%m-%d"),
+            "factorValue": _clean_scalar(row["factor_value"]),
+            "group": _clean_scalar(row.get("group")),
+        }
+        for _, row in day_df.iterrows()
+    }
+
+
+def _rebalance_holding_records(
+    bt: Any,
+    factor_values: pd.DataFrame | None = None,
+) -> list[dict[str, Any]]:
+    weight = getattr(bt, "actual_weight", None)
+    weight_source = "actual_weight"
+    if weight is None or weight.empty:
+        weight = getattr(bt, "weight", None)
+        weight_source = "weight"
+    if weight is None or weight.empty:
+        return []
+
+    w = weight.copy().sort_index().replace([np.inf, -np.inf], np.nan).fillna(0.0)
+    stock_cols = [c for c in w.columns if str(c) != "cash"]
+    name_map = get_name_map([str(c) for c in stock_cols])
+    factor_df = _normalize_factor_values(factor_values)
+
+    records: list[dict[str, Any]] = []
+    for dt, row in w.iterrows():
+        ts = pd.Timestamp(dt)
+        factor_lookup = _factor_lookup_for_date(factor_df, ts)
+        held = row[stock_cols]
+        held = held[held > 0].sort_values(ascending=False)
+        for rank, (code, weight_value) in enumerate(held.items(), 1):
+            code_str = str(code)
+            factor = factor_lookup.get(code_str, {})
+            records.append(
+                {
+                    "date": ts.strftime("%Y-%m-%d"),
+                    "datetime": ts.strftime("%Y-%m-%d %H:%M:%S"),
+                    "rank": rank,
+                    "code": code_str,
+                    "name": label(code_str, name_map),
+                    "weight": _clean_scalar(weight_value),
+                    "factorValue": factor.get("factorValue"),
+                    "group": factor.get("group"),
+                    "signalDate": factor.get("signalDate"),
+                    "weightSource": weight_source,
+                }
+            )
     return records
 
 
@@ -145,7 +305,7 @@ def build_metrics(analyst: Any, bt: Any) -> list[dict[str, Any]]:
     ]
 
 
-def build_chart_data(bt: Any) -> dict[str, Any]:
+def build_chart_data(bt: Any, factor_values: pd.DataFrame | None = None) -> dict[str, Any]:
     nav = getattr(bt, "nav", None)
     daily_pnl_total = getattr(bt, "daily_pnl_total", None)
     daily_position_value = getattr(bt, "daily_position_value", None)
@@ -156,7 +316,8 @@ def build_chart_data(bt: Any) -> dict[str, Any]:
         "drawdown": _series_points(drawdown, "drawdown"),
         "dailyPnl": _series_points(daily_pnl_total, "pnl"),
         "dailyAmount": _series_points(daily_amount, "amount"),
-        "positionValue": _wide_long_records(daily_position_value, "value"),
+        "positionWeight": _position_weight_records(daily_position_value),
+        "rebalanceHoldings": _rebalance_holding_records(bt, factor_values),
     }
 
 
@@ -195,6 +356,8 @@ def build_position_table(bt: Any) -> list[dict[str, Any]]:
             pnl_total = float(daily_pnl.loc[dt].sum())
         for code in codes:
             qty = _lookup(position, dt, code)
+            if qty is not None and float(qty) == 0:
+                continue
             value = _lookup(position_value, dt, code)
             pnl = _lookup(daily_pnl, dt, code)
             price = _lookup(cost_price, dt, code)
@@ -241,10 +404,13 @@ def build_downloads(factor_dir: Path, name: str) -> dict[str, dict[str, Any]]:
     }
 
 
-def serialize_result(run: Any) -> dict[str, Any]:
-    if run.result is None or run.backtest is None or run.analyst is None:
-        raise ValueError("Run has no completed result")
-    factor_dir = Path(run.factor_dir)
+def build_result_payload(
+    run: Any,
+    table_metas: dict[str, dict[str, Any]],
+    factor_values: pd.DataFrame | None = None,
+) -> dict[str, Any]:
+    """构建可 JSON 化的结果（指标+图表+表元数据）。巨表明细不在内,走 /table 分页。
+    不含 downloads —— 那个按需实时探测磁盘,因为 dump 是异步落盘的。"""
     return {
         "run": run.to_state().model_dump(),
         "factor": {
@@ -254,8 +420,116 @@ def serialize_result(run: Any) -> dict[str, Any]:
             "compute_kwargs": run.compute_kwargs,
         },
         "metrics": build_metrics(run.analyst, run.backtest),
-        "charts": build_chart_data(run.backtest),
-        "trades": build_trade_table(run.backtest),
-        "positions": build_position_table(run.backtest),
-        "downloads": build_downloads(factor_dir, run.name),
+        "charts": build_chart_data(run.backtest, factor_values),
+        "tables": table_metas,
+    }
+
+
+def _table_meta(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    columns: list[str] = []
+    seen: set[str] = set()
+    for row in rows:
+        for key in row:
+            if key not in seen:
+                seen.add(key)
+                columns.append(key)
+    return {"total": len(rows), "columns": columns}
+
+
+def build_table(bt: Any, kind: str) -> list[dict[str, Any]]:
+    if kind == "trades":
+        return build_trade_table(bt)
+    if kind == "positions":
+        return build_position_table(bt)
+    raise KeyError(kind)
+
+
+def write_table_parquet(rows: list[dict[str, Any]], path: Path) -> dict[str, Any]:
+    """把巨表落成 parquet,返回 {total, columns} 元数据。空表不落盘。"""
+    meta = _table_meta(rows)
+    if rows:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        df = pd.DataFrame(rows, columns=meta["columns"])
+        df.to_parquet(path, index=False)
+    return meta
+
+
+def read_table_page(
+    path: Path | None,
+    page: int = 1,
+    size: int = 50,
+    query: str | None = None,
+    filters: dict[str, str] | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> dict[str, Any]:
+    """从 parquet 读取分页数据。
+
+    pyarrow 目前不能在任意文本搜索后直接只读目标页；这里保留 DataFrame
+    过滤，但避免先全量转成 Python records，降低大表接口的额外内存和 CPU。
+    """
+    if path is None or not path.exists():
+        return {"rows": [], "total": 0, "page": max(1, page), "size": max(1, size), "pages": 0}
+    df = pd.read_parquet(path)
+    if "date" in df.columns and (date_from or date_to):
+        dates = pd.to_datetime(df["date"], errors="coerce")
+        if date_from:
+            df = df[dates >= pd.Timestamp(date_from)]
+            dates = dates.loc[df.index]
+        if date_to:
+            df = df[dates <= pd.Timestamp(date_to)]
+    if filters:
+        for col, val in filters.items():
+            if col not in df.columns:
+                df = df.iloc[0:0]
+                break
+            df = df[df[col].astype(str).eq(str(val))]
+    if query:
+        needle = query.lower()
+        haystack = df.astype(str).agg(" ".join, axis=1).str.lower()
+        df = df[haystack.str.contains(needle, regex=False, na=False)]
+
+    total = len(df)
+    page = max(1, page)
+    size = max(1, size)
+    start = (page - 1) * size
+    page_df = df.iloc[start : start + size].replace([np.inf, -np.inf], np.nan)
+    page_df = page_df.where(pd.notnull(page_df), None)
+    rows = [
+        {str(k): _clean_scalar(v) for k, v in row.items()}
+        for row in page_df.to_dict("records")
+    ]
+    return {
+        "rows": rows,
+        "total": total,
+        "page": page,
+        "size": size,
+        "pages": (total + size - 1) // size if total else 0,
+    }
+
+
+def paginate_table(
+    rows: list[dict[str, Any]],
+    page: int = 1,
+    size: int = 50,
+    query: str | None = None,
+    filters: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    filtered = rows
+    if filters:
+        for col, val in filters.items():
+            filtered = [r for r in filtered if str(r.get(col, "")) == val]
+    if query:
+        needle = query.lower()
+        filtered = [r for r in filtered if needle in " ".join(str(v) for v in r.values()).lower()]
+    total = len(filtered)
+    page = max(1, page)
+    size = max(1, size)
+    start = (page - 1) * size
+    return {
+        "rows": filtered[start : start + size],
+        "total": total,
+        "page": page,
+        "size": size,
+        "pages": (total + size - 1) // size if total else 0,
     }

@@ -36,6 +36,21 @@ class RunCreated(BaseModel):
     run_id: str
 
 
+class EventStudyRequest(BaseModel):
+    event_file: str | None = None
+    code: str | list[str] | None = None
+    benchmark_code: str | None = None
+    metric: str | None = None
+    table_name: str | None = None
+    mode: str | None = None
+    window_before: int | None = None
+    window_after: int | None = None
+    holding_start_offset: int | None = None
+    market_close_hour: int | None = None
+    holding_days: str | list[int] | None = None
+    holding_months: str | list[int] | None = None
+
+
 class RunState(BaseModel):
     run_id: str
     status: RunStatus

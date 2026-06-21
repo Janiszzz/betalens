@@ -1,0 +1,65 @@
+{
+  "class": "tdx",
+  "template_module": "factor_template_tdx",
+  "out_dir": "c:/Users/Janis/OneDrive/betalens-factor/tdx",
+  "source": "通达信(TDX)指标公式：RSI 快慢线 + 侯神吸筹能量",
+  "defaults": {
+    "direction": "positive",
+    "index_code": "000906.SH",
+    "use_industry": true,
+    "use_mktcap": false,
+    "industry_scheme": "申万一级行业",
+    "backtest_metric": "收盘价(元)",
+    "start_date": "2024-01-01",
+    "end_date": "2024-12-31",
+    "rebal_freq": "W",
+    "n_quantiles": 80,
+    "include_profiling": true
+  },
+  "factors": [
+    {
+      "name": "RSI_FAST",
+      "formula": "RSI_FAST = SMA(MAX(CLOSE-REF(CLOSE,1),0),3,1) / SMA(|CLOSE-REF(CLOSE,1)|,3,1) * 100",
+      "logic": "3 日快速 RSI；高值=近期上涨动量强 → 高分组做多（positive，按用户选定动量方向）。",
+      "inputs": {"close_wide": "收盘价(元)"},
+      "compute_kwargs": {"window": 3},
+      "compute_body": [
+        "diff = close_wide - close_wide.shift(1)",
+        "up = diff.clip(lower=0).ewm(alpha=1.0/window, adjust=False).mean()",
+        "ab = diff.abs().ewm(alpha=1.0/window, adjust=False).mean()",
+        "return (up / ab * 100).replace([np.inf, -np.inf], np.nan)"
+      ]
+    },
+    {
+      "name": "RSI_SLOW",
+      "formula": "RSI_SLOW = SMA(MAX(CLOSE-REF(CLOSE,1),0),12,1) / SMA(|CLOSE-REF(CLOSE,1)|,12,1) * 100",
+      "logic": "12 日慢速 RSI；高值=中期上涨动量强 → 高分组做多（positive）。与 RSI_FAST 同公式族，仅 window 不同。",
+      "inputs": {"close_wide": "收盘价(元)"},
+      "compute_kwargs": {"window": 12},
+      "compute_body": [
+        "diff = close_wide - close_wide.shift(1)",
+        "up = diff.clip(lower=0).ewm(alpha=1.0/window, adjust=False).mean()",
+        "ab = diff.abs().ewm(alpha=1.0/window, adjust=False).mean()",
+        "return (up / ab * 100).replace([np.inf, -np.inf], np.nan)"
+      ]
+    },
+    {
+      "name": "XICHOU",
+      "formula": "侯神吸筹能量 = EMA(IF(LOW<=LLV(LOW,15), (VAR_D+HHV(VAR_D,15)*2)/2, 0), 3) / 618;  VAR_D=EMA(VAR_C*10,3);  VAR_C=SMA(|LOW-REF(LOW,1)|,3,1)/SMA(MAX(LOW-REF(LOW,1),0),3,1)*100",
+      "logic": "仅当最低价创 15 日新低时累积能量（主力低位吸筹），能量越高越看多 → 高分组做多（positive）。IF(CLOSE*1.2,...) 条件恒真，CLOSE 不参与计算，恒取 VAR_C*10。",
+      "inputs": {"low_wide": "最低价(元)"},
+      "compute_kwargs": {"sma_n": 3, "ema_n": 3, "llv_n": 15},
+      "n_quantiles": 10,
+      "compute_body": [
+        "var_a = (low_wide - REF(low_wide, 1)).abs()",
+        "var_b = SMA((low_wide - REF(low_wide, 1)).clip(lower=0), sma_n, 1)",
+        "var_c = SMA(var_a, sma_n, 1) / var_b * 100",
+        "var_d = EMA(var_c * 10, ema_n)",
+        "low_val = LLV(low_wide, llv_n)",
+        "high_range = HHV(var_d, llv_n)",
+        "energy = ((var_d + high_range * 2) / 2).where(low_wide <= low_val, 0.0)",
+        "return clean_inf(EMA(energy, ema_n) / 618)"
+      ]
+    }
+  ]
+}

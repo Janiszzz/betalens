@@ -1,0 +1,15 @@
+{
+    "event_file": "1.春节假期.xlsx",
+    "code": "000906.SH",
+    "benchmark_code": "",
+    "metric": "收盘价",
+    "table_name": "daily_market",
+    "mode": "flexible",
+    "window_before": 20,
+    "window_after": 20,
+    "holding_start_offset": 0,
+    "market_close_hour": 15,
+    "holding_days": "1,2,3,4,5",
+    "holding_months": "1,3,6,9,12",
+    "save_results": false
+}

@@ -219,14 +219,39 @@ class EventStudy:
     def _calc_cumulative_flexible(self, returns_df: pd.DataFrame, holding_start_offset: int = 0) -> pd.DataFrame:
         """模式一：累积收益率序列
 
-        直接计算收益率序列的累积收益，不区分正反向，不设置0点
-        从序列第一个值开始累积到最后
+        以持有起点为分界点计算双向累积收益：
+        - 起点及之后：从持有起点累积到目标日
+        - 起点之前：从目标日累积到持有起点
 
         Args:
-            holding_start_offset: 保留参数以保持接口兼容，但不再使用
+            holding_start_offset: 持有起点偏移天数，0表示从Day 0开始，n表示从Day n开始
         """
-        # 直接计算累积收益率
-        return returns_df.add(1).cumprod() - 1
+        if returns_df.empty:
+            return pd.DataFrame()
+
+        holding_start = holding_start_offset
+        if holding_start not in returns_df.index:
+            available_days = returns_df.index[returns_df.index >= holding_start]
+            if available_days.empty:
+                return pd.DataFrame()
+            holding_start = available_days[0]
+
+        holding_start_loc = returns_df.index.get_loc(holding_start)
+        if not isinstance(holding_start_loc, int):
+            return pd.DataFrame()
+
+        result_dict = {}
+        for day in returns_df.index:
+            day_loc = returns_df.index.get_loc(day)
+            if not isinstance(day_loc, int):
+                continue
+            if day_loc >= holding_start_loc:
+                period_returns = returns_df.iloc[holding_start_loc:day_loc + 1]
+            else:
+                period_returns = returns_df.iloc[day_loc:holding_start_loc + 1]
+            result_dict[day] = period_returns.add(1).prod(axis=0) - 1
+
+        return pd.DataFrame(result_dict).T
 
     def _calc_cumulative_fixed(
         self,
@@ -484,7 +509,7 @@ class EventStudy:
 
         # 计算累积收益
         if mode == 'flexible':
-            # 模式一：以Day 0为分界点的双向累积
+            # 模式一：以持有起点为分界点的双向累积
             cum_returns = self._calc_cumulative_flexible(returns_df, holding_start_offset)
         elif mode == 'fixed':
             # 模式二：固定持有期收益
@@ -502,7 +527,8 @@ class EventStudy:
             'daily_stats': overall_stats,
             'cumulative_stats': cumulative_stats,
             'event_count': returns_df.shape[1] if not returns_df.empty else 0,
-            'returns_matrix': returns_df
+            'returns_matrix': returns_df,
+            'cumulative_returns_matrix': cum_returns
         }
 
         # 多标的模式：添加每个股票的收益矩阵

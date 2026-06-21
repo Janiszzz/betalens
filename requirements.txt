@@ -8,11 +8,14 @@ matplotlib>=3.4.0
 plotly>=5.0.0
 statsmodels>=0.14.0
 akshare>=1.17.0
+pandas-market-calendars>=4.4.0
+sympy>=1.10.0
 
 # Dashboard (optional)
 fastapi>=0.115.0
 uvicorn[standard]>=0.30.0
 pydantic>=2.7.0
+pyarrow>=14.0.0
 
 # Excel processing
 openpyxl>=3.0.0

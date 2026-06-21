@@ -190,6 +190,7 @@ class RunResult:
     analyst: Any = None
     profiling: dict | None = None
     neutralize_stats: pd.DataFrame | None = None
+    factor_values: pd.DataFrame | None = None
 
     def __iter__(self):
         return iter((self.backtest, self.analyst))
@@ -338,12 +339,14 @@ class FactorPipeline:
             output_dir: str = ".",
             extra_inputs: dict[str, pd.DataFrame] | None = None,
             include_profiling: bool = True,
+            dump_excel: bool = True,
             verbose: bool = True) -> RunResult:
         """运行完整管线: 取数 → 算子 → [profiling] → 中性化 → 分组 → 权重 → 回测 → 报告
 
         返回 RunResult（可解包为 bt, analyst 向后兼容）。
         股票池：index_code 给定时逐期 PIT 成分股过滤（防前视）；否则用静态 universe。
         中性化：use_industry / use_mktcap 控制，诊断收入 RunResult.neutralize_stats。
+        dump_excel=False 时跳过 dump_to_excel（调用方可自行异步落盘，避免阻塞）。
         """
         sp = self.spec
 
@@ -427,6 +430,18 @@ class FactorPipeline:
         # 5. 分组
         labeled = single_characteristic(prequery, sp.name, {sp.name: n_quantiles})
 
+        # 5a. 因子值展示表：每行 = (信号日, 股票) 的因子值 + 分组标签，
+        #     按 (日期, 分组降序, 因子值降序) 排好，供 dump Excel 的 factor_values sheet
+        label_col = f"{sp.name}_label"
+        factor_values = labeled.reset_index()[['input_ts', 'code', sp.name, label_col]].copy()
+        factor_values = factor_values.rename(columns={
+            'input_ts': '信号日', 'code': '股票代码',
+            sp.name: '因子值', label_col: '分组',
+        })
+        factor_values = factor_values.sort_values(
+            ['信号日', '分组', '因子值'], ascending=[True, False, False]
+        ).reset_index(drop=True)
+
         # 6. 权重
         long_groups, short_groups = self._resolve_groups(n_quantiles)
         weights = get_single_factor_weight(labeled, {
@@ -448,6 +463,15 @@ class FactorPipeline:
         if verbose:
             print(f"  {sp.name} 指标项数: {len(summary)}  报告: {sp.name}_report.xlsx / .html")
 
-        bt.dump_to_excel(f'{output_dir}/{sp.name}_dump.xlsx')
+        if dump_excel:
+            dump_path = f'{output_dir}/{sp.name}_dump.xlsx'
+            bt.dump_to_excel(dump_path)
+            # 追加因子值 sheet：dump_to_excel 是 betalens 通用回测方法（只 dump bt
+            # 自身属性），因子值/分组是因子层产物，故在此用 append 模式补写。
+            with pd.ExcelWriter(dump_path, engine='openpyxl', mode='a',
+                                if_sheet_exists='replace') as writer:
+                factor_values.to_excel(writer, sheet_name='factor_values', index=False)
+
         return RunResult(backtest=bt, analyst=analyst,
-                         profiling=profiling, neutralize_stats=neu_stats)
+                         profiling=profiling, neutralize_stats=neu_stats,
+                         factor_values=factor_values)

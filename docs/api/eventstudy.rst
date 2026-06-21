@@ -39,6 +39,7 @@ EventStudy
          - ``cumulative_stats`` (pd.DataFrame): 累积收益统计，同上结构
          - ``event_count`` (int): 有效事件数
          - ``returns_matrix`` (pd.DataFrame): 收益矩阵，行=相对天数，列=事件编号
+         - ``cumulative_returns_matrix`` (pd.DataFrame): 累积收益矩阵，行=相对天数，列=事件编号
          - ``stock_returns_dict`` (dict, 多标的模式): {代码: 收益矩阵}
          - ``valid_codes`` (list, 多标的模式): 有效代码列表
          - ``period_stats`` (pd.DataFrame, 仅单标的+periods): 分段统计

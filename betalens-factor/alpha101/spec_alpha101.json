@@ -1,6 +1,6 @@
 {
   "class": "alpha101",
-  "template_module": "factor_template",
+  "template_module": "factor_template_alpha101",
   "out_dir": "c:/Users/Janis/OneDrive/betalens-factor/alpha101",
   "source": "WorldQuant 101 Formulaic Alphas (Kakushadze 2016)",
   "defaults": {
@@ -11,9 +11,9 @@
     "industry_scheme": "申万一级行业",
     "backtest_metric": "开盘价(元)",
     "start_date": "2024-01-01",
-    "end_date": "2025-12-31",
-    "rebal_freq": "D",
-    "n_quantiles": 20,
+    "end_date": "2024-12-31",
+    "rebal_freq": "W",
+    "n_quantiles": 80,
     "include_profiling": true
   },
   "factors": [
