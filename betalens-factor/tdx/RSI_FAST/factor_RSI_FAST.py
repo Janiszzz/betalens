@@ -21,12 +21,13 @@ _CLASS_DIR = Path(__file__).resolve().parent.parent   # tdx/
 sys.path.insert(0, str(_CLASS_DIR))                   # tdx/（类模板所在）
 from factor_template_tdx import FactorSpec, FactorPipeline, SMA, REF, clean_inf
 
-_SPEC_FILE = _CLASS_DIR / "spec_tdx.json"
+_FACTOR_DIR = Path(__file__).resolve().parent
+_SPEC_FILE = _FACTOR_DIR / "spec_RSI_FAST.json"
+_CLASS_SPEC_FILE = _CLASS_DIR / "spec_tdx.json"
 
 def _load_defaults():
-    cfg = json.loads(_SPEC_FILE.read_text(encoding="utf-8"))
-    d = cfg["defaults"]
-    factor_cfg = next(f for f in cfg["factors"] if f["name"] == "RSI_FAST")
+    d = json.loads(_CLASS_SPEC_FILE.read_text(encoding="utf-8"))["defaults"]
+    factor_cfg = json.loads(_SPEC_FILE.read_text(encoding="utf-8"))
     return d, factor_cfg
 
 

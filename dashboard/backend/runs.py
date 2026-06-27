@@ -14,17 +14,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from betalens.analyst import Analyst
-
 from .factors import get_factor_config, load_factor_module
 from .schemas import RunRequest, RunState, RunStatus
-from .serialization import (
-    build_downloads,
-    build_result_payload,
-    build_table,
-    read_table_page,
-    write_table_parquet,
-)
 
 
 MAX_RUNS = 20  # 内存里最多保留最近 N 次回测,超出按 LRU 淘汰
@@ -83,6 +74,9 @@ class DashboardRun:
 
     def table_path(self, kind: str) -> Path:
         return self.cache_dir / f"{kind}.parquet"
+
+    def factor_values_path(self) -> Path:
+        return self.cache_dir / "factor_values.parquet"
 
     def cleanup(self) -> None:
         # LRU 淘汰时调用,删掉该 run 的 parquet 临时目录
@@ -213,12 +207,17 @@ class RunManager:
                 result = FactorPipeline(factor_spec).run(str(start_date), str(end_date), **kwargs)
             run.result = result
             run.backtest = result.backtest
+            from betalens.analyst import Analyst
+
             run.analyst = result.analyst or Analyst.from_backtest(result.backtest, name=run.name)
 
             # 巨表落 parquet → 缓存可 JSON 化 payload → 释放 bt(省内存)→ 后台异步写 dump
             self._persist_tables(run)
             bt = run.backtest
             factor_values = getattr(result, "factor_values", None)
+            from .serialization import build_result_payload, write_factor_values_parquet
+
+            write_factor_values_parquet(factor_values, run.factor_values_path())
             name = run.name
             out_dir = output_dir
             run.mark_completed()
@@ -231,6 +230,8 @@ class RunManager:
             run.mark_failed(exc)
 
     def _persist_tables(self, run: DashboardRun) -> None:
+        from .serialization import build_table, write_table_parquet
+
         for kind in TABLE_KINDS:
             rows = build_table(run.backtest, kind)
             run.table_meta[kind] = write_table_parquet(rows, run.table_path(kind))
@@ -259,6 +260,8 @@ class RunManager:
             pass  # dump 仅供下载,失败不影响已展示的结果
 
     def serialize_result(self, run_id: str) -> dict[str, Any]:
+        from .serialization import build_downloads
+
         run = self.get(run_id)
         if run.payload is None:
             raise ValueError(f"run is {run.status}")
@@ -278,6 +281,8 @@ class RunManager:
         date_from: str | None = None,
         date_to: str | None = None,
     ) -> dict[str, Any]:
+        from .serialization import read_table_page
+
         run = self.get(run_id)
         if run.payload is None:
             raise ValueError(f"run is {run.status}")
@@ -290,6 +295,19 @@ class RunManager:
             date_from=date_from,
             date_to=date_to,
         )
+
+    def factor_profile(
+        self,
+        run_id: str,
+        date_from: str | None = None,
+        date_to: str | None = None,
+    ) -> dict[str, Any]:
+        from .serialization import read_factor_profile
+
+        run = self.get(run_id)
+        if run.payload is None:
+            raise ValueError(f"run is {run.status}")
+        return read_factor_profile(run.factor_values_path(), date_from=date_from, date_to=date_to)
 
 
 manager = RunManager()

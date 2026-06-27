@@ -1,0 +1,18 @@
+E
+======================================================================
+ERROR: test_serialization (unittest.loader._FailedTest.test_serialization)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: test_serialization
+Traceback (most recent call last):
+  File "C:\Users\Janis\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\unittest\loader.py", line 137, in loadTestsFromName
+    module = __import__(module_name)
+             ^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Janis\OneDrive\betalens\dashboard\backend\test_serialization.py", line 10, in <module>
+    from .serialization import build_chart_data, build_position_table, read_table_page, write_table_parquet
+ImportError: cannot import name 'build_factor_distribution' from 'dashboard.backend.serialization' (C:\Users\Janis\OneDrive\betalens\dashboard\backend\serialization.py)
+System.Management.Automation.RemoteException
+System.Management.Automation.RemoteException
+----------------------------------------------------------------------
+Ran 1 test in 0.000s
+System.Management.Automation.RemoteException
+FAILED (errors=1)

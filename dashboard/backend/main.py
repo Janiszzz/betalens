@@ -8,9 +8,7 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 
-from .eventstudy_dashboard import discover_event_files, run_event_study
 from .factors import clear_factor_cache, discover_factors, get_factor_detail
-from .runs import manager
 from .schemas import (
     EventStudyRequest,
     FactorDetail,
@@ -19,7 +17,18 @@ from .schemas import (
     RunRequest,
     RunState,
 )
-from .serialization import build_downloads
+
+
+def _manager():
+    from .runs import manager
+
+    return manager
+
+
+def _eventstudy():
+    from .eventstudy_dashboard import discover_event_files, run_event_study
+
+    return discover_event_files, run_event_study
 
 
 app = FastAPI(title="betalens dashboard", version="2.0.0")
@@ -47,11 +56,13 @@ def list_factors(refresh: bool = False):
 
 @app.get("/api/eventstudy/files")
 def eventstudy_files():
+    discover_event_files, _run_event_study = _eventstudy()
     return discover_event_files()
 
 
 @app.post("/api/eventstudy/run")
 def eventstudy_run(request: EventStudyRequest):
+    _discover_event_files, run_event_study = _eventstudy()
     try:
         return run_event_study(request.model_dump())
     except FileNotFoundError as exc:
@@ -71,7 +82,7 @@ def factor_detail(factor_class: str, name: str):
 @app.post("/api/runs", response_model=RunCreated)
 def create_run(request: RunRequest):
     try:
-        run = manager.create(request)
+        run = _manager().create(request)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return RunCreated(run_id=run.run_id)
@@ -80,7 +91,7 @@ def create_run(request: RunRequest):
 @app.get("/api/runs/{run_id}", response_model=RunState)
 def run_state(run_id: str):
     try:
-        return manager.get(run_id).to_state()
+        return _manager().get(run_id).to_state()
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="run not found") from exc
 
@@ -88,15 +99,29 @@ def run_state(run_id: str):
 @app.get("/api/runs/{run_id}/result")
 def run_result(run_id: str):
     try:
-        run = manager.get(run_id)
+        run = _manager().get(run_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="run not found") from exc
     if run.status != "completed":
         raise HTTPException(status_code=409, detail=f"run is {run.status}")
     try:
-        return manager.serialize_result(run_id)
+        return _manager().serialize_result(run_id)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/runs/{run_id}/profiling")
+def run_profiling(
+    run_id: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
+):
+    try:
+        return _manager().factor_profile(run_id, date_from=date_from, date_to=date_to)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="run not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @app.get("/api/runs/{run_id}/table/{kind}")
@@ -119,7 +144,7 @@ def run_table(
         if key.startswith("filter.") and value
     }
     try:
-        return manager.table_page(
+        return _manager().table_page(
             run_id,
             kind,
             page=page,
@@ -138,7 +163,7 @@ def run_table(
 @app.get("/api/runs/{run_id}/logs")
 async def run_logs(run_id: str):
     try:
-        run = manager.get(run_id)
+        run = _manager().get(run_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="run not found") from exc
 
@@ -163,11 +188,13 @@ async def run_logs(run_id: str):
 @app.get("/api/runs/{run_id}/download/{kind}")
 def download(run_id: str, kind: str):
     try:
-        run = manager.get(run_id)
+        run = _manager().get(run_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="run not found") from exc
     if not run.factor_dir:
         raise HTTPException(status_code=404, detail="no output directory for this run")
+    from .serialization import build_downloads
+
     downloads = build_downloads(Path(run.factor_dir), run.name)
     item = downloads.get(kind)
     if item is None:

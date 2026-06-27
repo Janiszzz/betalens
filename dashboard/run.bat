@@ -9,6 +9,7 @@ echo Frontend: http://127.0.0.1:5173
 echo.
 
 start "betalens backend" cmd /k call "%DASHBOARD_DIR%run_backend.bat"
+timeout /t 3 /nobreak >nul
 start "betalens frontend" cmd /k call "%DASHBOARD_DIR%run_frontend.bat"
 
 echo Started backend and frontend in separate windows.

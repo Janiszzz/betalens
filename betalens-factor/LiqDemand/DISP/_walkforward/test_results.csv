@@ -1,0 +1,3 @@
+﻿window,pretom_lo,pretom_hi,pretom_only,n_q,win_start,win_end,scheme,phase,gid,error
+180,9,4,True,20,2020-01-02,2022-01-27,504/252,test,w180_p9-4_PT_q20,"MemoryError: Unable to allocate 1.66 MiB for an array with shape (871920,) and data type int16"
+252,9,4,True,20,2020-01-02,2022-01-27,504/252,test,w252_p9-4_PT_q20,"MemoryError: Unable to allocate 6.65 MiB for an array with shape (1730, 504) and data type int64"

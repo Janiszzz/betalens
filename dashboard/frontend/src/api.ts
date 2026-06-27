@@ -1,10 +1,25 @@
-import type { EventFilesResponse, EventStudyResult, FactorDetail, FactorSummary, RunResult, RunState, TablePage } from './types';
+import type { EventFilesResponse, EventStudyResult, FactorDetail, FactorProfiling, FactorSummary, RunResult, RunState, TablePage } from './types';
 
-const json = async <T>(url: string, init?: RequestInit): Promise<T> => {
-  const response = await fetch(url, {
-    headers: { 'Content-Type': 'application/json' },
-    ...init
-  });
+const wait = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
+
+const json = async <T>(url: string, init?: RequestInit, retries = 6): Promise<T> => {
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      headers: { 'Content-Type': 'application/json' },
+      ...init
+    });
+  } catch (err) {
+    if (retries > 0 && url.startsWith('/api/')) {
+      await wait(500);
+      return json<T>(url, init, retries - 1);
+    }
+    throw err;
+  }
+  if (!response.ok && retries > 0 && url.startsWith('/api/') && response.status >= 500) {
+    await wait(500);
+    return json<T>(url, init, retries - 1);
+  }
   if (!response.ok) {
     let detail = `${response.status} ${response.statusText}`;
     try {
@@ -29,6 +44,13 @@ export const api = {
     json<{ run_id: string }>('/api/runs', { method: 'POST', body: JSON.stringify(body) }),
   run: (runId: string) => json<RunState>(`/api/runs/${runId}`),
   result: (runId: string) => json<RunResult>(`/api/runs/${runId}/result`),
+  profiling: (runId: string, opts: { dateFrom?: string; dateTo?: string } = {}) => {
+    const params = new URLSearchParams();
+    if (opts.dateFrom) params.set('date_from', opts.dateFrom);
+    if (opts.dateTo) params.set('date_to', opts.dateTo);
+    const query = params.toString();
+    return json<FactorProfiling>(`/api/runs/${runId}/profiling${query ? `?${query}` : ''}`);
+  },
   table: (
     runId: string,
     kind: 'trades' | 'positions',

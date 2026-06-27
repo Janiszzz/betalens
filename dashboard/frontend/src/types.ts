@@ -51,6 +51,7 @@ export type RunResult = {
     dailyAmount: Array<Record<string, number | string>>;
     positionWeight: Array<Record<string, number | string>>;
     rebalanceHoldings: Array<Record<string, number | string | null>>;
+    profiling: FactorProfiling;
   };
   tables: {
     trades: TableMeta;
@@ -70,6 +71,18 @@ export type TablePage = {
   page: number;
   size: number;
   pages: number;
+};
+
+export type FactorProfiling = {
+  available: boolean;
+  dateFrom?: string | null;
+  dateTo?: string | null;
+  summary: Record<string, number | string | null>;
+  histogram: Array<Record<string, number | string | null>>;
+  ecdf: Array<Record<string, number | string | null>>;
+  quantiles: Array<Record<string, number | string | null>>;
+  tests: Array<Record<string, number | string | null>>;
+  timeseries: Array<Record<string, number | string | null>>;
 };
 
 export type EventFile = {

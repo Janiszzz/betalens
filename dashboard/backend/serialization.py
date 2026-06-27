@@ -9,6 +9,7 @@ import pandas as pd
 
 from betalens.analyst import metrics as M
 from betalens.analyst.naming import get_name_map, label
+from betalens.factor.profiling import factor_profile_payload
 
 
 PERCENT_METRICS = {
@@ -167,6 +168,75 @@ def _normalize_factor_values(factor_values: pd.DataFrame | None) -> pd.DataFrame
     if "group" not in df.columns:
         df["group"] = None
     return df[["signal_date", "date_key", "code", "factor_value", "group"]]
+
+
+def _filter_factor_dates(
+    factor_df: pd.DataFrame,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> pd.DataFrame:
+    if factor_df.empty:
+        return factor_df
+    out = factor_df.copy()
+    out["signal_date"] = pd.to_datetime(out["signal_date"], errors="coerce")
+    out = out.dropna(subset=["signal_date"])
+    if date_from:
+        out = out[out["signal_date"] >= pd.Timestamp(date_from)]
+    if date_to:
+        out = out[out["signal_date"] <= pd.Timestamp(date_to) + pd.Timedelta(days=1) - pd.Timedelta(microseconds=1)]
+    return out
+
+
+def build_factor_profile_payload(
+    factor_values: pd.DataFrame | None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> dict[str, Any]:
+    factor_df = _filter_factor_dates(_normalize_factor_values(factor_values), date_from, date_to)
+    if factor_df.empty:
+        return {
+            "available": False,
+            "dateFrom": date_from,
+            "dateTo": date_to,
+            "summary": {"count": 0},
+            "histogram": [],
+            "ecdf": [],
+            "quantiles": [],
+            "tests": [],
+            "timeseries": [],
+        }
+
+    long = factor_df.rename(columns={"signal_date": "input_ts", "factor_value": "factor"})
+    payload = factor_profile_payload(long[["input_ts", "code", "factor"]], metric="factor")
+    dates = factor_df["signal_date"].sort_values()
+    payload.update(
+        {
+            "available": True,
+            "dateFrom": pd.Timestamp(dates.iloc[0]).strftime("%Y-%m-%d"),
+            "dateTo": pd.Timestamp(dates.iloc[-1]).strftime("%Y-%m-%d"),
+        }
+    )
+    return payload
+
+
+def write_factor_values_parquet(factor_values: pd.DataFrame | None, path: Path) -> dict[str, Any]:
+    factor_df = _normalize_factor_values(factor_values)
+    meta = _table_meta(_json_records(factor_df.head(0)))
+    if factor_df.empty:
+        return {"total": 0, "columns": list(factor_df.columns)}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    factor_df.to_parquet(path, index=False)
+    return {"total": len(factor_df), "columns": list(factor_df.columns)}
+
+
+def read_factor_profile(
+    path: Path | None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> dict[str, Any]:
+    if path is None or not path.exists():
+        return build_factor_profile_payload(None, date_from, date_to)
+    return build_factor_profile_payload(pd.read_parquet(path), date_from, date_to)
 
 
 def _factor_lookup_for_date(factor_df: pd.DataFrame, dt: pd.Timestamp) -> dict[str, dict[str, Any]]:
@@ -420,7 +490,10 @@ def build_result_payload(
             "compute_kwargs": run.compute_kwargs,
         },
         "metrics": build_metrics(run.analyst, run.backtest),
-        "charts": build_chart_data(run.backtest, factor_values),
+        "charts": {
+            **build_chart_data(run.backtest, factor_values),
+            "profiling": build_factor_profile_payload(factor_values),
+        },
         "tables": table_metas,
     }
 

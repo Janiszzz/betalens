@@ -1,0 +1,5 @@
+﻿window,pretom_lo,pretom_hi,pretom_only,n_q,win_start,win_end,scheme,phase,gid,sharpe,ann_ret,ann_vol,mdd,calmar,n_days,error
+252,9,4,True,20,2017-04-12,2019-05-07,504/252,train,w252_p9-4_PT_q20,0.0122,0.0028,0.2287,0.3968,0.007,518.0,
+180,9,4,True,20,2017-04-12,2019-05-07,504/252,train,w180_p9-4_PT_q20,,,,,,,"MemoryError: Unable to allocate 27.6 MiB for an array with shape (4686, 771) and data type float64"
+252,9,4,True,20,2010-01-04,2012-02-03,504/252,train,w252_p9-4_PT_q20,,,,,,,"MemoryError: Unable to allocate 25.5 MiB for an array with shape (4686, 713) and data type float64"
+180,9,4,True,20,2010-01-04,2012-02-03,504/252,train,w180_p9-4_PT_q20,-0.5694,-0.1574,0.2764,0.4242,-0.371,508.0,

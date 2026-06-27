@@ -482,11 +482,43 @@ input {
 
 .chart-card,
 .holding-panel,
+.profiling-panel,
 .table-page,
 .logs-page {
   background: white;
   border: 1px solid #dfe4ea;
   padding: 14px;
+}
+
+.profiling-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.profiling-metrics {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(120px, 1fr));
+  border: 1px solid #edf0f3;
+  background: #fbfcfd;
+}
+
+.profiling-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px;
+}
+
+.inner-chart,
+.profiling-table-card {
+  border: 1px solid #edf0f3;
+  background: #ffffff;
+  padding: 12px;
+}
+
+.profiling-table-card {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
 }
 
 .plot {

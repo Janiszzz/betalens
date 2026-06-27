@@ -1,0 +1,7 @@
+{
+  "name": "ALPHA12",
+  "formula": "sign(delta(volume,1)) * (-1 * delta(close,1))",
+  "logic": "量增价跌/量缩价涨 → 因子值高（看多）",
+  "inputs": {"close_wide": "收盘价(元)", "volume_wide": "成交量(股)"},
+  "compute_kwargs": {}
+}

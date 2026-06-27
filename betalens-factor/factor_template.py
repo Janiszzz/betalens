@@ -59,6 +59,7 @@ from datafeed.validation import fix_null_values, FillStrategy
 from betalens.factor.profiling import (
     describe_distribution, coverage_stats, detect_outliers,
     factor_autocorrelation, factor_turnover, distribution_stability,
+    factor_profile_payload,
 )
 from betalens.backtest import BacktestBase
 from betalens.analyst import Analyst
@@ -270,9 +271,16 @@ class FactorPipeline:
         return processed, neu_df
 
     def _run_profiling(self, factor_wide, name, output_dir, verbose):
-        """因子值体检：分布/时变/稳定性指标 + 6 子图 PNG。"""
+        """因子值体检：分布函数/集中度/p值阈值/时变稳定性 + PNG。"""
+        profile = factor_profile_payload(factor_wide)
         results = {
             'distribution': describe_distribution(factor_wide),
+            'profile_summary': pd.DataFrame([profile['summary']]),
+            'profile_histogram': pd.DataFrame(profile['histogram']),
+            'profile_ecdf': pd.DataFrame(profile['ecdf']),
+            'profile_quantiles': pd.DataFrame(profile['quantiles']),
+            'profile_p_tests': pd.DataFrame(profile['tests']),
+            'profile_timeseries': pd.DataFrame(profile['timeseries']),
             'coverage': coverage_stats(factor_wide),
             'outliers': detect_outliers(factor_wide),
             'autocorrelation': factor_autocorrelation(factor_wide),
@@ -284,40 +292,57 @@ class FactorPipeline:
         with pd.ExcelWriter(excel_path) as writer:
             for sheet_name, df in results.items():
                 d = df.to_frame() if isinstance(df, pd.Series) else df
-                d.to_excel(writer, sheet_name=sheet_name)
+                d.to_excel(writer, sheet_name=sheet_name[:31])
 
-        fig, axes = plt.subplots(3, 2, figsize=(14, 12))
+        fig, axes = plt.subplots(4, 2, figsize=(15, 16))
         fig.suptitle(f'{name} Factor Profiling', fontsize=14)
 
         ax = axes[0, 0]
+        hist = pd.DataFrame(profile['histogram'])
+        if not hist.empty:
+            ax.bar(hist['mid'], hist['count'], width=(hist['right'] - hist['left']).replace(0, np.nan), color='#2d66a8')
+        ax.set_title('Factor value distribution')
+        ax.set_xlabel('factor value')
+        ax.set_ylabel('count')
+
+        ax = axes[0, 1]
+        ecdf = pd.DataFrame(profile['ecdf'])
+        if not ecdf.empty:
+            ax.plot(ecdf['value'], ecdf['probability'], color='#6a9f42')
+        ax.set_title('Empirical CDF')
+        ax.set_xlabel('factor value')
+        ax.set_ylabel('F(x)')
+        ax.set_ylim(0, 1.02)
+
+        ax = axes[1, 0]
         cov = results['coverage']
         ax.plot(cov.index, cov['覆盖率'])
         ax.set_title('Coverage'); ax.set_ylim(0, 1.05)
 
-        ax = axes[0, 1]
+        ax = axes[1, 1]
         out = results['outliers']
         out_ts = out.drop('Total') if 'Total' in out.index else out
         ax.bar(range(len(out_ts)), out_ts['极值占比'].values, width=1)
         ax.set_title('Outlier ratio')
 
-        ax = axes[1, 0]
+        ax = axes[2, 0]
         ac = results['autocorrelation']
         ax.bar(ac.index.astype(str), ac['自相关均值'])
         ax.set_title('Rank autocorr'); ax.set_xlabel('lag')
 
-        ax = axes[1, 1]
+        ax = axes[2, 1]
         to = results['turnover']
         ax.plot(to.index, to.values)
         ax.set_title('Top 20% turnover')
 
-        ax = axes[2, 0]
+        ax = axes[3, 0]
         stab = results['stability']
         ax.plot(stab.index, stab['mean'], label='mean')
         ax2 = ax.twinx()
         ax2.plot(stab.index, stab['std'], color='orange', label='std')
         ax.set_title('Distribution drift (mean/std)')
 
-        ax = axes[2, 1]
+        ax = axes[3, 1]
         ax.plot(stab.index, stab['skew'], label='skew')
         ax.plot(stab.index, stab['kurt'], label='kurt')
         ax.legend(); ax.set_title('Skew / Kurt')

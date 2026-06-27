@@ -1,0 +1,13 @@
+{
+  "name": "RSI_SLOW",
+  "formula": "RSI_SLOW = SMA(MAX(CLOSE-REF(CLOSE,1),0),12,1) / SMA(|CLOSE-REF(CLOSE,1)|,12,1) * 100",
+  "logic": "12 日慢速 RSI；高值=中期上涨动量强 → 高分组做多（positive）。与 RSI_FAST 同公式族，仅 window 不同。",
+  "inputs": {"close_wide": "收盘价(元)"},
+  "compute_kwargs": {"window": 12},
+  "compute_body": [
+    "diff = close_wide - close_wide.shift(1)",
+    "up = diff.clip(lower=0).ewm(alpha=1.0/window, adjust=False).mean()",
+    "ab = diff.abs().ewm(alpha=1.0/window, adjust=False).mean()",
+    "return (up / ab * 100).replace([np.inf, -np.inf], np.nan)"
+  ]
+}

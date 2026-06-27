@@ -22,8 +22,10 @@
 
 import pandas as pd
 import numpy as np
+import math
 import sys
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -379,6 +381,181 @@ def distribution_stability(factor_data, metric=None) -> pd.DataFrame:
     return pd.DataFrame(records).T
 
 
+def factor_profile_payload(
+    factor_data,
+    metric=None,
+    *,
+    bins: int = 60,
+    p_values: tuple[float, ...] = (0.1, 0.05, 0.01),
+    max_points: int = 12000,
+) -> dict[str, Any]:
+    """
+    构建可交互展示的因子值分布诊断数据。
+
+    该函数只返回结构化数据，不依赖 matplotlib/plotly。前端或 notebook 可据此
+    渲染分布函数、CDF、集中度、不同 p 值假设检验临界值对应的原因子值等。
+
+    Args:
+        factor_data: 长表（input_ts/code/metric）或宽表（index=ts, col=code）
+        metric: 长表的因子列名
+        bins: 全样本直方图分箱数
+        p_values: 显著性/尾部概率水平。输出会同时给出 H0: E[x]=0 的
+            均值检验阈值，以及经验分布单尾/双尾对应的原因子值临界点。
+        max_points: ECDF 最多返回点数，避免 dashboard payload 过大
+
+    Returns:
+        dict，包含 summary/histogram/ecdf/quantiles/tests/timeseries。
+    """
+    wide = _to_wide(factor_data, metric)
+    flat_values = wide.to_numpy().ravel()
+    values = pd.Series(flat_values).replace([np.inf, -np.inf], np.nan).dropna()
+
+    def _clean(value):
+        if pd.isna(value):
+            return None
+        if isinstance(value, (np.integer,)):
+            return int(value)
+        if isinstance(value, (np.floating, float)):
+            if np.isnan(float(value)) or np.isinf(float(value)):
+                return None
+            return float(value)
+        return value
+
+    if values.empty:
+        return {
+            "summary": {
+                "count": 0,
+                "missingRate": float(pd.isna(flat_values).mean()) if len(flat_values) else None,
+            },
+            "histogram": [],
+            "ecdf": [],
+            "quantiles": [],
+            "tests": [],
+            "timeseries": [],
+        }
+
+    count = int(len(values))
+    mean = float(values.mean())
+    std = float(values.std(ddof=1)) if count > 1 else 0.0
+    abs_sum = float(values.abs().sum())
+    hhi = float(((values.abs() / abs_sum) ** 2).sum()) if abs_sum > 0 else None
+    top_decile_share = None
+    if abs_sum > 0:
+        top_n = max(1, int(np.ceil(count * 0.1)))
+        top_decile_share = float(values.abs().nlargest(top_n).sum() / abs_sum)
+
+    hist_counts, hist_edges = np.histogram(values.to_numpy(), bins=max(1, bins))
+    histogram = [
+        {
+            "left": _clean(hist_edges[i]),
+            "right": _clean(hist_edges[i + 1]),
+            "mid": _clean((hist_edges[i] + hist_edges[i + 1]) / 2),
+            "count": int(hist_counts[i]),
+            "density": _clean(hist_counts[i] / count),
+        }
+        for i in range(len(hist_counts))
+    ]
+
+    sorted_values = values.sort_values().reset_index(drop=True)
+    if count > max_points:
+        take = np.unique(np.linspace(0, count - 1, max_points).astype(int))
+        sorted_values = sorted_values.iloc[take].reset_index(drop=True)
+        denominator = max(len(sorted_values) - 1, 1)
+        ecdf = [
+            {"value": _clean(v), "probability": float(i / denominator)}
+            for i, v in enumerate(sorted_values)
+        ]
+    else:
+        ecdf = [
+            {"value": _clean(v), "probability": float((i + 1) / count)}
+            for i, v in enumerate(sorted_values)
+        ]
+
+    quantile_levels = [0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99]
+    quantiles = [
+        {"quantile": q, "value": _clean(values.quantile(q))}
+        for q in quantile_levels
+    ]
+
+    tests = []
+    if count > 1 and std > 0:
+        se = std / np.sqrt(count)
+        if _HAS_SCIPY:
+            current_t = float(mean / se)
+            current_p = float(_scipy_stats.ttest_1samp(values.to_numpy(), 0.0, nan_policy="omit").pvalue)
+        else:
+            current_t = float(mean / se)
+            # 正态近似双侧 p 值，避免 scipy 缺失时报错。
+            current_p = float(2 * (1 - 0.5 * (1 + math.erf(abs(current_t) / np.sqrt(2)))))
+        for p in p_values:
+            if _HAS_SCIPY:
+                t_crit = float(_scipy_stats.t.ppf(1 - p / 2, df=count - 1))
+            else:
+                # 常用双侧水平的正态近似临界值；其它 p 值回退 1.96。
+                t_crit = {0.1: 1.645, 0.05: 1.96, 0.01: 2.576}.get(round(float(p), 4), 1.96)
+            tests.append(
+                {
+                    "pValue": float(p),
+                    "thresholdMeanAbs": _clean(t_crit * se),
+                    "positiveThresholdMean": _clean(t_crit * se),
+                    "negativeThresholdMean": _clean(-t_crit * se),
+                    "lowerTailValue": _clean(values.quantile(p)),
+                    "upperTailValue": _clean(values.quantile(1 - p)),
+                    "twoSidedLowerValue": _clean(values.quantile(p / 2)),
+                    "twoSidedUpperValue": _clean(values.quantile(1 - p / 2)),
+                    "currentMean": _clean(mean),
+                    "currentT": _clean(current_t),
+                    "currentP": _clean(current_p),
+                    "method": "one_sample_t" if _HAS_SCIPY else "normal_approx",
+                }
+            )
+
+    per_period = distribution_stability(wide)
+    coverage = coverage_stats(wide)
+    outliers = detect_outliers(wide)
+    if "Total" in outliers.index:
+        outliers = outliers.drop(index="Total")
+    timeseries = []
+    for dt in per_period.index:
+        row = per_period.loc[dt]
+        cov_row = coverage.loc[dt] if dt in coverage.index else pd.Series(dtype=float)
+        out_row = outliers.loc[dt] if dt in outliers.index else pd.Series(dtype=float)
+        timeseries.append(
+            {
+                "date": pd.Timestamp(dt).strftime("%Y-%m-%d"),
+                "mean": _clean(row.get("mean")),
+                "std": _clean(row.get("std")),
+                "skew": _clean(row.get("skew")),
+                "kurt": _clean(row.get("kurt")),
+                "count": _clean(row.get("有效数")),
+                "coverage": _clean(cov_row.get("覆盖率")),
+                "outlierRatio": _clean(out_row.get("极值占比")),
+            }
+        )
+
+    return {
+        "summary": {
+            "count": count,
+            "missingRate": _clean(pd.isna(flat_values).mean()),
+            "mean": _clean(mean),
+            "std": _clean(std),
+            "median": _clean(values.median()),
+            "iqr": _clean(values.quantile(0.75) - values.quantile(0.25)),
+            "skew": _clean(values.skew()) if count > 2 else None,
+            "kurt": _clean(values.kurt()) if count > 3 else None,
+            "min": _clean(values.min()),
+            "max": _clean(values.max()),
+            "hhi": _clean(hhi),
+            "topDecileAbsShare": _clean(top_decile_share),
+        },
+        "histogram": histogram,
+        "ecdf": ecdf,
+        "quantiles": quantiles,
+        "tests": tests,
+        "timeseries": timeseries,
+    }
+
+
 # ─────────────────────────────────────────────
 # 3. 多因子交叉分析
 # ─────────────────────────────────────────────
@@ -572,5 +749,3 @@ def factor_clustering(corr_matrix: pd.DataFrame, threshold=0.6) -> dict:
 
 
 # PLACEHOLDER_PLOTS
-
-

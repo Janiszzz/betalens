@@ -1,0 +1,18 @@
+{
+  "class": "liqdemand",
+  "template_module": "factor_template_liqdemand",
+  "out_dir": "c:/Users/Janis/OneDrive/betalens/betalens-factor/LiqDemand",
+  "source": "Nathan & Suominen (2026), The Liquidity-Demand Component of the Factor Zoo, SSRN 6909918",
+  "defaults": {
+    "direction": "negative",
+    "index_code": "000906.SH",
+    "start_date": "2024-01-01",
+    "end_date": "2025-12-31",
+    "rebal_freq": "D",
+    "n_quantiles": 20,
+    "warmup_days": 400,
+    "pretom_only": true,
+    "pretom_lo": 9,
+    "pretom_hi": 4
+  }
+}

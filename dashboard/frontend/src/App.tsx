@@ -27,6 +27,7 @@ import type {
   EventFile,
   EventStudyResult,
   FactorDetail,
+  FactorProfiling,
   FactorSummary,
   Metric,
   RunResult,
@@ -93,6 +94,21 @@ const asNumber = (value: unknown, fallback: number) => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
+const buildRunParams = (defaults: Record<string, unknown>) => ({
+  start_date: asString(defaults.start_date, '2024-01-01'),
+  end_date: asString(defaults.end_date, '2025-12-31'),
+  initial_amount: asNumber(defaults.initial_amount, 100000000),
+  rebal_freq: asString(defaults.rebal_freq, 'W'),
+  n_quantiles: asNumber(defaults.n_quantiles, 80),
+  index_code: asString(defaults.index_code),
+  direction: asString(defaults.direction, 'positive'),
+  use_industry: asBool(defaults.use_industry),
+  use_mktcap: asBool(defaults.use_mktcap),
+  industry_scheme: asString(defaults.industry_scheme, '申万一级行业'),
+  backtest_metric: asString(defaults.backtest_metric, '收盘价(元)'),
+  include_profiling: asBool(defaults.include_profiling, true)
+});
+
 function App() {
   const [page, setPage] = useState<Page>('home');
   const [factors, setFactors] = useState<FactorSummary[]>([]);
@@ -110,6 +126,7 @@ function App() {
 
   const openFactor = async (factor: FactorSummary) => {
     setSelected(factor);
+    setDetail(null);
     setPage('detail');
     setError(null);
     try {
@@ -297,7 +314,6 @@ function FactorPage({
   onBack: () => void;
 }) {
   const source = detail || factor;
-  const defaults = source?.defaults || {};
   const [params, setParams] = useState<Record<string, unknown>>({});
   const [computeKwargs, setComputeKwargs] = useState<Record<string, unknown>>({});
   const [runId, setRunId] = useState<string | null>(null);
@@ -305,25 +321,25 @@ function FactorPage({
   const [result, setResult] = useState<RunResult | null>(null);
   const [logs, setLogs] = useState('');
   const [activeTab, setActiveTab] = useState<ResultTab>('overview');
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!factor) return;
+    setParams(buildRunParams(factor.defaults || {}));
+    setComputeKwargs({});
+    setRunId(null);
+    setState(null);
+    setResult(null);
+    setLogs('');
+    setSubmitting(false);
+    setActiveTab('overview');
+    setError(null);
+  }, [factor?.factor_class, factor?.name]);
+
+  useEffect(() => {
     if (!detail) return;
-    setParams({
-      //默认参数
-      start_date: asString(detail.defaults.start_date, '2024-01-01'),
-      end_date: asString(detail.defaults.end_date, '2025-12-31'),
-      initial_amount: asNumber(detail.defaults.initial_amount, 100000000),
-      rebal_freq: asString(detail.defaults.rebal_freq, 'W'),
-      n_quantiles: asNumber(detail.defaults.n_quantiles, 80),
-      index_code: asString(detail.defaults.index_code),
-      direction: asString(detail.defaults.direction, 'positive'),
-      use_industry: asBool(detail.defaults.use_industry),
-      use_mktcap: asBool(detail.defaults.use_mktcap),
-      industry_scheme: asString(detail.defaults.industry_scheme, '申万一级行业'),
-      backtest_metric: asString(detail.defaults.backtest_metric, '收盘价(元)'),
-      include_profiling: asBool(detail.defaults.include_profiling, true)
-    });
+    setParams((prev) => ({ ...buildRunParams(detail.defaults || {}), ...prev }));
     setComputeKwargs(detail.compute_kwargs || {});
   }, [detail]);
 
@@ -369,8 +385,10 @@ function FactorPage({
     if (!source) return;
     setError(null);
     setResult(null);
-    setLogs('');
+    setLogs('[dashboard] 正在提交回测任务...\n');
     setState(null);
+    setSubmitting(true);
+    setActiveTab('logs');
     try {
       const created = await api.startRun({
         factor_class: source.factor_class,
@@ -382,6 +400,8 @@ function FactorPage({
       setActiveTab('logs');
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -401,8 +421,8 @@ function FactorPage({
         </div>
         <div className="run-actions">
           <StatusBadge state={state} />
-          <button className="primary-button" onClick={startRun} disabled={!detail || state?.status === 'running' || state?.status === 'queued'}>
-            {state?.status === 'running' || state?.status === 'queued' ? <Loader2 className="spin" size={16} /> : <Play size={16} />}
+          <button className="primary-button" onClick={startRun} disabled={!source || submitting || state?.status === 'running' || state?.status === 'queued'}>
+            {submitting || state?.status === 'running' || state?.status === 'queued' ? <Loader2 className="spin" size={16} /> : <Play size={16} />}
             运行回测
           </button>
         </div>
@@ -890,8 +910,148 @@ function Overview({ result, state }: { result: RunResult | null; state: RunState
           />
         </Suspense>
       </div>
+      <FactorProfilingPanel runId={result.run.run_id} initial={result.charts.profiling} />
       <RebalanceHoldings records={result.charts.rebalanceHoldings || []} />
       <Downloads result={result} />
+    </div>
+  );
+}
+
+function FactorProfilingPanel({ runId, initial }: { runId: string; initial: FactorProfiling }) {
+  const [profile, setProfile] = useState<FactorProfiling>(initial);
+  const [dateFrom, setDateFrom] = useState(initial?.dateFrom || '');
+  const [dateTo, setDateTo] = useState(initial?.dateTo || '');
+  const [loading, setLoading] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setProfile(initial);
+    setDateFrom(initial?.dateFrom || '');
+    setDateTo(initial?.dateTo || '');
+    setProfileError(null);
+  }, [initial, runId]);
+
+  const loadProfile = async (from = dateFrom, to = dateTo) => {
+    setLoading(true);
+    setProfileError(null);
+    try {
+      setProfile(await api.profiling(runId, { dateFrom: from, dateTo: to }));
+    } catch (err) {
+      setProfileError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const resetRange = () => {
+    const from = initial?.dateFrom || '';
+    const to = initial?.dateTo || '';
+    setDateFrom(from);
+    setDateTo(to);
+    loadProfile(from, to);
+  };
+
+  if (!profile?.available) {
+    return (
+      <div className="chart-card">
+        <div className="section-title"><Activity size={18} />因子值分布诊断</div>
+        <div className="table-empty">本次回测没有可展示的因子值 profiling 数据</div>
+      </div>
+    );
+  }
+
+  const histogram = profile.histogram || [];
+  const ecdf = profile.ecdf || [];
+  const timeseries = profile.timeseries || [];
+  const summary = profile.summary || {};
+
+  return (
+    <div className="profiling-panel">
+      <div className="table-header">
+        <div>
+          <div className="section-title"><Activity size={18} />因子值分布诊断</div>
+          <div className="holding-subtitle">{profile.dateFrom || '-'} 至 {profile.dateTo || '-'}</div>
+        </div>
+        <div className="table-controls">
+          <LabeledInlineInput label="开始" type="date" value={dateFrom} onChange={setDateFrom} />
+          <LabeledInlineInput label="结束" type="date" value={dateTo} onChange={setDateTo} />
+          <button className="secondary-button" onClick={() => loadProfile()} disabled={loading}>
+            <RotateCw size={15} className={loading ? 'spin' : ''} />应用
+          </button>
+          <button className="secondary-button" onClick={resetRange} disabled={loading}>全样本</button>
+        </div>
+      </div>
+      {profileError && <div className="global-error">{profileError}</div>}
+      <div className="profiling-metrics">
+        <MetricTile label="有效样本" value={summary.count} />
+        <MetricTile label="均值" value={summary.mean} />
+        <MetricTile label="标准差" value={summary.std} />
+        <MetricTile label="IQR" value={summary.iqr} />
+        <MetricTile label="缺失率" value={summary.missingRate} percent />
+        <MetricTile label="Top10%绝对值占比" value={summary.topDecileAbsShare} percent />
+      </div>
+      <div className="profiling-grid">
+        <div className="chart-card inner-chart">
+          <Suspense fallback={<div className="chart-loading"><Loader2 className="spin" size={18} />加载图表...</div>}>
+            <PlotView
+              data={[
+                {
+                  x: histogram.map((row) => row.mid),
+                  y: histogram.map((row) => row.count),
+                  type: 'bar',
+                  name: '样本数',
+                  marker: { color: '#2d66a8' },
+                  hovertemplate: '因子值 %{x}<br>样本数 %{y}<extra></extra>'
+                }
+              ]}
+              layout={baseLayout('因子值分布函数', 320, false)}
+              config={{ displayModeBar: false, responsive: true }}
+            />
+          </Suspense>
+        </div>
+        <div className="chart-card inner-chart">
+          <Suspense fallback={<div className="chart-loading"><Loader2 className="spin" size={18} />加载图表...</div>}>
+            <PlotView
+              data={[
+                {
+                  x: ecdf.map((row) => row.value),
+                  y: ecdf.map((row) => row.probability),
+                  type: 'scatter',
+                  mode: 'lines',
+                  name: 'F(x)',
+                  line: { color: '#6a9f42', width: 2 },
+                  hovertemplate: '因子值 %{x}<br>累计概率 %{y:.2%}<extra></extra>'
+                }
+              ]}
+              layout={{ ...baseLayout('经验分布函数 CDF', 320, false), yaxis: { gridcolor: '#d8dde3', tickformat: '.0%' } }}
+              config={{ displayModeBar: false, responsive: true }}
+            />
+          </Suspense>
+        </div>
+        <div className="chart-card inner-chart">
+          <Suspense fallback={<div className="chart-loading"><Loader2 className="spin" size={18} />加载图表...</div>}>
+            <PlotView
+              data={[
+                { x: timeseries.map((row) => row.date), y: timeseries.map((row) => row.mean), type: 'scatter', mode: 'lines', name: '均值', line: { color: '#2d66a8', width: 2 } },
+                { x: timeseries.map((row) => row.date), y: timeseries.map((row) => row.std), type: 'scatter', mode: 'lines', name: '标准差', yaxis: 'y2', line: { color: '#b94a48', width: 2 } }
+              ]}
+              layout={{
+                ...baseLayout('分布集中度时序', 300, true),
+                yaxis2: { overlaying: 'y', side: 'right', gridcolor: '#ffffff', zeroline: false }
+              }}
+              config={{ displayModeBar: false, responsive: true }}
+            />
+          </Suspense>
+        </div>
+        <div className="profiling-table-card">
+          <div className="section-title">p 值对应原因子值</div>
+          <SimpleTable rows={profile.tests || []} maxHeight={236} />
+        </div>
+      </div>
+      <div className="profiling-table-card">
+        <div className="section-title">关键分位数</div>
+        <SimpleTable rows={profile.quantiles || []} maxHeight={220} />
+      </div>
     </div>
   );
 }
