@@ -42,6 +42,7 @@ export const api = {
     json<FactorDetail>(`/api/factors/${encodeURIComponent(factorClass)}/${encodeURIComponent(name)}`),
   startRun: (body: { factor_class: string; name: string; parameters: Record<string, unknown>; compute_kwargs: Record<string, unknown> }) =>
     json<{ run_id: string }>('/api/runs', { method: 'POST', body: JSON.stringify(body) }),
+  clearRuns: () => json<{ cleared: number }>('/api/runs', { method: 'DELETE' }),
   run: (runId: string) => json<RunState>(`/api/runs/${runId}`),
   result: (runId: string) => json<RunResult>(`/api/runs/${runId}/result`),
   profiling: (runId: string, opts: { dateFrom?: string; dateTo?: string } = {}) => {

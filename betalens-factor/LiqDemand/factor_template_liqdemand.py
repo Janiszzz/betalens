@@ -59,7 +59,9 @@ if str(_ROOT) not in sys.path:
 from factor_template import (  # noqa: E402  re-export 通用主干
     FactorSpec, FactorPipeline, RunResult,
     fetch_daily_wide, wide_to_prequery, build_pit_universe,
-    filter_long_by_pit_universe,
+    filter_long_by_pit_universe, infer_warmup_days,
+    validate_weights_in_pit_universe, _labeled_to_factor_values,
+    append_grouped_profiling_excel,
 )
 from betalens.datafeed import get_absolute_trade_days  # noqa: E402
 from betalens.factor.factor import (  # noqa: E402
@@ -128,14 +130,15 @@ class LiqDemandPipeline(FactorPipeline):
             verbose: bool = True) -> RunResult:
         sp = self.spec
 
-        # 取数起始向前扩 warmup_days：rolling(window) 需历史预热，但回测/调仓仍从 start_date 起
-        fetch_start = (pd.Timestamp(start_date) - pd.Timedelta(days=warmup_days)).strftime("%Y-%m-%d")
+        # 取数起始向前扩：显式 warmup_days 与自动窗口推断取较大值。
+        effective_warmup = max(int(warmup_days), infer_warmup_days(sp.compute_kwargs))
+        fetch_start = (pd.Timestamp(start_date) - pd.Timedelta(days=effective_warmup)).strftime("%Y-%m-%d")
 
         # 调仓日 / 信号日：始终落在 [start_date, end_date]（不含预热期）
         rebalance_dates = get_absolute_trade_days(start_date, end_date, rebal_freq, use_pmc=False)
         all_trade_days = get_absolute_trade_days(fetch_start, end_date, "D", use_pmc=False)
         if verbose:
-            print(f"取数起始(含预热): {fetch_start}  调仓日数量: {len(rebalance_dates)}")
+            print(f"取数起始(含预热): {fetch_start}  warmup_days={effective_warmup}  调仓日数量: {len(rebalance_dates)}")
 
         # 0. 信号日 = 调仓日前一交易日（与通用主干一致，防前视）
         td = sorted(all_trade_days)
@@ -171,11 +174,6 @@ class LiqDemandPipeline(FactorPipeline):
         # 3. 调用算子（在含预热期的完整宽表上算，rolling(252) 在 start_date 已就绪）
         factor_wide = sp.compute(**wides, **sp.compute_kwargs)
 
-        # 3a. Profiling（中性化之前）
-        profiling = None
-        if include_profiling:
-            profiling = self._run_profiling(factor_wide, sp.name, output_dir, verbose)
-
         # 4. 宽 → 长（仅 signal_dates，预热期自然被排除）
         prequery = wide_to_prequery(factor_wide, sp.name, signal_dates)
 
@@ -193,9 +191,9 @@ class LiqDemandPipeline(FactorPipeline):
         if sp.use_industry or sp.use_mktcap:
             mktcap_col = None
             if sp.use_mktcap:
-                mktcap_wide = fetch_daily_wide("市值", universe=universe,
+                mktcap_wide = fetch_daily_wide("A股流通市值(元)", universe=universe,
                                                start_date=fetch_start, end_date=end_date,
-                                               table_name="fundamentals")
+                                               table_name=sp.table_name)
                 if not mktcap_wide.empty:
                     log_mktcap = np.log(mktcap_wide.replace(0, np.nan))
                     lm_long = wide_to_prequery(log_mktcap, "log_mktcap", signal_dates)
@@ -210,15 +208,14 @@ class LiqDemandPipeline(FactorPipeline):
 
         # 5. 分组
         labeled = single_characteristic(prequery, sp.name, {sp.name: n_quantiles})
+        factor_values = _labeled_to_factor_values(labeled, sp.name)
 
-        # 5a. 因子值展示表
-        label_col = f"{sp.name}_label"
-        factor_values = labeled.reset_index()[['input_ts', 'code', sp.name, label_col]].copy()
-        factor_values = factor_values.rename(columns={
-            'input_ts': '信号日', 'code': '股票代码',
-            sp.name: '因子值', label_col: '分组',
-        }).sort_values(['信号日', '分组', '因子值'],
-                       ascending=[True, False, False]).reset_index(drop=True)
+        # 5a. Profiling：基于 single_characteristic 的全量 n 分组矩阵。
+        profiling = None
+        if include_profiling:
+            grouped_wide = labeled[sp.name].unstack('code')
+            profiling = self._run_profiling(grouped_wide, sp.name, output_dir, verbose)
+            profiling.update(append_grouped_profiling_excel(output_dir, sp.name, labeled))
 
         # 6. 权重（日频多空）
         long_groups, short_groups = self._resolve_groups(n_quantiles)
@@ -226,6 +223,12 @@ class LiqDemandPipeline(FactorPipeline):
             'factor_key': sp.name, 'mode': sp.weight_mode,
             'long': long_groups, 'short': short_groups,
         })
+        pit_validation = validate_weights_in_pit_universe(weights, pit_universe)
+        if verbose and pit_universe is not None and not pit_validation.empty:
+            bad = int((~pit_validation['passed']).sum())
+            print(f"  PIT 权重校验: {len(pit_validation)-bad}/{len(pit_validation)} 期通过")
+            if bad:
+                print("  [WARN] 存在调仓股票不在当期 PIT 股票池内，请检查 pit_validation")
         weights.index = weights.index + pd.Timedelta(minutes=10)
 
         # 6b. PreTOM 择时掩码：非窗口交易日整行清零（空仓）。论文核心日历叠加。
@@ -262,4 +265,5 @@ class LiqDemandPipeline(FactorPipeline):
 
         return RunResult(backtest=bt, analyst=analyst,
                          profiling=profiling, neutralize_stats=neu_stats,
-                         factor_values=factor_values)
+                         factor_values=factor_values,
+                         pit_validation=pit_validation)

@@ -11,11 +11,16 @@ import numpy as np
 import sys
 from pathlib import Path
 from typing import Optional
-import statsmodels.api as sm
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from datafeed.validation import fix_null_values, FillStrategy
 from datafeed import Datafeed, query_industry
+
+
+def _statsmodels():
+    import statsmodels.api as sm
+
+    return sm
 
 
 # ─────────────────────────────────────────────
@@ -160,6 +165,7 @@ def neutralize_factor(
         return _ret(factor_series)
 
     y = aligned['y']
+    sm = _statsmodels()
     X = sm.add_constant(aligned.drop(columns='y').astype(float))
     model = sm.OLS(y, X).fit()
 
@@ -219,6 +225,7 @@ def neutralize_factor_by_factor(
             continue
 
         y = b_series.loc[common]
+        sm = _statsmodels()
         X = sm.add_constant(a_series.loc[common].astype(float))
         try:
             model = sm.OLS(y.astype(float), X).fit()

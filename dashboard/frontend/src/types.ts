@@ -57,6 +57,10 @@ export type RunResult = {
     trades: TableMeta;
     positions: TableMeta;
   };
+  diagnostics?: {
+    pitValidation: Array<Record<string, unknown>>;
+    neutralizeStats: Array<Record<string, unknown>>;
+  };
   downloads: Record<string, { path: string | null; exists: boolean }>;
 };
 

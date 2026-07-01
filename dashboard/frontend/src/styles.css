@@ -483,6 +483,7 @@ input {
 .chart-card,
 .holding-panel,
 .profiling-panel,
+.diagnostics-panel,
 .table-page,
 .logs-page {
   background: white;
@@ -490,7 +491,8 @@ input {
   padding: 14px;
 }
 
-.profiling-panel {
+.profiling-panel,
+.diagnostics-panel {
   display: grid;
   gap: 14px;
 }

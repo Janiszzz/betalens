@@ -13,9 +13,6 @@ RSI_SLOW  —  tdx 类因子
 import sys
 from pathlib import Path
 
-import numpy as np
-import pandas as pd
-
 _CLASS_DIR = Path(__file__).resolve().parent.parent   # tdx/
 sys.path.insert(0, str(_CLASS_DIR))                   # tdx/（类模板所在）
 from factor_template_tdx import FactorSpec, FactorPipeline, SMA, REF, clean_inf

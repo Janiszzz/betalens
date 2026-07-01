@@ -11,8 +11,6 @@
 import sys
 from pathlib import Path
 
-import numpy as np
-import pandas as pd
 import logging
 
 # 压制 point-in-time 成分股查询的逐日 INFO 日志（每个信号日一条，过于啰嗦）

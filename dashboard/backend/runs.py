@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
+import inspect
 import io
 import shutil
 import tempfile
@@ -141,6 +142,25 @@ class RunManager:
         self._executor.submit(self._execute, run)
         return run
 
+    def clear(self) -> dict[str, int]:
+        with self._lock:
+            runs = list(self._runs.values())
+            self._runs.clear()
+        cleared = 0
+        for run in runs:
+            if run.status in ("queued", "running"):
+                run.status = "failed"
+                run.finished_at = datetime.now(timezone.utc)
+                run.error = "run cleared"
+                run.append_log("\n[dashboard] run cleared\n")
+            run.cleanup()
+            cleared += 1
+
+        # 丢弃排队任务。正在执行的线程无法安全强杀，但它已不再阻塞新的 executor。
+        self._executor.shutdown(wait=False, cancel_futures=True)
+        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="dashboard-run")
+        return {"cleared": cleared}
+
     def get(self, run_id: str) -> DashboardRun:
         with self._lock:
             run = self._runs.get(run_id)
@@ -153,10 +173,13 @@ class RunManager:
     def _execute(self, run: DashboardRun) -> None:
         run.mark_started()
         try:
+            run.append_log("[dashboard] resolving factor config\n")
             script, _spec_data, _factor_cfg = get_factor_config(run.factor_class, run.name)
             run.factor_dir = str(script.parent)
+            run.append_log(f"[dashboard] loading factor module: {script}\n")
             mod = load_factor_module(script)
             factor_spec = getattr(mod, "spec")
+            run.append_log("[dashboard] factor module loaded\n")
 
             spec_updates = {}
             for key in (
@@ -175,6 +198,7 @@ class RunManager:
                 spec_updates["compute_kwargs"] = merged_kwargs
             if spec_updates:
                 factor_spec = dataclasses.replace(factor_spec, **spec_updates)
+                run.append_log(f"[dashboard] applied spec overrides: {sorted(spec_updates)}\n")
 
             class_dir = script.parent.parent
             import sys
@@ -184,6 +208,7 @@ class RunManager:
             # FactorPipeline 取自因子模块本身（已 import 各自类模板的 re-export），
             # 与因子类解耦：tdx 走 factor_template_tdx，alpha101 走 factor_template_alpha101。
             FactorPipeline = getattr(mod, "FactorPipeline")
+            run.append_log(f"[dashboard] pipeline: {FactorPipeline.__name__}\n")
 
             start_date = run.parameters.get("start_date")
             end_date = run.parameters.get("end_date")
@@ -201,31 +226,67 @@ class RunManager:
                 # dump 由后端异步落盘,避免阻塞出结果
                 "dump_excel": False,
             }
+            run_signature = inspect.signature(FactorPipeline.run)
+            for key in ("warmup_days", "pretom_only", "pretom_lo", "pretom_hi"):
+                if key in run.parameters and key in run_signature.parameters:
+                    kwargs[key] = run.parameters[key]
+            run.append_log(
+                "[dashboard] starting pipeline "
+                f"{start_date} -> {end_date}, kwargs={kwargs}, compute_kwargs={run.compute_kwargs}\n"
+            )
 
             log_writer = LogBuffer(run)
             with contextlib.redirect_stdout(log_writer), contextlib.redirect_stderr(log_writer):
                 result = FactorPipeline(factor_spec).run(str(start_date), str(end_date), **kwargs)
+            run.append_log("[dashboard] pipeline returned, serializing result\n")
             run.result = result
             run.backtest = result.backtest
-            from betalens.analyst import Analyst
+            run.append_log("[dashboard] resolving analyst\n")
+            if result.analyst is not None:
+                run.analyst = result.analyst
+            else:
+                from betalens.analyst import Analyst
 
-            run.analyst = result.analyst or Analyst.from_backtest(result.backtest, name=run.name)
+                run.analyst = Analyst.from_backtest(result.backtest, name=run.name)
+            run.append_log("[dashboard] analyst ready\n")
 
             # 巨表落 parquet → 缓存可 JSON 化 payload → 释放 bt(省内存)→ 后台异步写 dump
+            run.append_log("[dashboard] persisting tables\n")
             self._persist_tables(run)
+            run.append_log("[dashboard] tables persisted\n")
             bt = run.backtest
             factor_values = getattr(result, "factor_values", None)
+            pit_validation = getattr(result, "pit_validation", None)
+            neutralize_stats = getattr(result, "neutralize_stats", None)
             from .serialization import build_result_payload, write_factor_values_parquet
 
+            run.append_log("[dashboard] writing factor_values parquet\n")
             write_factor_values_parquet(factor_values, run.factor_values_path())
             name = run.name
             out_dir = output_dir
+            run.append_log("[dashboard] building result payload\n")
+            run.payload = build_result_payload(
+                run,
+                run.table_meta,
+                factor_values,
+                pit_validation=pit_validation,
+                neutralize_stats=neutralize_stats,
+            )
+            run.append_log("[dashboard] marking run completed\n")
             run.mark_completed()
-            run.payload = build_result_payload(run, run.table_meta, factor_values)
+            run.payload["run"] = run.to_state().model_dump()
             run.backtest = None
             run.result = None
             run.analyst = None
-            self._dump_executor.submit(self._dump_excel, bt, out_dir, name, factor_values)
+            self._dump_executor.submit(
+                self._dump_excel,
+                bt,
+                out_dir,
+                name,
+                factor_values,
+                pit_validation,
+                neutralize_stats,
+            )
         except Exception as exc:
             run.mark_failed(exc)
 
@@ -233,7 +294,9 @@ class RunManager:
         from .serialization import build_table, write_table_parquet
 
         for kind in TABLE_KINDS:
+            run.append_log(f"[dashboard] building {kind} table\n")
             rows = build_table(run.backtest, kind)
+            run.append_log(f"[dashboard] writing {kind} table rows={len(rows)}\n")
             run.table_meta[kind] = write_table_parquet(rows, run.table_path(kind))
 
     @staticmethod
@@ -242,11 +305,17 @@ class RunManager:
         output_dir: Path,
         name: str,
         factor_values: Any = None,
+        pit_validation: Any = None,
+        neutralize_stats: Any = None,
     ) -> None:
         try:
             dump_path = f"{output_dir}/{name}_dump.xlsx"
             bt.dump_to_excel(dump_path)
-            if factor_values is not None:
+            if (
+                factor_values is not None
+                or (pit_validation is not None and not pit_validation.empty)
+                or (neutralize_stats is not None and not neutralize_stats.empty)
+            ):
                 import pandas as pd
 
                 with pd.ExcelWriter(
@@ -255,7 +324,12 @@ class RunManager:
                     mode="a",
                     if_sheet_exists="replace",
                 ) as writer:
-                    factor_values.to_excel(writer, sheet_name="factor_values", index=False)
+                    if factor_values is not None:
+                        factor_values.to_excel(writer, sheet_name="factor_values", index=False)
+                    if pit_validation is not None and not pit_validation.empty:
+                        pit_validation.to_excel(writer, sheet_name="pit_validation")
+                    if neutralize_stats is not None and not neutralize_stats.empty:
+                        neutralize_stats.to_excel(writer, sheet_name="neutralize_stats")
         except Exception:
             pass  # dump 仅供下载,失败不影响已展示的结果
 

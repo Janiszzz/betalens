@@ -1,13 +1,10 @@
 import numpy as np
 import pandas as pd
 import warnings
-from pylab import mpl, plt
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-plt.style.use('seaborn-v0_8')
-mpl.rcParams['font.family'] = 'serif'
 from datafeed import Datafeed
 
 

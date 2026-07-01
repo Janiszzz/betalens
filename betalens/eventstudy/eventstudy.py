@@ -382,6 +382,7 @@ class EventStudy:
         event_dates = _get_event_dates(events)
         if event_dates.empty:
             return {'error': 'no events'}
+        valid_event_dates = event_dates
 
         start = (event_dates.min() - timedelta(days=window_before * 5)).strftime('%Y-%m-%d')
         end = (event_dates.max() + timedelta(days=window_after * 5)).strftime('%Y-%m-%d')
@@ -527,6 +528,7 @@ class EventStudy:
             'daily_stats': overall_stats,
             'cumulative_stats': cumulative_stats,
             'event_count': returns_df.shape[1] if not returns_df.empty else 0,
+            'event_dates': pd.DatetimeIndex(valid_event_dates),
             'returns_matrix': returns_df,
             'cumulative_returns_matrix': cum_returns
         }

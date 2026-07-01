@@ -34,18 +34,51 @@ alpha101 类因子专用模板
 """
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 import sys
 from pathlib import Path
-
-import numpy as np
-import pandas as pd
+from typing import Any, Callable
 
 # 通用核心在 betalens-factor/ 根；保证可被 import（脚本独立运行 / dashboard 加载皆可）
 _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from factor_template import FactorSpec, FactorPipeline, RunResult  # noqa: E402  re-export
+DB_TABLE = "daily_market"
+
+
+@dataclass
+class FactorSpec:
+    name: str
+    inputs: dict[str, str]
+    compute: Callable[..., Any]
+    direction: str = "positive"
+    compute_kwargs: dict[str, Any] = field(default_factory=dict)
+    table_name: str = DB_TABLE
+    use_industry: bool = False
+    use_mktcap: bool = False
+    industry_scheme: str = "申万一级行业"
+    index_code: str | None = None
+    long_groups: list | None = None
+    short_groups: list | None = None
+    weight_mode: str = "freeplay"
+    backtest_metric: str = "收盘价(元)"
+
+
+class FactorPipeline:
+    def __init__(self, spec: FactorSpec):
+        self.spec = spec
+
+    def run(self, *args, **kwargs):
+        print("  加载通用 FactorPipeline", flush=True)
+        from factor_template import FactorPipeline as CorePipeline, FactorSpec as CoreFactorSpec
+
+        print("  通用 FactorPipeline 已加载", flush=True)
+        core_spec = CoreFactorSpec(**self.spec.__dict__)
+        return CorePipeline(core_spec).run(*args, **kwargs)
+
+
+RunResult = Any
 
 __all__ = [
     "FactorSpec", "FactorPipeline", "RunResult",
@@ -67,6 +100,8 @@ def delay(x, n=1):
 
 def sign(x):
     """逐元素符号（-1/0/1）。"""
+    import numpy as np
+
     return np.sign(x)
 
 
@@ -77,6 +112,8 @@ def rank(x):
 
 def ts_rank(x, n):
     """n 周期窗口内当前值的时序百分位排名。"""
+    import pandas as pd
+
     return x.rolling(n).apply(lambda s: pd.Series(s).rank(pct=True).iloc[-1], raw=True)
 
 
@@ -112,4 +149,4 @@ def stddev(x, n):
 
 def clean_inf(x):
     """把 ±inf 置为 NaN（算子末尾统一调用，防止除零污染）。"""
-    return x.replace([np.inf, -np.inf], np.nan)
+    return x.replace([float("inf"), float("-inf")], float("nan"))

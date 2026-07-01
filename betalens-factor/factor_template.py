@@ -44,32 +44,97 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable, Any
 
-import pandas as pd
-import numpy as np
-
-from betalens.datafeed import (
-    Datafeed, get_absolute_trade_days, get_index_universe,
-)
-from betalens.factor.factor import single_characteristic, get_single_factor_weight
-from betalens.factor.preprocessing import (
-    winsorize_factor, standardize_factor, neutralize_factor,
-    query_industry_panel,
-)
-from datafeed.validation import fix_null_values, FillStrategy
-from betalens.factor.profiling import (
-    describe_distribution, coverage_stats, detect_outliers,
-    factor_autocorrelation, factor_turnover, distribution_stability,
-    factor_profile_payload,
-)
-from betalens.backtest import BacktestBase
-from betalens.analyst import Analyst
-
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-
 
 DB_TABLE = "daily_market"
+
+
+def _ensure_runtime():
+    """Load heavy runtime dependencies only when a pipeline actually runs."""
+    global pd, np
+    global Datafeed, get_absolute_trade_days, get_index_universe
+    global single_characteristic, get_single_factor_weight
+    global winsorize_factor, standardize_factor, neutralize_factor, query_industry_panel
+    global fix_null_values, FillStrategy, BacktestBase, Analyst
+
+    if "pd" in globals():
+        return
+
+    print("    import pandas", flush=True)
+    import pandas as _pd
+    print("    import numpy", flush=True)
+    import numpy as _np
+    print("    import betalens.datafeed", flush=True)
+    from betalens.datafeed import (
+        Datafeed as _Datafeed,
+        get_absolute_trade_days as _get_absolute_trade_days,
+        get_index_universe as _get_index_universe,
+    )
+    print("    import betalens.factor.factor", flush=True)
+    from betalens.factor.factor import (
+        single_characteristic as _single_characteristic,
+        get_single_factor_weight as _get_single_factor_weight,
+    )
+    print("    import betalens.factor.preprocessing", flush=True)
+    from betalens.factor.preprocessing import (
+        winsorize_factor as _winsorize_factor,
+        standardize_factor as _standardize_factor,
+        neutralize_factor as _neutralize_factor,
+        query_industry_panel as _query_industry_panel,
+    )
+    print("    import datafeed.validation", flush=True)
+    from datafeed.validation import fix_null_values as _fix_null_values, FillStrategy as _FillStrategy
+    print("    import betalens.backtest", flush=True)
+    from betalens.backtest import BacktestBase as _BacktestBase
+    print("    import betalens.analyst", flush=True)
+    from betalens.analyst import Analyst as _Analyst
+
+    pd = _pd
+    np = _np
+    Datafeed = _Datafeed
+    get_absolute_trade_days = _get_absolute_trade_days
+    get_index_universe = _get_index_universe
+    single_characteristic = _single_characteristic
+    get_single_factor_weight = _get_single_factor_weight
+    winsorize_factor = _winsorize_factor
+    standardize_factor = _standardize_factor
+    neutralize_factor = _neutralize_factor
+    query_industry_panel = _query_industry_panel
+    fix_null_values = _fix_null_values
+    FillStrategy = _FillStrategy
+    BacktestBase = _BacktestBase
+    Analyst = _Analyst
+
+
+def _ensure_profiling_runtime():
+    global describe_distribution, coverage_stats, detect_outliers
+    global factor_autocorrelation, factor_turnover, distribution_stability
+    global factor_profile_payload, plt
+
+    if "factor_profile_payload" in globals():
+        return
+
+    from betalens.factor.profiling import (
+        describe_distribution as _describe_distribution,
+        coverage_stats as _coverage_stats,
+        detect_outliers as _detect_outliers,
+        factor_autocorrelation as _factor_autocorrelation,
+        factor_turnover as _factor_turnover,
+        distribution_stability as _distribution_stability,
+        factor_profile_payload as _factor_profile_payload,
+    )
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as _plt
+
+    describe_distribution = _describe_distribution
+    coverage_stats = _coverage_stats
+    detect_outliers = _detect_outliers
+    factor_autocorrelation = _factor_autocorrelation
+    factor_turnover = _factor_turnover
+    distribution_stability = _distribution_stability
+    factor_profile_payload = _factor_profile_payload
+    plt = _plt
 
 
 # ============================================================
@@ -125,7 +190,8 @@ def build_pit_universe(signal_dates, index_code, table_name="index_universe"):
 def filter_long_by_pit_universe(long_df, pit_universe):
     """按 point-in-time 成分股逐期过滤长表。
 
-    某信号日成分股为空（指数无快照）时该期不过滤，避免误删全部样本。
+    某信号日成分股为空（指数无快照）时严格剔除该期，避免在无实时股票池
+    约束的情况下误选全市场股票。
     """
     if not pit_universe:
         return long_df
@@ -133,11 +199,116 @@ def filter_long_by_pit_universe(long_df, pit_universe):
     def _keep(row):
         members = pit_universe.get(row['input_ts'].date())
         if not members:
-            return True
+            return False
         return row['code'] in members
 
     mask = long_df.apply(_keep, axis=1)
     return long_df.loc[mask].reset_index(drop=True)
+
+
+def infer_warmup_days(compute_kwargs, minimum=0):
+    """根据常见窗口参数自动推断取数预热天数。
+
+    rolling/ewm/delta 类因子通常需要回测起点前的历史数据。这里把
+    window/lookback/period/span/lag/n 等整数参数视为交易日窗口，并按约
+    2 倍日历天加缓冲换算，保证年化窗口在回测首日附近已有完整历史。
+    """
+    candidates = []
+    for key, value in (compute_kwargs or {}).items():
+        key_l = str(key).lower()
+        if not any(token in key_l for token in ("window", "lookback", "period", "span", "lag")) and key_l not in {"n"}:
+            continue
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, (int, float)) and np.isfinite(value) and value > 1:
+            candidates.append(int(value))
+    if not candidates:
+        return int(minimum or 0)
+    return max(int(minimum or 0), int(max(candidates) * 2 + 30))
+
+
+def validate_weights_in_pit_universe(weights, pit_universe):
+    """校验每期非零权重股票是否都属于该期 PIT 股票池。"""
+    if not pit_universe or weights is None or weights.empty:
+        return pd.DataFrame()
+    rows = []
+    for ts, row in weights.iterrows():
+        signal_date = pd.Timestamp(ts).date()
+        members = pit_universe.get(signal_date, set())
+        selected = {str(code) for code, weight in row.items() if pd.notna(weight) and abs(float(weight)) > 0}
+        outside = sorted(selected - {str(code) for code in members})
+        rows.append({
+            "input_ts": pd.Timestamp(ts),
+            "pit_size": len(members),
+            "selected_count": len(selected),
+            "outside_count": len(outside),
+            "outside_codes": ",".join(outside[:20]),
+            "passed": len(outside) == 0 and len(members) > 0,
+        })
+    return pd.DataFrame(rows).set_index("input_ts").sort_index()
+
+
+def _labeled_to_factor_values(labeled, name):
+    label_col = f"{name}_label"
+    factor_values = labeled.reset_index()[['input_ts', 'code', name, label_col]].copy()
+    factor_values = factor_values.rename(columns={
+        'input_ts': '信号日', 'code': '股票代码',
+        name: '因子值', label_col: '分组',
+    })
+    return factor_values.sort_values(
+        ['信号日', '分组', '因子值'], ascending=[True, False, False]
+    ).reset_index(drop=True)
+
+
+def grouped_factor_statistics(labeled, name):
+    """基于 single_characteristic 的全量分组矩阵生成统计表。"""
+    label_col = f"{name}_label"
+    df = labeled.reset_index()[["input_ts", "code", name, label_col]].copy()
+    df = df.rename(columns={"input_ts": "信号日", "code": "股票代码", name: "因子值", label_col: "分组"})
+    by_date_group = (
+        df.groupby(["信号日", "分组"])["因子值"]
+        .agg(
+            count="count",
+            mean="mean",
+            std="std",
+            min="min",
+            q25=lambda s: s.quantile(0.25),
+            median="median",
+            q75=lambda s: s.quantile(0.75),
+            max="max",
+        )
+        .reset_index()
+    )
+    summary = (
+        df.groupby("分组")["因子值"]
+        .agg(
+            count="count",
+            mean="mean",
+            std="std",
+            min="min",
+            q25=lambda s: s.quantile(0.25),
+            median="median",
+            q75=lambda s: s.quantile(0.75),
+            max="max",
+        )
+        .reset_index()
+    )
+    return df, by_date_group, summary
+
+
+def append_grouped_profiling_excel(output_dir, name, labeled):
+    """把全量分组矩阵与分组统计写入 profiling Excel。"""
+    excel_path = f"{output_dir}/{name}_profiling.xlsx"
+    values, by_date_group, summary = grouped_factor_statistics(labeled, name)
+    with pd.ExcelWriter(excel_path, engine="openpyxl", mode="a", if_sheet_exists="replace") as writer:
+        by_date_group.to_excel(writer, sheet_name="group_stats_by_date", index=False)
+        summary.to_excel(writer, sheet_name="group_stats_summary", index=False)
+        values.to_excel(writer, sheet_name="group_factor_values", index=False)
+    return {
+        "group_stats_by_date": by_date_group,
+        "group_stats_summary": summary,
+        "group_factor_values": values,
+    }
 
 
 # ============================================================
@@ -192,6 +363,7 @@ class RunResult:
     profiling: dict | None = None
     neutralize_stats: pd.DataFrame | None = None
     factor_values: pd.DataFrame | None = None
+    pit_validation: pd.DataFrame | None = None
 
     def __iter__(self):
         return iter((self.backtest, self.analyst))
@@ -239,6 +411,7 @@ class FactorPipeline:
             series = sub.set_index('code')[metric]
             series = winsorize_factor(series, method='mad', n=3.0)
             series = standardize_factor(series, method='zscore')
+            before = series.copy()
 
             industry = None
             if ind_panel is not None and \
@@ -252,6 +425,16 @@ class FactorPipeline:
                     series, industry_labels=industry,
                     log_market_cap=mktcap, return_stats=True)
                 st['input_ts'] = pd.Timestamp(ts)
+                if mktcap is not None:
+                    pre_pair = pd.concat([before.rename('factor'), mktcap.rename('log_mktcap')], axis=1).dropna()
+                    post_pair = pd.concat([series.rename('factor'), mktcap.rename('log_mktcap')], axis=1).dropna()
+                    st['mktcap_corr_before'] = pre_pair['factor'].corr(pre_pair['log_mktcap']) if len(pre_pair) > 2 else np.nan
+                    st['mktcap_corr_after'] = post_pair['factor'].corr(post_pair['log_mktcap']) if len(post_pair) > 2 else np.nan
+                if industry is not None:
+                    pre_ind = pd.concat([before.rename('factor'), industry.rename('industry')], axis=1).dropna()
+                    post_ind = pd.concat([series.rename('factor'), industry.rename('industry')], axis=1).dropna()
+                    st['industry_abs_mean_before'] = pre_ind.groupby('industry')['factor'].mean().abs().mean() if len(pre_ind) else np.nan
+                    st['industry_abs_mean_after'] = post_ind.groupby('industry')['factor'].mean().abs().mean() if len(post_ind) else np.nan
                 neu_stats.append(st)
 
             sub = sub.set_index('code')
@@ -272,6 +455,7 @@ class FactorPipeline:
 
     def _run_profiling(self, factor_wide, name, output_dir, verbose):
         """因子值体检：分布函数/集中度/p值阈值/时变稳定性 + PNG。"""
+        _ensure_profiling_runtime()
         profile = factor_profile_payload(factor_wide)
         results = {
             'distribution': describe_distribution(factor_wide),
@@ -373,14 +557,19 @@ class FactorPipeline:
         中性化：use_industry / use_mktcap 控制，诊断收入 RunResult.neutralize_stats。
         dump_excel=False 时跳过 dump_to_excel（调用方可自行异步落盘，避免阻塞）。
         """
+        print("  加载运行依赖", flush=True)
+        _ensure_runtime()
+        print("  运行依赖已加载", flush=True)
         sp = self.spec
+        warmup_days = infer_warmup_days(sp.compute_kwargs, minimum=30)
+        fetch_start = (pd.Timestamp(start_date) - pd.Timedelta(days=warmup_days)).strftime("%Y-%m-%d")
 
         rebalance_dates = get_absolute_trade_days(start_date, end_date,
                                                   rebal_freq, use_pmc=False)
-        all_trade_days = get_absolute_trade_days(start_date, end_date,
+        all_trade_days = get_absolute_trade_days(fetch_start, end_date,
                                                  "D", use_pmc=False)
         if verbose:
-            print(f"调仓日数量: {len(rebalance_dates)}")
+            print(f"取数起始(自动预热): {fetch_start}  调仓日数量: {len(rebalance_dates)}")
 
         # 0. 信号日 = 调仓日前一交易日
         td = sorted(all_trade_days)
@@ -394,35 +583,43 @@ class FactorPipeline:
         # 1. 股票池：时变成分股（PIT）或静态 universe
         pit_universe = None
         if sp.index_code:
+            if verbose:
+                print(f"  构建 PIT 股票池: {sp.index_code}, 信号日 {len(signal_dates)} 期", flush=True)
             pit_universe = build_pit_universe(signal_dates, sp.index_code)
             universe = sorted({c for codes in pit_universe.values() for c in codes})
             if verbose:
-                print(f"  {sp.index_code} 成分股并集: {len(universe)} 只 (逐期 PIT 过滤)")
+                empty_days = sum(1 for codes in pit_universe.values() if not codes)
+                print(f"  {sp.index_code} 成分股并集: {len(universe)} 只 (逐期 PIT 过滤, 空快照 {empty_days} 期)", flush=True)
         elif universe is None:
             raise ValueError("未设 index_code 时必须传入静态 universe")
 
         # 2. 批量抓宽表
         wides = {}
         for arg_name, metric in sp.inputs.items():
+            if verbose:
+                print(f"  开始取数: {arg_name} ({metric}) {fetch_start} -> {end_date}, universe={len(universe or [])}", flush=True)
             w = fetch_daily_wide(metric, universe=universe,
-                                 start_date=start_date, end_date=end_date,
+                                 start_date=fetch_start, end_date=end_date,
                                  table_name=sp.table_name)
             if verbose:
-                print(f"  {arg_name} ({metric}): {w.shape}")
+                print(f"  完成取数: {arg_name} ({metric}) {w.shape}", flush=True)
             wides[arg_name] = w
         if extra_inputs:
             wides.update(extra_inputs)
 
         # 3. 调用算子
+        if verbose:
+            print(f"  开始计算因子: {sp.name}", flush=True)
         factor_wide = sp.compute(**wides, **sp.compute_kwargs)
-
-        # 3a. Profiling 体检（中性化之前，反映原始因子分布）
-        profiling = None
-        if include_profiling:
-            profiling = self._run_profiling(factor_wide, sp.name, output_dir, verbose)
+        if verbose:
+            print(f"  完成计算因子: {factor_wide.shape}", flush=True)
 
         # 4. 宽 → 长（仅信号日）
+        if verbose:
+            print(f"  因子宽表转长表: signal_dates={len(signal_dates)}", flush=True)
         prequery = wide_to_prequery(factor_wide, sp.name, signal_dates)
+        if verbose:
+            print(f"  长表行数: {len(prequery)}", flush=True)
 
         # 4b. 时变成分股逐期过滤
         if pit_universe is not None:
@@ -436,10 +633,10 @@ class FactorPipeline:
         if sp.use_industry or sp.use_mktcap:
             mktcap_col = None
             if sp.use_mktcap:
-                mktcap_wide = fetch_daily_wide("市值", universe=universe,
-                                               start_date=start_date,
+                mktcap_wide = fetch_daily_wide("A股流通市值(元)", universe=universe,
+                                               start_date=fetch_start,
                                                end_date=end_date,
-                                               table_name="fundamentals")
+                                               table_name=sp.table_name)
                 if not mktcap_wide.empty:
                     log_mktcap = np.log(mktcap_wide.replace(0, np.nan))
                     lm_long = wide_to_prequery(log_mktcap, "log_mktcap", signal_dates)
@@ -453,33 +650,54 @@ class FactorPipeline:
                 mktcap_col=mktcap_col, verbose=verbose)
 
         # 5. 分组
+        if verbose:
+            print(f"  开始分组: n_quantiles={n_quantiles}", flush=True)
         labeled = single_characteristic(prequery, sp.name, {sp.name: n_quantiles})
+        if verbose:
+            print(f"  完成分组: {len(labeled)} 行", flush=True)
+        factor_values = _labeled_to_factor_values(labeled, sp.name)
 
-        # 5a. 因子值展示表：每行 = (信号日, 股票) 的因子值 + 分组标签，
-        #     按 (日期, 分组降序, 因子值降序) 排好，供 dump Excel 的 factor_values sheet
-        label_col = f"{sp.name}_label"
-        factor_values = labeled.reset_index()[['input_ts', 'code', sp.name, label_col]].copy()
-        factor_values = factor_values.rename(columns={
-            'input_ts': '信号日', 'code': '股票代码',
-            sp.name: '因子值', label_col: '分组',
-        })
-        factor_values = factor_values.sort_values(
-            ['信号日', '分组', '因子值'], ascending=[True, False, False]
-        ).reset_index(drop=True)
+        # 5a. Profiling 体检：基于 single_characteristic 返回的全量 n 分组矩阵
+        #     （不是最终持仓股票子集），便于检查所有可选股票的分组分布。
+        profiling = None
+        if include_profiling:
+            if verbose:
+                print("  开始 Profiling: 全量分组矩阵", flush=True)
+            grouped_wide = labeled[sp.name].unstack('code')
+            profiling = self._run_profiling(grouped_wide, sp.name, output_dir, verbose)
+            profiling.update(append_grouped_profiling_excel(output_dir, sp.name, labeled))
+            if verbose:
+                print("  完成 Profiling", flush=True)
 
         # 6. 权重
         long_groups, short_groups = self._resolve_groups(n_quantiles)
+        if verbose:
+            print(f"  开始生成权重: long={long_groups}, short={short_groups}", flush=True)
         weights = get_single_factor_weight(labeled, {
             'factor_key': sp.name, 'mode': sp.weight_mode,
             'long': long_groups, 'short': short_groups,
         })
+        if verbose:
+            print(f"  完成生成权重: {weights.shape}", flush=True)
+        pit_validation = validate_weights_in_pit_universe(weights, pit_universe)
+        if verbose and pit_universe is not None and not pit_validation.empty:
+            bad = int((~pit_validation['passed']).sum())
+            print(f"  PIT 权重校验: {len(pit_validation)-bad}/{len(pit_validation)} 期通过")
+            if bad:
+                print("  [WARN] 存在调仓股票不在当期 PIT 股票池内，请检查 pit_validation")
         weights.index = weights.index + pd.Timedelta(minutes=10)
 
         # 7. 回测
+        if verbose:
+            print("  开始回测", flush=True)
         bt = BacktestBase(weights, metric=sp.backtest_metric, symbol=sp.name,
                           amount=initial_amount, time_tolerance=24 * 11)
+        if verbose:
+            print("  完成回测", flush=True)
 
         # 8. 绩效评价：Analyst 门面一键出全指标分组表 + Excel + 交互 HTML
+        if verbose:
+            print("  开始生成报告", flush=True)
         analyst = Analyst.from_backtest(bt, name=sp.name)
         summary = analyst.report(
             to_excel=f"{output_dir}/{sp.name}_report.xlsx",
@@ -499,4 +717,5 @@ class FactorPipeline:
 
         return RunResult(backtest=bt, analyst=analyst,
                          profiling=profiling, neutralize_stats=neu_stats,
-                         factor_values=factor_values)
+                         factor_values=factor_values,
+                         pit_validation=pit_validation)

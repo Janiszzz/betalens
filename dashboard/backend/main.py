@@ -88,6 +88,11 @@ def create_run(request: RunRequest):
     return RunCreated(run_id=run.run_id)
 
 
+@app.delete("/api/runs")
+def clear_runs():
+    return _manager().clear()
+
+
 @app.get("/api/runs/{run_id}", response_model=RunState)
 def run_state(run_id: str):
     try:

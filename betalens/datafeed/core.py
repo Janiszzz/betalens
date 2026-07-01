@@ -56,7 +56,6 @@ from datetime import datetime
 import warnings
 
 # 导入新的工具模块（函数式）
-from .excel import read_file, cross_section_to_db_format, check_excel_errors, apply_time_alignment
 from .validation import validate_and_fix
 from .query import (
     query_nearest_after as _query_nearest_after,
@@ -69,22 +68,36 @@ from .query import (
     get_latest_date as _get_latest_date,
     build_query as _build_query
 )
-from .integration import (
-    process_directory_tree as _process_directory_tree,
-    incremental_insert as _incremental_insert,
-    insert_dataframe as _insert_dataframe,
-    process_excel_to_db_format as _process_excel_to_db_format
-)
-from .wind_ingest import (
-    fetch_daily_market as _fetch_daily_market,
-    fetch_daily_index as _fetch_daily_index,
-    fetch_daily_fund as _fetch_daily_fund,
-    fetch_daily_bond as _fetch_daily_bond
-)
-from .ede_processor import (
-    process_ede_file as _process_ede_file
-)
 from .config import get_database_config, get_logging_config
+
+
+def _excel_api():
+    from .excel import read_file, check_excel_errors, apply_time_alignment
+
+    return read_file, check_excel_errors, apply_time_alignment
+
+
+def _integration_api():
+    from .integration import (
+        process_directory_tree,
+        incremental_insert,
+        insert_dataframe,
+        process_excel_to_db_format,
+    )
+
+    return process_directory_tree, incremental_insert, insert_dataframe, process_excel_to_db_format
+
+
+def _wind_api():
+    from .wind_ingest import fetch_daily_market, fetch_daily_index, fetch_daily_fund, fetch_daily_bond
+
+    return fetch_daily_market, fetch_daily_index, fetch_daily_fund, fetch_daily_bond
+
+
+def _ede_api():
+    from .ede_processor import process_ede_file
+
+    return process_ede_file
 
 def func_timer(function):
     '''
@@ -250,6 +263,8 @@ class Datafeed():
             统计信息字典
         """
         self.logger.info(f"开始处理文件: {filepath}, 模式: {mode}")
+        _process_directory_tree, _incremental_insert, _insert_dataframe, _process_excel_to_db_format = _integration_api()
+        _read_file, _check_excel_errors, apply_time_alignment = _excel_api()
         
         # 1. 处理Excel为DB格式
         df, errors = _process_excel_to_db_format(
@@ -356,6 +371,8 @@ class Datafeed():
             >>> print(f"新增{result['new_rows']}行，跳过{result['skipped_rows']}行")
         """
         self.logger.info(f"开始处理EDE文件: {filepath}, 日期来源: {date_from}, 模式: {mode}")
+        _process_ede_file = _ede_api()
+        _process_directory_tree, _incremental_insert, _insert_dataframe, _process_excel_to_db_format = _integration_api()
         
         # 1. 处理EDE文件为DB格式
         df, errors = _process_ede_file(
@@ -428,6 +445,7 @@ class Datafeed():
         Returns:
             处理统计字典
         """
+        _process_directory_tree, _incremental_insert, _insert_dataframe, _process_excel_to_db_format = _integration_api()
         return _process_directory_tree(
             cursor=self.cursor,
             conn=self.conn,
@@ -461,6 +479,7 @@ class Datafeed():
         Returns:
             (新增行数, 重复行数)
         """
+        _process_directory_tree, _incremental_insert, _insert_dataframe, _process_excel_to_db_format = _integration_api()
         new_rows, skipped_rows = _incremental_insert(
             cursor=self.cursor,
             conn=self.conn,
@@ -684,6 +703,8 @@ class Datafeed():
             f"开始从Wind获取数据: codes={len(codes)}, "
             f"date_range={start_date}~{end_date}, asset_type={asset_type}"
         )
+        _fetch_daily_market, _fetch_daily_index, _fetch_daily_fund, _fetch_daily_bond = _wind_api()
+        _process_directory_tree, _incremental_insert, _insert_dataframe, _process_excel_to_db_format = _integration_api()
         
         # 1. 从Wind获取数据
         df = _fetch_daily_market(
@@ -1064,6 +1085,7 @@ class Datafeed():
         Returns:
             (是否通过, 错误列表)
         """
+        read_file, check_excel_errors, _apply_time_alignment = _excel_api()
         df = read_file(filepath, logger=self.logger)
         return check_excel_errors(df, checks, logger=self.logger)
     

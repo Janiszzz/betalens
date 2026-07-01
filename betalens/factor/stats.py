@@ -10,9 +10,14 @@ import pandas as pd
 import numpy as np
 import sys
 from pathlib import Path
-import statsmodels.api as sm
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+
+def _statsmodels():
+    import statsmodels.api as sm
+
+    return sm
 
 try:
     from scipy import stats as _scipy_stats
@@ -203,6 +208,7 @@ def fama_macbeth(
             ind_t = industry_dummies.loc[ts].reindex(valid_codes).fillna(0)
             X_t = pd.concat([X_t, ind_t], axis=1)
 
+        sm = _statsmodels()
         X_t = sm.add_constant(X_t.astype(float))
         try:
             model = sm.OLS(y_t.astype(float), X_t).fit()
@@ -569,6 +575,7 @@ def timing_regression(
             'F统计量', 'F-P值', '样本量', 'β是否显著'
         ]}
 
+    sm = _statsmodels()
     X = sm.add_constant(aligned['factor'].astype(float))
     y = aligned['fwd_ret'].astype(float)
     model = sm.OLS(y, X).fit()
@@ -1276,6 +1283,7 @@ def plot_factor_vs_return(
 
     # OLS fit
     if len(aligned) > 2:
+        sm = _statsmodels()
         X = sm.add_constant(aligned['factor'].astype(float))
         model = sm.OLS(aligned['fwd_ret'].astype(float) * 100, X).fit()
         x_range = np.linspace(aligned['factor'].min(), aligned['factor'].max(), 100)

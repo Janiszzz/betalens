@@ -7,10 +7,6 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from betalens.analyst import metrics as M
-from betalens.analyst.naming import get_name_map, label
-from betalens.factor.profiling import factor_profile_payload
-
 
 PERCENT_METRICS = {
     "策略收益",
@@ -41,6 +37,12 @@ def _clean_scalar(value: Any) -> Any:
     if isinstance(value, (np.bool_,)):
         return bool(value)
     return value
+
+
+def _label_code(code: str) -> str:
+    if code == "cash":
+        return "现金"
+    return str(code)
 
 
 def _json_records(df: pd.DataFrame | None, max_rows: int | None = None) -> list[dict[str, Any]]:
@@ -93,8 +95,6 @@ def _position_weight_records(
     weights = dpv.div(dpv.sum(axis=1), axis=0).fillna(0.0)
     stock_cols = [c for c in weights.columns if str(c) != "cash"]
     stock_w = weights[stock_cols] if stock_cols else pd.DataFrame(index=weights.index)
-    name_map = get_name_map([str(c) for c in stock_cols])
-
     selected: set[Any] = set()
     for _, row in stock_w.iterrows():
         non_zero = row[row > 0]
@@ -127,7 +127,7 @@ def _position_weight_records(
         for code, weight in row.items():
             if pd.isna(weight) or float(weight) <= 0:
                 continue
-            display_name = str(code) if code in ("其他", "现金") else label(str(code), name_map)
+            display_name = str(code) if code in ("其他", "现金") else _label_code(str(code))
             records.append(
                 {
                     "date": date,
@@ -207,6 +207,8 @@ def build_factor_profile_payload(
         }
 
     long = factor_df.rename(columns={"signal_date": "input_ts", "factor_value": "factor"})
+    from betalens.factor.profiling import factor_profile_payload
+
     payload = factor_profile_payload(long[["input_ts", "code", "factor"]], metric="factor")
     dates = factor_df["signal_date"].sort_values()
     payload.update(
@@ -276,7 +278,6 @@ def _rebalance_holding_records(
 
     w = weight.copy().sort_index().replace([np.inf, -np.inf], np.nan).fillna(0.0)
     stock_cols = [c for c in w.columns if str(c) != "cash"]
-    name_map = get_name_map([str(c) for c in stock_cols])
     factor_df = _normalize_factor_values(factor_values)
 
     records: list[dict[str, Any]] = []
@@ -294,7 +295,7 @@ def _rebalance_holding_records(
                     "datetime": ts.strftime("%Y-%m-%d %H:%M:%S"),
                     "rank": rank,
                     "code": code_str,
-                    "name": label(code_str, name_map),
+                    "name": _label_code(code_str),
                     "weight": _clean_scalar(weight_value),
                     "factorValue": factor.get("factorValue"),
                     "group": factor.get("group"),
@@ -380,6 +381,8 @@ def build_chart_data(bt: Any, factor_values: pd.DataFrame | None = None) -> dict
     daily_pnl_total = getattr(bt, "daily_pnl_total", None)
     daily_position_value = getattr(bt, "daily_position_value", None)
     daily_amount = getattr(bt, "daily_amount", None)
+    from betalens.analyst import metrics as M
+
     drawdown = M._drawdown_series(nav) if nav is not None and len(nav) else None
     return {
         "nav": _series_points(nav, "nav"),
@@ -412,8 +415,6 @@ def build_position_table(bt: Any) -> list[dict[str, Any]]:
 
     frames = [x for x in (position, position_value, daily_pnl) if x is not None and not x.empty]
     codes = sorted({str(c) for frame in frames for c in frame.columns})
-    name_map = get_name_map([c for c in codes if c != "cash"])
-
     dates = sorted({pd.Timestamp(idx) for frame in frames for idx in frame.index})
     records: list[dict[str, Any]] = []
     for dt in dates:
@@ -434,7 +435,7 @@ def build_position_table(bt: Any) -> list[dict[str, Any]]:
             records.append(
                 {
                     "date": date_key,
-                    "品种": label(code, name_map),
+                    "品种": _label_code(code),
                     "代码": code,
                     "多空": "现金" if code == "cash" else ("多" if (qty or 0) >= 0 else "空"),
                     "数量": qty,
@@ -478,9 +479,12 @@ def build_result_payload(
     run: Any,
     table_metas: dict[str, dict[str, Any]],
     factor_values: pd.DataFrame | None = None,
+    pit_validation: pd.DataFrame | None = None,
+    neutralize_stats: pd.DataFrame | None = None,
 ) -> dict[str, Any]:
     """构建可 JSON 化的结果（指标+图表+表元数据）。巨表明细不在内,走 /table 分页。
     不含 downloads —— 那个按需实时探测磁盘,因为 dump 是异步落盘的。"""
+    profiling = build_factor_profile_payload(factor_values)
     return {
         "run": run.to_state().model_dump(),
         "factor": {
@@ -492,9 +496,17 @@ def build_result_payload(
         "metrics": build_metrics(run.analyst, run.backtest),
         "charts": {
             **build_chart_data(run.backtest, factor_values),
-            "profiling": build_factor_profile_payload(factor_values),
+            "profiling": profiling,
         },
         "tables": table_metas,
+        "diagnostics": {
+            "pitValidation": _json_records(
+                pit_validation.reset_index() if pit_validation is not None and not pit_validation.empty else pit_validation
+            ),
+            "neutralizeStats": _json_records(
+                neutralize_stats.reset_index() if neutralize_stats is not None and not neutralize_stats.empty else neutralize_stats
+            ),
+        },
     }
 
 

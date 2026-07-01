@@ -215,7 +215,24 @@ def _key_metric(rows: list[dict[str, Any]], day: int) -> dict[str, Any] | None:
     return rows[-1] if rows else None
 
 
-def _returns_matrix_records(df: pd.DataFrame | None, max_events: int = 30) -> list[dict[str, Any]]:
+def _event_date_for_index(event_dates: Any, event_idx: Any) -> Any:
+    if event_dates is None:
+        return None
+    try:
+        idx = int(event_idx)
+    except (TypeError, ValueError):
+        return None
+    try:
+        return _clean_scalar(event_dates[idx])
+    except (IndexError, KeyError, TypeError):
+        return None
+
+
+def _returns_matrix_records(
+    df: pd.DataFrame | None,
+    event_dates: Any = None,
+    max_events: int = 30
+) -> list[dict[str, Any]]:
     if df is None or df.empty:
         return []
     limited = df.iloc[:, :max_events]
@@ -226,13 +243,18 @@ def _returns_matrix_records(df: pd.DataFrame | None, max_events: int = 30) -> li
                 {
                     "day": _clean_scalar(day),
                     "event": str(event_idx),
+                    "eventDate": _event_date_for_index(event_dates, event_idx),
                     "return": _clean_scalar(value),
                 }
             )
     return rows
 
 
-def _cumulative_matrix_records(df: pd.DataFrame | None, max_events: int = 30) -> list[dict[str, Any]]:
+def _cumulative_matrix_records(
+    df: pd.DataFrame | None,
+    event_dates: Any = None,
+    max_events: int = 30
+) -> list[dict[str, Any]]:
     if df is None or df.empty:
         return []
     limited = df.iloc[:, :max_events]
@@ -243,6 +265,7 @@ def _cumulative_matrix_records(df: pd.DataFrame | None, max_events: int = 30) ->
                 {
                     "day": _clean_scalar(day),
                     "event": str(event_idx),
+                    "eventDate": _event_date_for_index(event_dates, event_idx),
                     "cumulativeReturn": _clean_scalar(value),
                 }
             )
@@ -335,8 +358,11 @@ def run_event_study(params: dict[str, Any]) -> dict[str, Any]:
         "charts": {
             "dailyStats": daily,
             "cumulativeStats": cumulative,
-            "returnsMatrix": _returns_matrix_records(raw.get("returns_matrix")),
-            "cumulativeReturnsMatrix": _cumulative_matrix_records(raw.get("cumulative_returns_matrix")),
+            "returnsMatrix": _returns_matrix_records(raw.get("returns_matrix"), raw.get("event_dates")),
+            "cumulativeReturnsMatrix": _cumulative_matrix_records(
+                raw.get("cumulative_returns_matrix"),
+                raw.get("event_dates"),
+            ),
         },
         "tables": {
             "dailyStats": daily,

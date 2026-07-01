@@ -32,6 +32,9 @@ from factor_template_liqdemand import (  # noqa: E402
     FactorSpec, FactorPipeline, LiqDemandPipeline, clean_inf,
 )
 
+# Dashboard 约定读取模块内 FactorPipeline；LiqDemand 类需要使用专用管线。
+FactorPipeline = LiqDemandPipeline
+
 
 def compute_disp(close_wide, window=252):
     """δ_raw = −( P / 过去 window 日最高收盘价 )。

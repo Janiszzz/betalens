@@ -94,7 +94,15 @@ const asNumber = (value: unknown, fallback: number) => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
+const formatEventDateLabel = (value: unknown) => {
+  const text = asString(value);
+  if (!text) return '';
+  const dateOnly = text.match(/^\d{4}-\d{2}-\d{2}/)?.[0];
+  return dateOnly || text;
+};
+
 const buildRunParams = (defaults: Record<string, unknown>) => ({
+  ...defaults,
   start_date: asString(defaults.start_date, '2024-01-01'),
   end_date: asString(defaults.end_date, '2025-12-31'),
   initial_amount: asNumber(defaults.initial_amount, 100000000),
@@ -405,6 +413,21 @@ function FactorPage({
     }
   };
 
+  const clearRuns = async () => {
+    setError(null);
+    try {
+      const cleared = await api.clearRuns();
+      setRunId(null);
+      setState(null);
+      setResult(null);
+      setSubmitting(false);
+      setLogs(`[dashboard] 已清空 ${cleared.cleared} 个旧任务\n`);
+      setActiveTab('logs');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
   if (!source) {
     return <main className="empty-state">未选择因子</main>;
   }
@@ -421,6 +444,10 @@ function FactorPage({
         </div>
         <div className="run-actions">
           <StatusBadge state={state} />
+          <button className="secondary-button" onClick={clearRuns} disabled={submitting} title="清空旧任务">
+            <RotateCw size={15} />
+            清空任务
+          </button>
           <button className="primary-button" onClick={startRun} disabled={!source || submitting || state?.status === 'running' || state?.status === 'queued'}>
             {submitting || state?.status === 'running' || state?.status === 'queued' ? <Loader2 className="spin" size={16} /> : <Play size={16} />}
             运行回测
@@ -500,6 +527,10 @@ function ParameterPanel({
       <LabeledInput label="分组数" type="number" value={asString(params.n_quantiles)} onChange={(v) => onParam('n_quantiles', Number(v))} />
       <LabeledInput label="指数代码" value={asString(params.index_code)} onChange={(v) => onParam('index_code', v)} />
       <LabeledInput label="交易价格" value={asString(params.backtest_metric)} onChange={(v) => onParam('backtest_metric', v)} />
+      {'warmup_days' in params ? <LabeledInput label="预热天数" type="number" value={asString(params.warmup_days)} onChange={(v) => onParam('warmup_days', Number(v))} /> : null}
+      {'pretom_only' in params ? <label className="field inline"><input type="checkbox" checked={Boolean(params.pretom_only)} onChange={(event) => onParam('pretom_only', event.target.checked)} />PreTOM择时</label> : null}
+      {'pretom_lo' in params ? <LabeledInput label="PreTOM起点" type="number" value={asString(params.pretom_lo)} onChange={(v) => onParam('pretom_lo', Number(v))} /> : null}
+      {'pretom_hi' in params ? <LabeledInput label="PreTOM终点" type="number" value={asString(params.pretom_hi)} onChange={(v) => onParam('pretom_hi', Number(v))} /> : null}
       <label className="field inline"><input type="checkbox" checked={Boolean(params.use_industry)} onChange={(event) => onParam('use_industry', event.target.checked)} />行业中性化</label>
       <label className="field inline"><input type="checkbox" checked={Boolean(params.use_mktcap)} onChange={(event) => onParam('use_mktcap', event.target.checked)} />市值中性化</label>
       <label className="field inline"><input type="checkbox" checked={Boolean(params.include_profiling)} onChange={(event) => onParam('include_profiling', event.target.checked)} />Profiling</label>
@@ -677,22 +708,24 @@ function EventStudyResultView({ result }: { result: EventStudyResult }) {
   const cumulativeMatrix = result.charts.cumulativeReturnsMatrix || [];
   const summary = result.summary;
   const cumulativeEventSeries = useMemo(() => {
-    const grouped = new Map<string, { day: number | string; value: number | null }[]>();
+    const grouped = new Map<string, { label: string; rows: { day: number | string; value: number | null }[] }>();
     cumulativeMatrix.forEach((row) => {
       const event = String(row.event ?? '');
       if (!event) return;
+      const label = formatEventDateLabel(row.eventDate) || `事件 ${event}`;
       const value = row.cumulativeReturn === null || row.cumulativeReturn === undefined
         ? null
         : Number(row.cumulativeReturn);
-      if (!grouped.has(event)) grouped.set(event, []);
-      grouped.get(event)!.push({
+      if (!grouped.has(event)) grouped.set(event, { label, rows: [] });
+      grouped.get(event)!.rows.push({
         day: row.day as number | string,
         value: Number.isFinite(value) ? value : null
       });
     });
-    return Array.from(grouped.entries()).map(([event, rows]) => ({
+    return Array.from(grouped.entries()).map(([event, series]) => ({
       event,
-      rows: rows.sort((a, b) => Number(a.day) - Number(b.day))
+      label: series.label,
+      rows: series.rows.sort((a, b) => Number(a.day) - Number(b.day))
     }));
   }, [cumulativeMatrix]);
 
@@ -772,10 +805,10 @@ function EventStudyResultView({ result }: { result: EventStudyResult }) {
                 y: series.rows.map((row) => row.value),
                 type: 'scatter',
                 mode: 'lines',
-                name: `事件 ${series.event}`,
+                name: series.label,
                 line: { width: 1.4 },
                 opacity: 0.72,
-                hovertemplate: `事件 ${series.event}<br>Day %{x}<br>累积收益 %{y:.2%}<extra></extra>`
+                hovertemplate: `${series.label}<br>Day %{x}<br>累积收益 %{y:.2%}<extra></extra>`
               }))}
               layout={{
                 ...eventLayout('每次事件前后累积收益', 360),
@@ -911,8 +944,32 @@ function Overview({ result, state }: { result: RunResult | null; state: RunState
         </Suspense>
       </div>
       <FactorProfilingPanel runId={result.run.run_id} initial={result.charts.profiling} />
+      <DiagnosticsPanel result={result} />
       <RebalanceHoldings records={result.charts.rebalanceHoldings || []} />
       <Downloads result={result} />
+    </div>
+  );
+}
+
+function DiagnosticsPanel({ result }: { result: RunResult }) {
+  const pitRows = result.diagnostics?.pitValidation || [];
+  const neutralRows = result.diagnostics?.neutralizeStats || [];
+  if (!pitRows.length && !neutralRows.length) return null;
+  return (
+    <div className="diagnostics-panel">
+      <div className="section-title"><CheckCircle2 size={18} />约束与中性化验证</div>
+      {neutralRows.length ? (
+        <div className="profiling-table-card">
+          <div className="holding-subtitle">中性化前后暴露：市值相关与行业均值偏离应在中性化后下降。</div>
+          <SimpleTable rows={neutralRows} maxHeight={260} />
+        </div>
+      ) : null}
+      {pitRows.length ? (
+        <div className="profiling-table-card">
+          <div className="holding-subtitle">PIT 股票池校验：outside_count 应为 0，passed 应为 true。</div>
+          <SimpleTable rows={pitRows} maxHeight={260} />
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -923,25 +980,36 @@ function FactorProfilingPanel({ runId, initial }: { runId: string; initial: Fact
   const [dateTo, setDateTo] = useState(initial?.dateTo || '');
   const [loading, setLoading] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
-
-  useEffect(() => {
-    setProfile(initial);
-    setDateFrom(initial?.dateFrom || '');
-    setDateTo(initial?.dateTo || '');
-    setProfileError(null);
-  }, [initial, runId]);
+  const autoLoadKey = useRef('');
 
   const loadProfile = async (from = dateFrom, to = dateTo) => {
     setLoading(true);
     setProfileError(null);
     try {
-      setProfile(await api.profiling(runId, { dateFrom: from, dateTo: to }));
+      const next = await api.profiling(runId, { dateFrom: from, dateTo: to });
+      setProfile(next);
+      if (!from) setDateFrom(next.dateFrom || '');
+      if (!to) setDateTo(next.dateTo || '');
     } catch (err) {
       setProfileError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    setProfile(initial);
+    setDateFrom(initial?.dateFrom || '');
+    setDateTo(initial?.dateTo || '');
+    setProfileError(null);
+    autoLoadKey.current = '';
+  }, [initial, runId]);
+
+  useEffect(() => {
+    if (profile?.available || autoLoadKey.current === runId) return;
+    autoLoadKey.current = runId;
+    loadProfile('', '');
+  }, [profile?.available, runId]);
 
   const resetRange = () => {
     const from = initial?.dateFrom || '';
@@ -955,7 +1023,13 @@ function FactorProfilingPanel({ runId, initial }: { runId: string; initial: Fact
     return (
       <div className="chart-card">
         <div className="section-title"><Activity size={18} />因子值分布诊断</div>
+        {profileError && <div className="global-error">{profileError}</div>}
         <div className="table-empty">本次回测没有可展示的因子值 profiling 数据</div>
+        <div className="table-controls">
+          <button className="secondary-button" onClick={() => loadProfile('', '')} disabled={loading}>
+            <RotateCw size={15} className={loading ? 'spin' : ''} />重新加载
+          </button>
+        </div>
       </div>
     );
   }
