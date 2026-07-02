@@ -13,8 +13,8 @@ from pathlib import Path
 from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from datafeed.validation import fix_null_values, FillStrategy
-from datafeed import Datafeed, query_industry
+from betalens.datafeed.validation import fix_null_values, FillStrategy
+from betalens.datafeed import Datafeed, query_industry
 
 
 def _statsmodels():

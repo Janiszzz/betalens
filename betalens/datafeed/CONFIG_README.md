@@ -9,7 +9,7 @@ datafeed模块现已支持外置配置管理！所有默认参数都已迁移到
 无需任何修改，模块会自动加载配置：
 
 ```python
-from datafeed import Datafeed
+from betalens.datafeed import Datafeed
 
 # 自动从config.json加载配置
 df = Datafeed("daily_market_data")
@@ -61,7 +61,7 @@ df = Datafeed("daily_market_data")
 ### 读取配置
 
 ```python
-from datafeed import get_config
+from betalens.datafeed.config import get_config
 
 config = get_config()
 db_name = config.get('database.dbname')
@@ -70,7 +70,7 @@ db_name = config.get('database.dbname')
 ### 修改配置
 
 ```python
-from datafeed import get_config
+from betalens.datafeed.config import get_config
 
 config = get_config()
 config.set('database.dbname', 'new_database')
@@ -80,7 +80,7 @@ config.save()  # 保存到文件
 ### 运行时覆盖
 
 ```python
-from datafeed import Datafeed
+from betalens.datafeed import Datafeed
 
 # 临时覆盖配置
 df = Datafeed(
@@ -113,7 +113,7 @@ df = Datafeed(
 2. 修改生产环境配置
 3. 代码中指定配置文件：
 ```python
-from datafeed.config import ConfigManager
+from betalens.datafeed.config import ConfigManager
 config = ConfigManager('datafeed/config.prod.json')
 ```
 
@@ -121,7 +121,7 @@ config = ConfigManager('datafeed/config.prod.json')
 使用环境变量：
 ```python
 import os
-from datafeed import get_config
+from betalens.datafeed.config import get_config
 
 config = get_config()
 config.set('database.password', os.environ.get('DB_PASSWORD'))

@@ -746,41 +746,41 @@ class DataValidator:
     def check_null_values(self, df, columns=None, check_types=None):
         raise NotImplementedError(
             "DataValidator.check_null_values() 已弃用。\n"
-            "请使用: from datafeed.validation import check_null_values\n"
+            "请使用: from betalens.datafeed.validation import check_null_values\n"
             "         results = check_null_values(df, columns, check_types)"
         )
     
     def check_datetime_column(self, df, date_column, expected_freq=None, check_sorted=True, check_duplicates=True, check_format=True):
         raise NotImplementedError(
             "DataValidator.check_datetime_column() 已弃用。\n"
-            "请使用: from datafeed.validation import check_datetime_column\n"
+            "请使用: from betalens.datafeed.validation import check_datetime_column\n"
             "         results = check_datetime_column(df, date_column, expected_freq, check_sorted, check_duplicates, check_format)"
         )
     
     def fix_null_values(self, df, strategy, columns=None, fill_value=None, inplace=False):
         raise NotImplementedError(
             "DataValidator.fix_null_values() 已弃用。\n"
-            "请使用: from datafeed.validation import fix_null_values\n"
+            "请使用: from betalens.datafeed.validation import fix_null_values\n"
             "         fixed_df = fix_null_values(df, strategy, columns, fill_value, inplace)"
         )
     
     def drop_duplicates_strict(self, df, subset=None, keep='first', verify_all_fields=True, ignore_cols=None, inplace=False):
         raise NotImplementedError(
             "DataValidator.drop_duplicates_strict() 已弃用。\n"
-            "请使用: from datafeed.validation import drop_duplicates_strict\n"
+            "请使用: from betalens.datafeed.validation import drop_duplicates_strict\n"
             "         cleaned_df, report = drop_duplicates_strict(df, subset, keep, verify_all_fields, ignore_cols, inplace)"
         )
     
     def fix_datetime_column(self, df, date_column, fix_format=True, fix_duplicates='keep_first', fix_sort=True, sort_order='ascending', dedupe_subset=None, verify_all_fields=True, inplace=False):
         raise NotImplementedError(
             "DataValidator.fix_datetime_column() 已弃用。\n"
-            "请使用: from datafeed.validation import fix_datetime_column\n"
+            "请使用: from betalens.datafeed.validation import fix_datetime_column\n"
             "         fixed_df = fix_datetime_column(df, date_column, fix_format, fix_duplicates, fix_sort, sort_order, dedupe_subset, verify_all_fields, inplace)"
         )
     
     def validate_and_fix(self, df, validations, inplace=False):
         raise NotImplementedError(
             "DataValidator.validate_and_fix() 已弃用。\n"
-            "请使用: from datafeed.validation import validate_and_fix\n"
+            "请使用: from betalens.datafeed.validation import validate_and_fix\n"
             "         fixed_df, report = validate_and_fix(df, validations, inplace)"
         )

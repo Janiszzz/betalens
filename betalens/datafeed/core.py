@@ -231,6 +231,15 @@ class Datafeed():
         
         self.__class__._initialized = True
 
+    def _warn_manager_deprecated(self, method_name: str):
+        warnings.warn(
+            f"Datafeed.{method_name}() 属于数据库管理/导入能力，"
+            "已从业务 datafeed API 中迁出；请优先使用独立 GUI "
+            "database-manager/run_gui.py 或 betalens_db_manager。",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
     # ========== 插入功能 ==========
     
     def insert_csv_file(
@@ -262,6 +271,7 @@ class Datafeed():
         Returns:
             统计信息字典
         """
+        self._warn_manager_deprecated("insert_csv_file")
         self.logger.info(f"开始处理文件: {filepath}, 模式: {mode}")
         _process_directory_tree, _incremental_insert, _insert_dataframe, _process_excel_to_db_format = _integration_api()
         _read_file, _check_excel_errors, apply_time_alignment = _excel_api()
@@ -370,6 +380,7 @@ class Datafeed():
             ... )
             >>> print(f"新增{result['new_rows']}行，跳过{result['skipped_rows']}行")
         """
+        self._warn_manager_deprecated("insert_ede_file")
         self.logger.info(f"开始处理EDE文件: {filepath}, 日期来源: {date_from}, 模式: {mode}")
         _process_ede_file = _ede_api()
         _process_directory_tree, _incremental_insert, _insert_dataframe, _process_excel_to_db_format = _integration_api()
@@ -445,6 +456,7 @@ class Datafeed():
         Returns:
             处理统计字典
         """
+        self._warn_manager_deprecated("batch_process_excel_files")
         _process_directory_tree, _incremental_insert, _insert_dataframe, _process_excel_to_db_format = _integration_api()
         return _process_directory_tree(
             cursor=self.cursor,
@@ -479,6 +491,7 @@ class Datafeed():
         Returns:
             (新增行数, 重复行数)
         """
+        self._warn_manager_deprecated("incremental_update")
         _process_directory_tree, _incremental_insert, _insert_dataframe, _process_excel_to_db_format = _integration_api()
         new_rows, skipped_rows = _incremental_insert(
             cursor=self.cursor,
@@ -516,6 +529,7 @@ class Datafeed():
             (新增行数, 跳过行数, 冲突列表)
             冲突列表格式：[{datetime, code, name, metric, db_value, new_value}, ...]
         """
+        self._warn_manager_deprecated("insert_with_conflict_check")
         # 必需列
         required_cols = [date_column, code_column, 'name', metric_column, 'value']
         for col in required_cols:
@@ -639,6 +653,7 @@ class Datafeed():
         Returns:
             更新行数
         """
+        self._warn_manager_deprecated("update_data")
         # 必需列
         required_cols = [date_column, code_column, 'name', metric_column, 'value']
         for col in required_cols:
@@ -699,6 +714,7 @@ class Datafeed():
         Returns:
             统计信息字典
         """
+        self._warn_manager_deprecated("ingest_wind_daily_market")
         self.logger.info(
             f"开始从Wind获取数据: codes={len(codes)}, "
             f"date_range={start_date}~{end_date}, asset_type={asset_type}"
@@ -749,16 +765,19 @@ class Datafeed():
     def ingest_wind_daily_index(self, codes: list, start_date: str, end_date: str, 
                                   fields: list = None, mode: str = 'incremental') -> dict:
         """Wind指数数据抓取（便捷封装）"""
+        self._warn_manager_deprecated("ingest_wind_daily_index")
         return self.ingest_wind_daily_market(codes, start_date, end_date, fields, 'index', mode)
     
     def ingest_wind_daily_fund(self, codes: list, start_date: str, end_date: str,
                                 fields: list = None, mode: str = 'incremental') -> dict:
         """Wind基金数据抓取（便捷封装）"""
+        self._warn_manager_deprecated("ingest_wind_daily_fund")
         return self.ingest_wind_daily_market(codes, start_date, end_date, fields, 'fund', mode)
     
     def ingest_wind_daily_bond(self, codes: list, start_date: str, end_date: str,
                                 fields: list = None, mode: str = 'incremental') -> dict:
         """Wind债券数据抓取（便捷封装）"""
+        self._warn_manager_deprecated("ingest_wind_daily_bond")
         return self.ingest_wind_daily_market(codes, start_date, end_date, fields, 'bond', mode)
     
     # ========== 查询功能（薄封装）==========
@@ -1085,6 +1104,7 @@ class Datafeed():
         Returns:
             (是否通过, 错误列表)
         """
+        self._warn_manager_deprecated("check_excel_file")
         read_file, check_excel_errors, _apply_time_alignment = _excel_api()
         df = read_file(filepath, logger=self.logger)
         return check_excel_errors(df, checks, logger=self.logger)
@@ -1100,6 +1120,7 @@ class Datafeed():
         Returns:
             删除的行数
         """
+        self._warn_manager_deprecated("truncate_table")
         # 先查询表中的行数
         self.cursor.execute(f"SELECT COUNT(*) FROM {self.sheet}")
         count = self.cursor.fetchone()['count']

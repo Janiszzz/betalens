@@ -372,7 +372,7 @@ def process_ede_file(
         - metric: 指标名称
         - value: 数值
         - datetime: 日期时间
-        - note: 元数据（JSON格式）
+        - remark: 元数据（dict，可写入 JSONB）
     """
     if logger is None:
         logger = _get_default_logger()
@@ -480,7 +480,7 @@ def process_ede_file(
                     'metric': metric_name,
                     'value': value,
                     'datetime': final_datetime,
-                    'note': json.dumps(metadata, ensure_ascii=False)
+                    'remark': metadata
                 }
                 
                 result_rows.append(row_data)

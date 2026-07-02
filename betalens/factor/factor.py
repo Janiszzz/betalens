@@ -68,7 +68,7 @@ def get_tradable_pool(date_list, include_abnormal=False):
         code_ranges: 每个日期对应的股票代码列表
     """
     # 基于 trade_status 表查询，稀疏存储由 query_trade_status 解析为完整状态
-    from datafeed import Datafeed
+    from betalens.datafeed import Datafeed
 
     data = Datafeed("trade_status")
     df = pd.DataFrame()
@@ -156,7 +156,7 @@ def pre_query_characteristic_data(date_list, metric, time_tolerance=24*2*365, ta
         date_ranges, code_ranges = get_tradable_pool(date_list, include_abnormal=include_abnormal)
     
     # 创建Datafeed实例
-    from datafeed import Datafeed
+    from betalens.datafeed import Datafeed
 
     data = Datafeed(table_name)
     all_results = pd.DataFrame()

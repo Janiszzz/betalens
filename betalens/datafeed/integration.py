@@ -19,9 +19,13 @@ import json
 import shutil
 import psycopg2
 import psycopg2.extras
+import psycopg2.extensions
 
 from .excel import read_file, cross_section_to_db_format
 from .validation import validate_and_fix
+
+
+psycopg2.extensions.register_adapter(dict, psycopg2.extras.Json)
 
 
 def _get_default_logger():
@@ -849,4 +853,3 @@ def process_directory_tree(
     logger.info("="*50)
     
     return stats
-

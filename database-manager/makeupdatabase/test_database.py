@@ -24,12 +24,17 @@ import sys
 import argparse
 import logging
 from datetime import datetime, timedelta
+from typing import Dict
 import pandas as pd
+from psycopg2 import sql
 
 # 导入datafeed模块
 try:
-    from core import Datafeed
-    from config import get_database_config
+    from betalens.datafeed import Datafeed
+    from betalens.datafeed.config import get_database_config
+    from betalens_db_manager.constants import INSERT_ONLY
+    from betalens_db_manager.db import DatabaseClient
+    from betalens_db_manager.importers import DatabaseWriter
 except ImportError:
     print("错误: 无法导入datafeed模块，请确保在datafeed目录下运行此脚本")
     sys.exit(1)
@@ -142,29 +147,18 @@ def test_insert(table_name: str, test_data: list) -> bool:
     """
     logger.info(f"测试插入数据到表: {table_name}")
     try:
-        df = Datafeed(table_name)
-
         # 将测试数据转换为DataFrame
         test_df = pd.DataFrame(test_data)
         test_df['datetime'] = pd.to_datetime(test_df['datetime'])
 
-        # 插入数据
-        success, message, stats = df._insert_dataframe(
-            cursor=df.cursor,
-            conn=df.conn,
-            df=test_df,
-            table=table_name,
-            check_duplicates=False,
-            logger=df.logger
-        )
+        writer = DatabaseWriter()
+        stats = writer.write(table_name, test_df, mode=INSERT_ONLY)
 
-        if success:
-            logger.info(f"✓ 成功插入 {stats.get('inserted_rows', 0)} 行数据到表 {table_name}")
-            df.close()
+        if stats.get('inserted', 0) or stats.get('skipped', 0):
+            logger.info(f"✓ 写入完成: inserted={stats.get('inserted', 0)}, skipped={stats.get('skipped', 0)}")
             return True
         else:
-            logger.error(f"✗ 插入数据到表 {table_name} 失败: {message}")
-            df.close()
+            logger.warning(f"! 没有新增数据，可能测试数据已存在: {stats}")
             return False
 
     except Exception as e:
@@ -220,7 +214,21 @@ def test_unique_constraint(table_name: str) -> bool:
     """
     logger.info(f"测试唯一约束: {table_name}")
     try:
-        df = Datafeed(table_name)
+        client = DatabaseClient()
+        table = client.validate_table(table_name)
+        with client.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    sql.SQL(
+                        """
+                        DELETE FROM {}
+                        WHERE code = 'TEST.SZ'
+                        AND datetime = '2024-01-02 09:30:01'
+                        AND metric = '测试指标'
+                        """
+                    ).format(sql.Identifier(table))
+                )
+                conn.commit()
 
         # 准备重复数据
         duplicate_data = pd.DataFrame([
@@ -234,39 +242,20 @@ def test_unique_constraint(table_name: str) -> bool:
         ])
         duplicate_data['datetime'] = pd.to_datetime(duplicate_data['datetime'])
 
-        # 第一次插入（应该成功）
-        success1, msg1, stats1 = df._insert_dataframe(
-            cursor=df.cursor,
-            conn=df.conn,
-            df=duplicate_data,
-            table=table_name,
-            check_duplicates=False,
-            logger=df.logger
-        )
+        writer = DatabaseWriter(client)
+        stats1 = writer.write(table_name, duplicate_data, mode=INSERT_ONLY)
 
-        if not success1:
-            logger.error(f"✗ 第一次插入失败（不应该）: {msg1}")
-            df.close()
+        if stats1.get('inserted', 0) != 1:
+            logger.error(f"✗ 第一次插入结果异常: {stats1}")
             return False
 
-        # 第二次插入相同数据（应该失败或被跳过）
-        success2, msg2, stats2 = df._insert_dataframe(
-            cursor=df.cursor,
-            conn=df.conn,
-            df=duplicate_data,
-            table=table_name,
-            check_duplicates=True,
-            skip_duplicates=True,
-            logger=df.logger
-        )
+        stats2 = writer.write(table_name, duplicate_data, mode=INSERT_ONLY)
 
-        if success2 and stats2.get('duplicate_rows', 0) > 0:
+        if stats2.get('skipped', 0) > 0:
             logger.info(f"✓ 唯一约束正常工作，重复数据被跳过")
-            df.close()
             return True
         else:
-            logger.warning(f"! 唯一约束测试结果不明确: {msg2}")
-            df.close()
+            logger.warning(f"! 唯一约束测试结果不明确: {stats2}")
             return True
 
     except Exception as e:
