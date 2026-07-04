@@ -1,14 +1,6 @@
 EventStudy API
 ==============
 
-.. automodule:: betalens.eventstudy
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-eventstudy.eventstudy
----------------------
-
 EventStudy
 ~~~~~~~~~~
 

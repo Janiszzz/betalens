@@ -1,26 +1,17 @@
 回测模块
 ========
 
-`betalens.backtest` 聚焦「调仓权重 → 日度净值」的最短路径，以 :class:`BacktestBase` 为核心。
+``betalens.backtest`` 将调仓权重转换为日频净值、持仓、损益和调仓审计记录。核心类是 ``BacktestBase``。
 
-权重矩阵规范
-------------
+权重矩阵
+--------
 
-- 行索引为时间类型（DatetimeIndex），表示调仓时间
-- 列代表证券代码；建议额外添加 ``cash`` 列以保留现金头寸
-- 所有行需归一化（多头权重合计 1、空头合计 -1），框架内部会按成本价归一
+* 行索引为 ``DatetimeIndex``，表示调仓日。
+* 列为证券代码，建议显式包含 ``cash``。
+* 多头权重合计通常为 1，空头权重合计通常为 -1。
+* 输入 ``weight`` 是目标权重；整数手撮合后的真实权重在 ``engine.actual_weight``。
 
-.. code-block:: python
-
-   import pandas as pd
-
-   weights = pd.DataFrame(
-       data=[[0.5, 0.5, 0.0], [-0.5, 0.5, 1.0]],
-       index=pd.to_datetime(["2024-01-31 15:00", "2024-02-29 15:00"]),
-       columns=["000001.SZ", "000002.SZ", "cash"],
-   )
-
-回测执行
+基本用法
 --------
 
 .. code-block:: python
@@ -29,120 +20,116 @@
 
    engine = BacktestBase(
        weight=weights,
-       symbol="Demo",
-       amount=5_000_000,
-       ftc=0.0002,  # 固定费用
-       ptc=0.0,     # 百分比费用
+       symbol="DemoFactor",
+       amount=100_000_000,
+       ftc=0.0,
+       ptc=0.0,
        verbose=True,
+       metric="收盘价(元)",
+       time_tolerance=24,
+       table_name="daily_market",
+       check_trade_status=True,
+       trade_status_mode="to_cash",
+       trade_status_table="trade_status",
+       lot_size=100,
    )
 
-   nav = engine.nav                   # 日度净值 Series
-   daily_amount = engine.daily_amount # 每日市值
-   position = engine.position         # 每日持仓数量
+   nav = engine.nav
+   actual_weight = engine.actual_weight
+   rebalance_log = engine.rebalance_log
 
-主要属性
+关键参数
 --------
 
-- ``nav``: 归一化净值序列（基于初始金额）
-- ``daily_amount``: 每日市值序列
-- ``position``: 每日持仓数量 DataFrame
-- ``cost_price``: 调仓成本价 DataFrame（MultiIndex）
-- ``cost_ret``: 调仓区间收益率 DataFrame
-- ``start`` / ``end``: 回测起止时间
-- ``initial_amount``: 初始资金
+.. list-table::
+   :header-rows: 1
+   :widths: 22 48 30
 
-内部步骤
---------
+   * - 参数
+     - 含义
+     - 默认值
+   * - ``metric``
+     - 成交价格指标
+     - ``收盘价(元)``
+   * - ``time_tolerance``
+     - 价格查询时间容差，单位小时
+     - ``24``
+   * - ``table_name``
+     - 价格所在数据表
+     - ``daily_market``
+   * - ``lot_size``
+     - 一手股数，按整数手成交
+     - ``100``
+   * - ``check_trade_status``
+     - 是否在换仓前检查交易状态
+     - ``True``
+   * - ``trade_status_mode``
+     - 停牌持仓处理模式
+     - ``to_cash``
 
-1. **get_rebalance_data**：
-   - 调用 :class:`betalens.datafeed.Datafeed` 获取调仓日收盘价
-   - 验证日期匹配和标的匹配
-   - 构造 ``cost_price`` 和 ``cost_ret``
+整数手成交
+----------
 
-2. **get_position_data**：
-   - 根据上一期权重计算调仓后仓位
-   - 计算累计资产 ``amount``
+每个调仓日会按当期总资产把目标权重转换为股数，并用 ``np.trunc(目标股数 / lot_size)`` 向零截断为整数手。未能成交的资金转入 ``cash``。因此：
 
-3. **get_daily_position_data**：
-   - 查询调仓区间的全部交易日
-   - 前向填充头寸
-   - 得到 ``daily_amount`` 和 ``nav``
+* ``engine.actual_weight`` 才是用于日频持仓和净值计算的权重。
+* ``engine.position`` 中股票列均为 ``lot_size`` 的整数倍。
+* ``engine.amount`` 是各调仓日分配前总资产，由上一期实际持仓收益逐期递推。
+* 资金太小买不起一手时，目标标的会被置 0 并保留现金。
 
-异常处理
---------
+交易状态处理
+------------
 
-框架提供详细的异常类和错误信息：
+回测会查询 ``trade_status`` 表并在换仓前处理停牌持仓。``Datafeed.query_trade_status`` 在 Python 端还原三态：``1`` 正常、``0`` 停牌、``-1`` 未上市。
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 80
+
+   * - 模式
+     - 行为
+   * - ``to_cash``
+     - 停牌标的目标权重转为现金。
+   * - ``hold``
+     - 停牌标的尽量沿用上一期持仓。
+   * - ``redistribute``
+     - 停牌权重在同侧可交易标的间再分配。
+   * - ``as_normal``
+     - 停牌标的按正常交易处理。
+   * - ``report_only``
+     - 仅记录状态，不调整权重。
+
+关闭检查：
 
 .. code-block:: python
 
-   from betalens.backtest import (
-       BacktestDataError,
-       DateMismatchError,
-       CodeMismatchError
+   engine = BacktestBase(weights, "NoStatus", 1_000_000, check_trade_status=False)
+
+主要产出
+--------
+
+* ``nav``：日频归一化净值。
+* ``actual_weight``：整数手成交后的调仓权重，含 ``cash``。
+* ``daily_position_value``：日频逐标的持仓市值，含 ``cash``。
+* ``daily_pnl`` / ``daily_pnl_total``：逐标的和组合日频损益。
+* ``rebalance_log``：调仓长表，含目标权重、真实权重、价格、股数、手数、市值。
+* ``trade_status`` / ``trade_status_matrix``：交易状态审计数据。
+* ``position``：日频持仓数量。
+* ``cost_price`` / ``cost_ret``：调仓价格与调仓区间收益。
+
+导出与评价
+----------
+
+.. code-block:: python
+
+   from betalens.analyst import Analyst
+
+   engine.dump_to_excel("backtest_dump.xlsx")
+   Analyst.from_backtest(engine, name="DemoFactor").report(
+       to_excel="report.xlsx",
+       to_html="report.html",
    )
 
-   try:
-       engine = BacktestBase(weight=weights, symbol="Demo", amount=1_000_000)
-   except DateMismatchError as e:
-       print(f"日期不匹配: {e}")
-   except CodeMismatchError as e:
-       print(f"标的不匹配: {e}")
-   except BacktestDataError as e:
-       print(f"数据错误: {e}")
+``dump_to_excel`` 会把回测产出写入多 sheet，``Analyst.from_excel`` 可以从导出的 xlsx 读回评价。
 
-数据验证
---------
-
-框架自动执行多层数据验证：
-
-1. **权重输入验证**：检查DataFrame格式、索引类型、数值类型、NaN/Inf值
-2. **查询结果验证**：检查数据库返回的列是否完整
-3. **日期匹配检查**：确保权重日期在数据库中有对应数据
-4. **标的匹配检查**：警告并置零缺失标的的权重
-5. **计算前验证**：检查输入数据的完整性
-
-常见扩展
---------
-
-**多资产权重展开**：
-
-.. code-block:: python
-
-   from betalens.factor.factor import get_single_factor_weight
-
-   # 从因子模块生成的权重可直接使用
-   weights = get_single_factor_weight(labeled_pool, params)
-   weights["cash"] = 0
-   engine = BacktestBase(weight=weights, symbol="Factor", amount=1_000_000)
-
-**成本拆解**：
-
-.. code-block:: python
-
-   # 访问每次调仓对应的成交价
-   cost_price = engine.cost_price  # MultiIndex: (input_ts, datetime)
-
-**持仓导出**：
-
-.. code-block:: python
-
-   # 每日持仓数量（股数）
-   position = engine.position
-   position.to_csv("position.csv")
-
-**连接绩效分析**：
-
-.. code-block:: python
-
-   from betalens.analyst import PortfolioAnalyzer, ReportExporter
-
-   analyzer = PortfolioAnalyzer(engine.nav)
-   print(f"Sharpe: {analyzer.sharpe_ratio():.4f}")
-   print(f"Max Drawdown: {analyzer.max_drawdown():.2%}")
-
-   exporter = ReportExporter(analyzer)
-   exporter.generate_annual_report()
-
-若需要更复杂的交易撮合或期货保证金处理，可在此基础上继承 ``BacktestBase`` 扩展新的回测基类。
-
-
+更多 API 细节请参阅 :doc:`../api/backtest`。

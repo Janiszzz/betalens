@@ -1,298 +1,197 @@
 因子模块
 ========
 
-`betalens.factor` 集中封装了从可交易池筛选到分组打分、权重生成的常用步骤，支持单因子、双因子和多因子分组策略。
+``betalens.factor`` 覆盖因子研究的中段：可交易池、因子预查询、预处理、分组打标签、权重生成、统计检验和参数挖掘。标准入口在 ``betalens.factor.factor``，预处理在 ``betalens.factor.preprocessing``，统计检验在 ``betalens.factor.stats``，因子体检在 ``betalens.factor.profiling``，参数挖掘在 ``betalens.factor.mining``。
 
-获取可交易池
-------------
+可交易池
+--------
 
 .. code-block:: python
 
-   from betalens.factor.factor import get_tradable_pool
    from betalens.datafeed import get_absolute_trade_days
+   from betalens.factor.factor import get_tradable_pool
 
-   rebalance_days = get_absolute_trade_days("2022-01-01", "2022-12-31", "M")
-   date_ranges, code_ranges = get_tradable_pool(rebalance_days)
+   days = get_absolute_trade_days("2020-04-30", "2024-04-30", "Y")
+   date_ranges, code_ranges = get_tradable_pool(days)
 
-   # 纳入停牌等异常状态股票（默认 False，仅取正常交易）
-   date_ranges, code_ranges = get_tradable_pool(rebalance_days, include_abnormal=True)
+要点：
 
-逻辑要点：
+* 基于 ``trade_status`` 表，按调仓日还原 ``1`` 正常、``0`` 停牌、``-1`` 未上市。
+* 默认 ``include_abnormal=False``，只保留正常交易证券。
+* ``include_abnormal=True`` 会把异常状态也纳入候选，适合做停牌处理或审计实验。
+* 返回的 ``date_ranges`` 和 ``code_ranges`` 可复用于多个因子的预查询，减少重复查库。
 
-- 基于 ``trade_status`` 表（见 :doc:`datafeed`），调 :func:`~betalens.datafeed.query_trade_status`
-  解析各调仓日的个券交易状态（``1`` 正常 / ``0`` 停牌 / ``-1`` 未上市）
-- ``include_abnormal=False``（默认）只纳入 ``value == 1`` 的证券，保持原行为；
-  ``include_abnormal=True`` 纳入所有已上市证券（``value != -1``，含停牌）
-- 返回 ``date_ranges``（日期列表）与 ``code_ranges``（与日期一一对应的代码列表）
-- ``pre_query_characteristic_data`` 也接受 ``include_abnormal`` 并透传（仅在内部
-  调用 ``get_tradable_pool`` 时生效）
-
-批量预查询因子数据
-------------------
+因子预查询
+----------
 
 .. code-block:: python
 
    from betalens.factor.factor import pre_query_characteristic_data
 
-   pre_queried_data = pre_query_characteristic_data(
-       date_list=rebalance_days,
+   raw = pre_query_characteristic_data(
+       date_list=days,
        metric="股息率(报告期)",
-       time_tolerance=24*2*365,  # 时间容差（小时）
-       table_name="fundamental_data",
-       date_ranges=date_ranges,  # 可选：复用可交易池
-       code_ranges=code_ranges
+       time_tolerance=24 * 2 * 365,
+       table_name="fundamentals",
+       date_ranges=date_ranges,
+       code_ranges=code_ranges,
    )
 
-返回的 DataFrame 包含：
+``pre_query_characteristic_data`` 默认 ``table_name="fundamentals"``。``time_tolerance`` 单位是小时，默认 ``24*2*365``。返回列通常包含 ``input_ts``、``code``、``{metric}``、``datetime``、``diff_hours`` 和 ``name``。
 
-- ``input_ts``: 输入时间戳（调仓日期）
-- ``code``: 股票代码
-- ``{metric}``: 因子值列
-- ``datetime``: 匹配到的数据时间戳
-- ``diff_hours``: 时间差（小时）
-- ``name``: 股票名称
-
-因子预处理与行业中性化
-----------------------
-
-在分组打标签之前，建议先用 ``preprocess_factor`` 做一键预处理：逐截面（按 ``input_ts``）
-依次执行 **去空值 → 去极值 → 标准化 → 中性化**。
+预处理与中性化
+--------------
 
 .. code-block:: python
 
    from betalens.factor.preprocessing import preprocess_factor
 
    cleaned = preprocess_factor(
-       pre_queried_data,
-       metric="ROE",
-       winsorize_method="mad",       # 去极值
-       standardize_method="zscore",  # 标准化
-       industry_scheme="申万一级行业",  # 自动查 industry 表做行业中性化
+       raw,
+       metric="股息率(报告期)",
+       winsorize_method="mad",
+       standardize_method="zscore",
+       industry_scheme="申万一级行业",
    )
 
-行业中性化有两种标签来源：
+``preprocess_factor`` 逐截面执行去空值、去极值、标准化和可选中性化。行业标签可由 ``industry_scheme`` 自动按 PIT 口径查询 ``industry`` 表；市值中性化需调用方准备 log 市值列。
 
-- ``industry_scheme``（推荐）：自动逐期调用 :func:`betalens.datafeed.query_industry`
-  从 ``industry`` 表取 point-in-time 行业（datetime≤调仓日的最近一条，天然防前视），
-  无需事先把行业列 merge 进数据。不带版本后缀（如 ``"申万一级行业"``）时自动落到查询日生效的版本。
-- ``industry_col``：使用调用方预先 merge 进 ``pre_queried_data`` 的行业列（旧行为）。
+常用低层函数：
 
-市值中性化仍由 ``log_mktcap_col`` 手动提供（先用 ``pre_query_characteristic_data`` 查"市值"再取 log）。
+* ``winsorize_factor``：截面去极值，支持 ``mad``、``percentile``、``std``。
+* ``standardize_factor``：支持 ``zscore``、``rank``、``minmax``。
+* ``neutralize_factor``：行业哑变量和 log 市值的截面 OLS 残差。
+* ``neutralize_factor_by_factor``：用一个因子解释另一个因子并取残差。
+* ``query_industry_panel``：为 ``(input_ts, code)`` 面板取 PIT 行业标签。
 
-**自动诊断打印**：传入 ``industry_scheme`` 且 ``verbose=True``（默认）时，会打印三类统计，
-便于判断中性化是否可靠：
-
-- **行业分布**：各行业占比、平均每期成分股数、行业总数
-- **缺失情况**：行业标签缺失率、因子值缺失率、按期最低/最高覆盖率
-- **面板平衡**：每期股票数与有效行业数的 min/median/max，行业数过少（<3）时告警
-
-随后打印 **中性化执行摘要**：成功/跳过期数、平均回归 R²（行业+市值对因子的解释度）、
-平均行业哑变量数与有效样本数。某期行业全缺失或样本不足（< 哑变量数+5）时会被跳过且不报错。
-
-若只想单独取面板行业标签（如做行业内分析），可直接用 ``query_industry_panel``：
-
-.. code-block:: python
-
-   from betalens.factor.preprocessing import query_industry_panel
-
-   ind_panel = query_industry_panel(pre_queried_data, scheme="申万一级行业")
-   ind_panel.xs(ts)  # 取某期 code -> 行业名
-
-单因子分组
-----------
-
-.. code-block:: python
-
-   from betalens.factor.factor import single_factor
-
-   labeled_pool = single_characteristic(
-       pre_queried_data=pre_queried_data,
-       metric="ROE",
-       quantiles={"ROE": 10}
-   )
-
-特点：
-
-- 支持自定义 ``quantiles``（整数代表等分桶）
-- 自动 groupby ``input_ts`` 并添加 ``metric_label`` 列
-- 以 ``input_ts`` 和 ``code`` 为 MultiIndex，便于后续透视
-
-生成单因子权重
---------------
-
-.. code-block:: python
-
-   from betalens.factor.factor import get_single_factor_weight
-
-   # 经典多空模式
-   params = {
-       "factor_key": "ROE",
-       "mode": "classic-long-short",
-   }
-   weights = get_single_factor_weight(labeled_pool, params)
-
-   # 自定义模式
-   params = {
-       "factor_key": "ROE",
-       "mode": "freeplay",
-       "long": [9],
-       "short": [0],
-       "group_weights": {  # 可选：组间权重
-           "long": {9: 2, 8: 1},
-           "short": {0: 2, 1: 1}
-       },
-       "intra_group_allocation": {  # 可选：组内分配方式
-           "long": {9: {"method": "factor_value", "metric": "ROE", "order": "desc"}},
-           "short": {0: {"method": "equal"}}
-       }
-   }
-   weights = get_single_factor_weight(labeled_pool, params)
-   weights["cash"] = 0
-
-模式说明：
-
-- ``classic-long-short``：自动选择最高/最低标签
-- ``freeplay``：显式指定 ``long`` 与 ``short`` 标签列表，支持组间权重和组内分配
-
-双因子分组（Double Sort）
--------------------------
-
-双重排序用于同时考虑两个因子对投资组合的影响，分析因子间交互作用。
-
-两种排序方法：
-
-1. **独立排序（Independent Sort）**：
-   - 对所有股票分别按两个因子独立分组
-   - 取两个标签的交集形成N×M个组合
-   - 适用场景：因子之间相关性较低时
-
-2. **条件排序（Dependent Sort）**：
-   - 先按主因子分组，然后在每个主因子组内按次因子分组
-   - 形成N×M个投资组合，每组股票数量相对均匀
-   - 适用场景：因子相关性较高，或需要控制某个因子影响时
-
-.. code-block:: python
-
-   from betalens.factor.factor import double_factor, describe_double_labeled_pool
-
-   labeled_pool = double_characteristic(
-       pre_queried_data1=data1,
-       pre_queried_data2=data2,
-       metric1="市值",
-       metric2="账面市值比",
-       quantiles1={"市值": 5},
-       quantiles2={"账面市值比": 5},
-       sort_method='dependent'  # 或 'independent'
-   )
-
-   # 查看分组统计
-   count_pivot, mean_pivot1, mean_pivot2 = describe_double_labeled_pool(labeled_pool)
-
-生成双因子权重
---------------
-
-.. code-block:: python
-
-   from betalens.factor.factor import get_double_factor_weight
-
-   weights = get_double_factor_weight(
-       labeled_pool,
-       params={
-           "factor_key1": "市值",
-           "factor_key2": "账面市值比",
-           "mode": "classic-long-short",  # 自动做多(max,max)，做空(min,min)
-       }
-   )
-
-   # 或自定义组合
-   weights = get_double_factor_weight(
-       labeled_pool,
-       params={
-           "factor_key1": "市值",
-           "factor_key2": "账面市值比",
-           "mode": "freeplay",
-           "long_combinations": [(0, 4), (1, 4)],
-           "short_combinations": [(4, 0), (4, 1)],
-       }
-   )
-
-多因子分组（Multi-Factor Sort）
--------------------------------
-
-支持递归的独立排序和条件排序混合。
-
-.. code-block:: python
-
-   from betalens.factor.factor import multi_factor, describe_multi_labeled_pool
-
-   factors = [
-       {'name': '市值', 'quantiles': 5, 'method': 'dependent'},
-       {'name': '账面市值比', 'quantiles': 5, 'method': 'dependent'},
-       {'name': '动量', 'quantiles': 3, 'method': 'independent'},
-   ]
-
-   labeled_pool = multi_characteristic(
-       pre_queried_data_list=[data1, data2, data3],
-       factors=factors
-   )
-
-   # 查看分组统计
-   stats = describe_multi_labeled_pool(labeled_pool, max_display_dims=2)
-
-生成多因子权重
---------------
-
-.. code-block:: python
-
-   from betalens.factor.factor import get_multi_factor_weight
-
-   weights = get_multi_factor_weight(
-       labeled_pool,
-       params={
-           "mode": "classic-long-short",  # 所有因子最高组 vs 所有因子最低组
-       }
-   )
-
-   # 或自定义组合
-   weights = get_multi_factor_weight(
-       labeled_pool,
-       params={
-           "mode": "freeplay",
-           "long_combinations": [(0, 4, 2), (1, 4, 2)],
-           "short_combinations": [(4, 0, 0)],
-       }
-   )
-
-描述性统计
+分组打标签
 ----------
 
 .. code-block:: python
 
    from betalens.factor.factor import (
-       describe_labeled_pool,
-       describe_double_labeled_pool,
-       describe_multi_labeled_pool
+       single_characteristic,
+       double_characteristic,
+       multi_characteristic,
    )
 
-   # 单因子
-   summary = describe_labeled_pool(labeled_pool)
+   labeled = single_characteristic(cleaned, "股息率(报告期)", {"股息率(报告期)": 10})
 
-   # 双因子
-   count_pivot, mean_pivot1, mean_pivot2 = describe_double_labeled_pool(labeled_pool)
+   double_labeled = double_characteristic(
+       size_data,
+       bm_data,
+       metric1="市值",
+       metric2="账面市值比",
+       quantiles1={"市值": 5},
+       quantiles2={"账面市值比": 5},
+       sort_method="dependent",
+   )
 
-   # 多因子
-   stats = describe_multi_labeled_pool(labeled_pool)
+   multi_labeled = multi_characteristic(
+       [size_data, bm_data, momentum_data],
+       [
+           {"name": "市值", "quantiles": 5, "method": "dependent"},
+           {"name": "账面市值比", "quantiles": 5, "method": "dependent"},
+           {"name": "动量", "quantiles": 3, "method": "independent"},
+       ],
+   )
 
-输出同时包含 ``count`` 与 ``mean`` 透视结果，可快速检查分组是否均衡。
+真实函数名是 ``single_characteristic``、``double_characteristic``、``multi_characteristic``。标签列名为 ``{metric}_label``，输出索引为 ``(input_ts, code)``。
+
+权重生成
+--------
+
+.. code-block:: python
+
+   from betalens.factor.factor import (
+       get_single_factor_weight,
+       get_double_factor_weight,
+       get_multi_factor_weight,
+   )
+
+   weights = get_single_factor_weight(labeled, {
+       "factor_key": "股息率(报告期)",
+       "mode": "freeplay",
+       "long": [9],
+       "short": [0],
+       "group_weights": {},
+       "intra_group_allocation": {},
+   })
+   weights["cash"] = 0
+
+模式：
+
+* ``classic-long-short``：自动做多最高组、做空最低组。
+* ``freeplay``：显式指定 ``long`` / ``short`` 或组合列表。
+* ``group_weights`` 和 ``intra_group_allocation`` 可细化组间权重和组内分配。
+
+因子体检
+--------
+
+``factor.profiling`` 关注因子值本身，不依赖未来收益，适合在回测前发现异常。
+
+.. code-block:: python
+
+   from betalens.factor.profiling import (
+       describe_distribution,
+       coverage_stats,
+       detect_outliers,
+       factor_autocorrelation,
+       factor_turnover,
+       factor_profile_payload,
+   )
+
+   distribution = describe_distribution(raw, metric="股息率(报告期)")
+   coverage = coverage_stats(raw, metric="股息率(报告期)")
+   payload = factor_profile_payload(raw, metric="股息率(报告期)")
+
+常见检查包括分布稳定性、覆盖率、异常值、因子自相关、选股重合度、因子间相关与聚类。
+
+统计检验
+--------
+
+.. code-block:: python
+
+   from betalens.factor.stats import (
+       calc_ic,
+       calc_icir,
+       summarize_ic,
+       fama_macbeth,
+       group_return_summary,
+       run_timing_evaluation,
+       run_cross_section_evaluation,
+   )
+
+   ic = calc_ic(factor_wide, return_wide, method="spearman")
+   print(summarize_ic(ic))
+
+``factor.stats`` 覆盖 IC/ICIR、Fama-MacBeth、分组收益、择时信号评估、滚动 IC、胜率、回归稳健性、截面综合评价和报告导出。绘图函数返回 matplotlib 图像，可用于报告或 Dashboard。
+
+参数挖掘
+--------
+
+通用参数挖掘放在 ``betalens.factor.mining``，因子脚本只提供薄 hook。详见 :doc:`factor-mining`。
+
+.. code-block:: python
+
+   from betalens.factor.mining import ParameterSweepConfig, run_parameter_sweep
+
+   config = ParameterSweepConfig(
+       factor_module="factor_DISP",
+       output_dir="outputs/mining",
+       span=("2020-01-01", "2024-12-31"),
+       grid={"window": [60, 120, 252]},
+       engine="vector",
+       workers=1,
+   )
+   result = run_parameter_sweep(config)
 
 实践提示
 --------
 
-- 若指标存在极端值，建议在调用分组函数之前进行 winsor/标准化处理。
-- ``get_tradable_pool`` 默认查询 ``fundamental_data`` 表，可酌情改写以适配自建数据库。
-- 复用可交易池：当查询多个因子时，先调用一次 ``get_tradable_pool``，然后传入 ``date_ranges`` 和 ``code_ranges`` 复用。
-- 对于 ``freeplay`` 模式，可通过 ``group_weights`` 和 ``intra_group_allocation`` 实现更精细的权重控制。
+* metric 名必须与数据库 ``metric`` 列一致。
+* 查询多个因子时先取一次 ``get_tradable_pool``，复用 ``date_ranges`` / ``code_ranges``。
+* 极端值或覆盖率差的因子先做 ``preprocess_factor`` 或 profiling。
+* 回测前补 ``cash`` 列，并在回测后检查 ``engine.actual_weight``。
 
 更多函数级文档见 :doc:`../api/factor`。
-
-

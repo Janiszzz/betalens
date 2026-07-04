@@ -1,106 +1,69 @@
 Robust API
 ==========
 
-.. automodule:: betalens.robust
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-robust.robust
--------------
+``betalens.robust`` 提供基于 Lucky Factors 思路的因子增量检验和 bootstrap 检验。当前模块文件中仍保留历史实验脚本段，文档页避免在构建期 import 该模块。
 
 RobustTest
-~~~~~~~~~~
+----------
 
 .. py:class:: RobustTest(fund, factor)
 
-   因子增量检验类，基于 Harvey & Liu (2021) "Lucky Factors"。
+   因子增量检验类。
 
-   :param fund: 基金/组合收益序列（pd.Series）
-   :param factor: 因子数据（pd.DataFrame）
-
-   **属性**
-
-   .. py:attribute:: X
-      :type: pd.DataFrame
-
-      因子数据
-
-   .. py:attribute:: y
-      :type: pd.Series
-
-      资产收益数据
-
-   .. py:attribute:: OX
-      :type: pd.DataFrame
-
-      正交化后的因子数据
-
-   .. py:attribute:: T
-      :type: pd.DataFrame
-
-      t统计量
-
-   **方法**
-
-   .. py:method:: neu()
-
-      去相关（正交化）。对每个因子进行单因子回归，得到正交化残差。
-
-      :return: (OX, T) 元组
-
-   .. py:method:: bootstrap_once(n_bootstraps=1000)
-
-      Bootstrap检验。重复抽样计算最大统计量分布。
-
-      :param n_bootstraps: 重采样次数
-      :return: (eff_fct_name, modifd_P, max_statistic_pdf) 元组
-
-   .. py:method:: work()
-
-      完整工作流程。迭代执行去相关和Bootstrap直到收敛。
+   :param fund: 基金或组合收益序列。
+   :param factor: 因子收益 DataFrame。
 
    .. py:staticmethod:: create_sample_dataframes()
 
-      创建示例数据集用于测试。
+      创建示例数据。
 
-      :return: (asset_returns, factor_values) 元组
+   .. py:method:: neu()
+
+      对因子做正交化，返回 ``(OX, T)``。
+
+   .. py:method:: bootstrap_resample(data)
+
+      对输入数据做一次 bootstrap 重采样。
+
+   .. py:method:: max_statistic(data)
+
+      计算 bootstrap 样本的最大统计量。
+
+   .. py:method:: bootstrap_once(n_bootstraps=1000)
+
+      重复抽样计算修正 p 值，返回 ``(eff_fct_name, modifd_P, max_statistic_pdf)``。
+
+   .. py:method:: work()
+
+      迭代执行正交化和 bootstrap，直到有效因子集合收敛。
 
 辅助函数
-~~~~~~~~
+--------
 
 .. py:function:: panel(X, y)
 
-   面板回归，单测alpha。
+   面板回归，返回 ``(B, OX, T, df_params)``。
 
-   :param X: 因子数据
-   :param y: 收益数据
-   :return: (B, OX, T, df_params) 元组
+.. py:function:: fake_fund(X, B, OX)
+
+   根据回归结果构造伪基金收益。
 
 .. py:function:: bootstrap_fake_fund(X, B, OX, T, n_bootstraps=1000)
 
-   Bootstrap检验伪基金。
+   对伪基金做 bootstrap 检验。
 
-   :return: (modifd_P, max_statistic_pdf) 元组
+.. py:function:: work(fund, fct)
+
+   函数式完整检验入口。
 
 .. py:function:: parse_name_dates(s)
 
-   解析基金经理任期字符串。
-
-   :param s: 格式如 '姓名(开始日期-结束日期)'
-   :return: 包含 name, start_date, end_date 的字典
+   解析 ``姓名(开始日期-结束日期)`` 格式字符串。
 
 .. py:function:: get_interval(df, start=None, end=None)
 
-   获取DataFrame的时间区间切片。
+   按时间索引或 ``datetime`` 列切片。
 
 .. py:function:: gen_date_pairs(start_time, end_time, interval='1Y')
 
    生成滚动时间段对。
-
-   :param start_time: 开始时间
-   :param end_time: 结束时间
-   :param interval: 时间间隔
-   :return: 时间戳对列表
-
-

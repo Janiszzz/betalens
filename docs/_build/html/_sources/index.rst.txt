@@ -1,79 +1,69 @@
-.. Betalens documentation master file
-
 Betalens 文档
 =============
 
-**Betalens** 是一个用于量化因子分析和回测的 Python 框架。
+**Betalens** 是一个面向量化研究的 Python 框架，覆盖数据入库与查询、因子分组、回测、绩效评价、事件研究、稳健性检验，以及浏览器 Dashboard。
 
-.. image:: https://img.shields.io/badge/python-3.10+-blue.svg
-   :target: https://www.python.org/downloads/
+核心能力
+--------
 
-.. image:: https://img.shields.io/badge/License-MIT-yellow.svg
-   :target: https://opensource.org/licenses/MIT
-
-特性
-----
-
-* 📊 **因子分析** - 支持单因子/双因子/多因子分组、打标签、生成多空权重
-* 📈 **数据管理** - PostgreSQL 数据库接口，支持时间序列查询、Wind数据抓取
-* 🔄 **回测框架** - 多资产多权重回测，自动获取价格数据，详细的异常处理
-* 📋 **绩效分析** - 计算夏普比率、最大回撤等指标，分年度/自定义时段报告
-* 🧪 **稳健性检验** - 基于Lucky Factors的因子增量检验、Bootstrap重采样
+* **Datafeed**：PostgreSQL 数据访问、Excel/EDE/Wind 数据入库、交易日、行业、指数成分、交易状态。
+* **Factor**：可交易池、单/双/多因子分组、因子预处理、IC/回归/择时统计、参数挖掘。
+* **Backtest**：目标权重到日频净值，整数手成交，停牌状态处理，调仓审计日志。
+* **Analyst**：从回测实例生成指标表、Excel 报告和 plotly 交互 HTML。
+* **Dashboard**：FastAPI + React/Vite 前端，用浏览器发现因子、配参数、跑回测、下载报告。
 
 快速安装
 --------
 
-.. code-block:: bash
-
-   pip install betalens
-
-或从源码安装：
-
-.. code-block:: bash
+.. code-block:: powershell
 
    git clone https://github.com/Janiszzz/betalens.git
-   cd betalens/gitworks
-   pip install -e .
+   cd betalens
+   python -m pip install -e .
+   python -m pip install -r requirements.txt
 
 快速示例
 --------
 
 .. code-block:: python
 
-   from betalens.datafeed import Datafeed, get_absolute_trade_days
+   from betalens.datafeed import get_absolute_trade_days
    from betalens.factor.factor import (
-       get_tradable_pool, pre_query_characteristic_data,
-       single_factor, get_single_factor_weight
+       get_tradable_pool,
+       pre_query_characteristic_data,
+       single_characteristic,
+       get_single_factor_weight,
    )
    from betalens.backtest import BacktestBase
-   from betalens.analyst import PortfolioAnalyzer, ReportExporter
+   from betalens.analyst import Analyst
 
-   # 1. 准备数据
-   trading_days = get_absolute_trade_days("2020-04-30", "2024-04-30", "Y")
-   date_ranges, code_ranges = get_tradable_pool(trading_days)
+   days = get_absolute_trade_days("2020-04-30", "2024-04-30", "Y")
+   date_ranges, code_ranges = get_tradable_pool(days)
 
-   # 2. 查询因子并分组
-   data = pre_query_characteristic_data(trading_days, "股息率(报告期)",
-                                date_ranges=date_ranges, code_ranges=code_ranges)
-   labeled_pool = single_characteristic(data, "股息率(报告期)", {"股息率(报告期)": 10})
+   data = pre_query_characteristic_data(
+       days,
+       "股息率(报告期)",
+       date_ranges=date_ranges,
+       code_ranges=code_ranges,
+   )
+   labeled = single_characteristic(data, "股息率(报告期)", {"股息率(报告期)": 10})
 
-   # 3. 生成权重
-   weights = get_single_factor_weight(labeled_pool, {
+   weights = get_single_factor_weight(labeled, {
        "factor_key": "股息率(报告期)",
-       "mode": "classic-long-short"
+       "mode": "classic-long-short",
    })
    weights["cash"] = 0
 
-   # 4. 回测
-   engine = BacktestBase(weight=weights, symbol="Dividend", amount=1_000_000)
-
-   # 5. 绩效分析
-   analyzer = PortfolioAnalyzer(engine.nav)
-   print(f"Sharpe: {analyzer.sharpe_ratio():.4f}")
-   print(f"Max Drawdown: {analyzer.max_drawdown():.2%}")
-
-   exporter = ReportExporter(analyzer)
-   exporter.generate_annual_report()
+   engine = BacktestBase(
+       weight=weights,
+       symbol="Dividend",
+       amount=1_000_000,
+       table_name="daily_market",
+   )
+   Analyst.from_backtest(engine, name="Dividend").report(
+       to_excel="report.xlsx",
+       to_html="report.html",
+   )
 
 文档目录
 --------
@@ -95,6 +85,10 @@ Betalens 文档
    guide/analyst
    guide/eventstudy
    guide/robust
+   guide/dashboard
+   guide/factor-pipeline
+   guide/factor-mining
+   guide/db-manager
 
 .. toctree::
    :maxdepth: 2
@@ -113,5 +107,3 @@ Betalens 文档
 * :ref:`genindex`
 * :ref:`modindex`
 * :ref:`search`
-
-

@@ -90,20 +90,20 @@ autodoc_default_options = {
     'undoc-members': True,
     'exclude-members': '__weakref__'
 }
-autodoc_typehints = 'description'
+autodoc_typehints = 'none'
 autodoc_member_order = 'bysource'
 
 autodoc_mock_imports = [
-    'pandas',
-    'numpy',
-    'psycopg2',
-    'matplotlib',
-    'openpyxl',
-    'prettytable',
     'WindPy',
-    'statsmodels',
-    'scipy',
-    'streamlit',
+]
+
+suppress_warnings = [
+    'docutils',
+    'ref.class',
+    'ref.data',
+    'autodoc.import_object',
+    'autosectionlabel',
+    'sphinx_autodoc_typehints.guarded_import',
 ]
 
 # -- Options for Napoleon (Google/NumPy docstrings) --------------------------

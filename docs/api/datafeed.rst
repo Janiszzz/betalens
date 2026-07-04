@@ -52,6 +52,14 @@ integration
    :undoc-members:
    :show-inheritance:
 
+industry
+~~~~~~~~
+
+.. automodule:: betalens.datafeed.industry
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 universe
 ~~~~~~~~
 

@@ -6,16 +6,16 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>betalens.factor.preprocessing &mdash; Betalens 1.1.0 文档</title>
-      <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=fa44fd50" />
-      <link rel="stylesheet" type="text/css" href="../../../_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=03e43079" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/css/theme.css?v=9edc463e" />
 
   
       <script src="../../../_static/jquery.js?v=5d32c60e"></script>
       <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
       <script src="../../../_static/documentation_options.js?v=ab4a11d3"></script>
-      <script src="../../../_static/doctools.js?v=9bcbadda"></script>
-      <script src="../../../_static/sphinx_highlight.js?v=dc90522c"></script>
-      <script src="../../../_static/translations.js?v=beaddf03"></script>
+      <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+      <script src="../../../_static/translations.js?v=540d3cec"></script>
     <script src="../../../_static/js/theme.js"></script>
     <link rel="index" title="索引" href="../../../genindex.html" />
     <link rel="search" title="搜索" href="../../../search.html" /> 
@@ -44,95 +44,67 @@
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../../../getting-started/installation.html">安装指南</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="../../../getting-started/installation.html#id2">环境要求</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../getting-started/installation.html#pypi">通过 PyPI 安装</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../getting-started/installation.html#id3">源码安装（推荐开发者）</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../getting-started/installation.html#id3">源码安装</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../../getting-started/installation.html#id4">数据库与配置</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../../getting-started/installation.html#id5">验证安装</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../../getting-started/installation.html#id6">常见问题</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../../../getting-started/quickstart.html">10 分钟快速上手</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="../../../getting-started/quickstart.html#id2">1. 准备调仓日与可交易标的</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../getting-started/quickstart.html#id2">1. 准备调仓日与可交易池</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../../getting-started/quickstart.html#id3">2. 批量预查询因子数据</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../getting-started/quickstart.html#id4">3. 单因子分组打标签</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../getting-started/quickstart.html#id5">4. 派生多空权重</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../getting-started/quickstart.html#id6">5. 回测组合净值</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../getting-started/quickstart.html#id7">6. 绩效分析与报告</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../getting-started/quickstart.html#double-sort">7. 双因子分组（Double Sort）</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../getting-started/quickstart.html#multi-factor-sort">8. 多因子分组（Multi-Factor Sort）</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../getting-started/quickstart.html#id8">9. 启用稳健性检验（可选）</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../getting-started/quickstart.html#id4">3. 单因子分组</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../getting-started/quickstart.html#id5">4. 生成权重</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../getting-started/quickstart.html#id6">5. 回测</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../getting-started/quickstart.html#id7">6. 绩效分析</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../getting-started/quickstart.html#id8">7. 双因子与多因子分组</a></li>
 </ul>
 </li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">用户指南</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../../../guide/datafeed.html">Datafeed 使用指南</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="../../../guide/datafeed.html#id1">模块结构</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../guide/datafeed.html#id2">快速连接数据库</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../guide/datafeed.html#id3">常用查询</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="../../../guide/datafeed.html#id4">时间范围查询</a></li>
-<li class="toctree-l3"><a class="reference internal" href="../../../guide/datafeed.html#id5">最近时点查询</a></li>
-<li class="toctree-l3"><a class="reference internal" href="../../../guide/datafeed.html#id6">辅助查询函数</a></li>
-</ul>
-</li>
-<li class="toctree-l2"><a class="reference internal" href="../../../guide/datafeed.html#excel-ede">Excel &amp; EDE 导入</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="../../../guide/datafeed.html#csv-excel">CSV/Excel 文件导入</a></li>
-<li class="toctree-l3"><a class="reference internal" href="../../../guide/datafeed.html#ede">EDE 文件导入</a></li>
-<li class="toctree-l3"><a class="reference internal" href="../../../guide/datafeed.html#id7">批量导入</a></li>
-</ul>
-</li>
-<li class="toctree-l2"><a class="reference internal" href="../../../guide/datafeed.html#wind">Wind 数据抓取</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../guide/datafeed.html#id8">数据验证</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../guide/datafeed.html#id9">增量更新</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../guide/datafeed.html#id10">交易日辅助函数</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../guide/datafeed.html#id11">注意事项</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../guide/datafeed.html">数据模块</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/datafeed.html#id2">配置</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/datafeed.html#datafeed">Datafeed 查询</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/datafeed.html#id3">最近时点查询</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/datafeed.html#id4">交易日</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/datafeed.html#id5">行业</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/datafeed.html#id6">指数成分</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/datafeed.html#id7">交易状态</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/datafeed.html#wind">文件与 Wind 入库</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../../../guide/factor.html">因子模块</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="../../../guide/factor.html#id2">获取可交易池</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../guide/factor.html#id7">批量预查询因子数据</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../guide/factor.html#id8">单因子分组</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../guide/factor.html#id11">生成单因子权重</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../guide/factor.html#double-sort">双因子分组（Double Sort）</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../guide/factor.html#id12">生成双因子权重</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../guide/factor.html#multi-factor-sort">多因子分组（Multi-Factor Sort）</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../guide/factor.html#id13">生成多因子权重</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../guide/factor.html#id14">描述性统计</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../guide/factor.html#id15">实践提示</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/factor.html#id2">可交易池</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/factor.html#id3">因子预查询</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/factor.html#id4">预处理与中性化</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/factor.html#id5">分组打标签</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/factor.html#id6">权重生成</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/factor.html#id7">因子体检</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/factor.html#id8">统计检验</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/factor.html#id9">参数挖掘</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/factor.html#id10">实践提示</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../../../guide/backtest.html">回测模块</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="../../../guide/backtest.html#id2">权重矩阵规范</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../guide/backtest.html#id3">回测执行</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../guide/backtest.html#id4">主要属性</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../guide/backtest.html#id5">内部步骤</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../guide/backtest.html#id6">异常处理</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../guide/backtest.html#id7">数据验证</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../guide/backtest.html#id8">常见扩展</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/backtest.html#id2">权重矩阵</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/backtest.html#id3">基本用法</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/backtest.html#id4">关键参数</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/backtest.html#id5">整数手成交</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/backtest.html#id6">交易状态处理</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/backtest.html#id7">主要产出</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/backtest.html#id8">导出与评价</a></li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="../../../guide/analyst.html">绩效分析模块</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="../../../guide/analyst.html#portfolioanalyzer">PortfolioAnalyzer</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="../../../guide/analyst.html#id2">核心指标</a></li>
-<li class="toctree-l3"><a class="reference internal" href="../../../guide/analyst.html#id3">滚动指标</a></li>
-<li class="toctree-l3"><a class="reference internal" href="../../../guide/analyst.html#id4">关键属性</a></li>
-</ul>
-</li>
-<li class="toctree-l2"><a class="reference internal" href="../../../guide/analyst.html#reportexporter">ReportExporter</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="../../../guide/analyst.html#id5">分年度报告</a></li>
-<li class="toctree-l3"><a class="reference internal" href="../../../guide/analyst.html#id6">自定义时段报告</a></li>
-<li class="toctree-l3"><a class="reference internal" href="../../../guide/analyst.html#id7">基准对比报告</a></li>
-<li class="toctree-l3"><a class="reference internal" href="../../../guide/analyst.html#id8">指定分析区间</a></li>
-<li class="toctree-l3"><a class="reference internal" href="../../../guide/analyst.html#id9">输出方式</a></li>
-</ul>
-</li>
-<li class="toctree-l2"><a class="reference internal" href="../../../guide/analyst.html#id10">高级用法</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="../../../guide/analyst.html#id11">滚动指标绘图</a></li>
-<li class="toctree-l3"><a class="reference internal" href="../../../guide/analyst.html#id12">自定义指标</a></li>
-<li class="toctree-l3"><a class="reference internal" href="../../../guide/analyst.html#id13">多策略对比</a></li>
-</ul>
-</li>
-<li class="toctree-l2"><a class="reference internal" href="../../../guide/analyst.html#id14">常见问题</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../guide/analyst.html">策略评价模块</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/analyst.html#id2">推荐用法</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/analyst.html#excel">从 Excel 读回</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/analyst.html#id3">输出</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/analyst.html#id4">指标分组</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/analyst.html#id5">证券名称映射</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/analyst.html#id6">兼容旧接口</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/analyst.html#dashboard">Dashboard 集成</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/analyst.html#id7">常见问题</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../../../guide/eventstudy.html">事件研究模块</a><ul>
@@ -171,6 +143,47 @@
 <li class="toctree-l2"><a class="reference internal" href="../../../guide/robust.html#id9">最佳实践</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="../../../guide/dashboard.html">Dashboard</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/dashboard.html#id1">启动</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/dashboard.html#id2">运行流程</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/dashboard.html#api">主要 API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/dashboard.html#id3">结果与下载</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/dashboard.html#id4">新增因子</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/dashboard.html#id5">常见问题</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../../guide/factor-pipeline.html">因子脚本与 YAML 管线</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/factor-pipeline.html#id1">目录结构</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/factor-pipeline.html#id2">YAML 结构</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/factor-pipeline.html#id3">脚本最小接口</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/factor-pipeline.html#factorspec">FactorSpec</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/factor-pipeline.html#runresult">RunResult</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/factor-pipeline.html#dashboard">Dashboard 发现规则</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../../guide/factor-mining.html">因子参数挖掘</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/factor-mining.html#hook">因子侧 hook</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/factor-mining.html#id2">单段参数扫描</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/factor-mining.html#id3">滚动窗口挖掘</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/factor-mining.html#id4">缓存</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/factor-mining.html#id5">引擎选择</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/factor-mining.html#id6">内存保护</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/factor-mining.html#id7">结果指标</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/factor-mining.html#id8">实践建议</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../../guide/db-manager.html">数据库管理工具</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/db-manager.html#id2">主要对象</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/db-manager.html#id3">支持表</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/db-manager.html#schema">Schema 管理</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/db-manager.html#id4">查询与预览</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/db-manager.html#id5">文件导入</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/db-manager.html#id6">指数成分导入</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/db-manager.html#id7">交易状态导入</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/db-manager.html#cli-gui">CLI 与 GUI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../guide/db-manager.html#id8">迁移提示</a></li>
+</ul>
+</li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">API 参考</span></p>
 <ul>
@@ -189,7 +202,10 @@
 <li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.ingest_wind_daily_bond"><code class="docutils literal notranslate"><span class="pre">Datafeed.ingest_wind_daily_bond()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.run_query"><code class="docutils literal notranslate"><span class="pre">Datafeed.run_query()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.query_time_range"><code class="docutils literal notranslate"><span class="pre">Datafeed.query_time_range()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.query_trade_status"><code class="docutils literal notranslate"><span class="pre">Datafeed.query_trade_status()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.query_nearest_after"><code class="docutils literal notranslate"><span class="pre">Datafeed.query_nearest_after()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.query_nearest_in_range_after"><code class="docutils literal notranslate"><span class="pre">Datafeed.query_nearest_in_range_after()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.query_nearest_in_range_before"><code class="docutils literal notranslate"><span class="pre">Datafeed.query_nearest_in_range_before()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.query_nearest_before"><code class="docutils literal notranslate"><span class="pre">Datafeed.query_nearest_before()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.get_latest_date"><code class="docutils literal notranslate"><span class="pre">Datafeed.get_latest_date()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.get_available_dates"><code class="docutils literal notranslate"><span class="pre">Datafeed.get_available_dates()</span></code></a></li>
@@ -199,13 +215,6 @@
 <li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.Datafeed.close"><code class="docutils literal notranslate"><span class="pre">Datafeed.close()</span></code></a></li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.read_file"><code class="docutils literal notranslate"><span class="pre">read_file()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.read_csv_with_encoding"><code class="docutils literal notranslate"><span class="pre">read_csv_with_encoding()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.cross_section_to_db_format"><code class="docutils literal notranslate"><span class="pre">cross_section_to_db_format()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.batch_read_files"><code class="docutils literal notranslate"><span class="pre">batch_read_files()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.batch_write_files"><code class="docutils literal notranslate"><span class="pre">batch_write_files()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.create_directory_tree"><code class="docutils literal notranslate"><span class="pre">create_directory_tree()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.check_excel_errors"><code class="docutils literal notranslate"><span class="pre">check_excel_errors()</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.FillStrategy"><code class="docutils literal notranslate"><span class="pre">FillStrategy</span></code></a><ul>
 <li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.FillStrategy.RAISE_ERROR"><code class="docutils literal notranslate"><span class="pre">FillStrategy.RAISE_ERROR</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.FillStrategy.DROP"><code class="docutils literal notranslate"><span class="pre">FillStrategy.DROP</span></code></a></li>
@@ -218,12 +227,6 @@
 <li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.FillStrategy.INTERPOLATE"><code class="docutils literal notranslate"><span class="pre">FillStrategy.INTERPOLATE</span></code></a></li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.check_null_values"><code class="docutils literal notranslate"><span class="pre">check_null_values()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.check_datetime_column"><code class="docutils literal notranslate"><span class="pre">check_datetime_column()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.fix_null_values"><code class="docutils literal notranslate"><span class="pre">fix_null_values()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.drop_duplicates_strict"><code class="docutils literal notranslate"><span class="pre">drop_duplicates_strict()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.fix_datetime_column"><code class="docutils literal notranslate"><span class="pre">fix_datetime_column()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.validate_and_fix"><code class="docutils literal notranslate"><span class="pre">validate_and_fix()</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.DataValidator"><code class="docutils literal notranslate"><span class="pre">DataValidator</span></code></a><ul>
 <li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.DataValidator.__init__"><code class="docutils literal notranslate"><span class="pre">DataValidator.__init__()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.DataValidator.check_null_values"><code class="docutils literal notranslate"><span class="pre">DataValidator.check_null_values()</span></code></a></li>
@@ -234,46 +237,14 @@
 <li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.DataValidator.validate_and_fix"><code class="docutils literal notranslate"><span class="pre">DataValidator.validate_and_fix()</span></code></a></li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.build_query"><code class="docutils literal notranslate"><span class="pre">build_query()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.generate_input_pairs"><code class="docutils literal notranslate"><span class="pre">generate_input_pairs()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.build_nearest_query"><code class="docutils literal notranslate"><span class="pre">build_nearest_query()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.query_nearest_after"><code class="docutils literal notranslate"><span class="pre">query_nearest_after()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.query_nearest_before"><code class="docutils literal notranslate"><span class="pre">query_nearest_before()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.query_time_range"><code class="docutils literal notranslate"><span class="pre">query_time_range()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.get_available_dates"><code class="docutils literal notranslate"><span class="pre">get_available_dates()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.get_latest_date"><code class="docutils literal notranslate"><span class="pre">get_latest_date()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.pivot_to_wide"><code class="docutils literal notranslate"><span class="pre">pivot_to_wide()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.align_to_dates"><code class="docutils literal notranslate"><span class="pre">align_to_dates()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.calculate_returns"><code class="docutils literal notranslate"><span class="pre">calculate_returns()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.process_excel_to_db_format"><code class="docutils literal notranslate"><span class="pre">process_excel_to_db_format()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.check_existing_rows"><code class="docutils literal notranslate"><span class="pre">check_existing_rows()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.insert_dataframe"><code class="docutils literal notranslate"><span class="pre">insert_dataframe()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.get_existing_dates"><code class="docutils literal notranslate"><span class="pre">get_existing_dates()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.incremental_insert"><code class="docutils literal notranslate"><span class="pre">incremental_insert()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.save_error_file"><code class="docutils literal notranslate"><span class="pre">save_error_file()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.process_directory_tree"><code class="docutils literal notranslate"><span class="pre">process_directory_tree()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.ConfigManager"><code class="docutils literal notranslate"><span class="pre">ConfigManager</span></code></a><ul>
-<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.ConfigManager.__init__"><code class="docutils literal notranslate"><span class="pre">ConfigManager.__init__()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.ConfigManager.load"><code class="docutils literal notranslate"><span class="pre">ConfigManager.load()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.ConfigManager.save"><code class="docutils literal notranslate"><span class="pre">ConfigManager.save()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.ConfigManager.get"><code class="docutils literal notranslate"><span class="pre">ConfigManager.get()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.ConfigManager.set"><code class="docutils literal notranslate"><span class="pre">ConfigManager.set()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.ConfigManager.get_section"><code class="docutils literal notranslate"><span class="pre">ConfigManager.get_section()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.ConfigManager.config"><code class="docutils literal notranslate"><span class="pre">ConfigManager.config</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.ConfigManager.__getitem__"><code class="docutils literal notranslate"><span class="pre">ConfigManager.__getitem__()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.ConfigManager.__setitem__"><code class="docutils literal notranslate"><span class="pre">ConfigManager.__setitem__()</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.get_config"><code class="docutils literal notranslate"><span class="pre">get_config()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.reset_config"><code class="docutils literal notranslate"><span class="pre">reset_config()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.get_database_config"><code class="docutils literal notranslate"><span class="pre">get_database_config()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.get_logging_config"><code class="docutils literal notranslate"><span class="pre">get_logging_config()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.get_excel_config"><code class="docutils literal notranslate"><span class="pre">get_excel_config()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.get_wind_config"><code class="docutils literal notranslate"><span class="pre">get_wind_config()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.get_ede_config"><code class="docutils literal notranslate"><span class="pre">get_ede_config()</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.func_timer"><code class="docutils literal notranslate"><span class="pre">func_timer()</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.get_absolute_trade_days"><code class="docutils literal notranslate"><span class="pre">get_absolute_trade_days()</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.trade_days_offset"><code class="docutils literal notranslate"><span class="pre">trade_days_offset()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.build_industry_records"><code class="docutils literal notranslate"><span class="pre">build_industry_records()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.get_industry_members"><code class="docutils literal notranslate"><span class="pre">get_industry_members()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.query_industry"><code class="docutils literal notranslate"><span class="pre">query_industry()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.get_index_universe"><code class="docutils literal notranslate"><span class="pre">get_index_universe()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.get_index_universe_date"><code class="docutils literal notranslate"><span class="pre">get_index_universe_date()</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../../api/datafeed.html#id1">子模块</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#module-betalens.datafeed.core">core</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.core.func_timer"><code class="docutils literal notranslate"><span class="pre">func_timer()</span></code></a></li>
@@ -307,12 +278,17 @@
 <li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#module-betalens.datafeed.query">query</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.query.build_query"><code class="docutils literal notranslate"><span class="pre">build_query()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.query.generate_input_pairs"><code class="docutils literal notranslate"><span class="pre">generate_input_pairs()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.query.generate_input_range_pairs"><code class="docutils literal notranslate"><span class="pre">generate_input_range_pairs()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.query.build_nearest_in_range_query"><code class="docutils literal notranslate"><span class="pre">build_nearest_in_range_query()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.query.build_nearest_query"><code class="docutils literal notranslate"><span class="pre">build_nearest_query()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.query.query_nearest_after"><code class="docutils literal notranslate"><span class="pre">query_nearest_after()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.query.query_nearest_before"><code class="docutils literal notranslate"><span class="pre">query_nearest_before()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.query.query_nearest_in_range_after"><code class="docutils literal notranslate"><span class="pre">query_nearest_in_range_after()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.query.query_nearest_in_range_before"><code class="docutils literal notranslate"><span class="pre">query_nearest_in_range_before()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.query.query_time_range"><code class="docutils literal notranslate"><span class="pre">query_time_range()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.query.get_available_dates"><code class="docutils literal notranslate"><span class="pre">get_available_dates()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.query.get_latest_date"><code class="docutils literal notranslate"><span class="pre">get_latest_date()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.query.query_trade_status"><code class="docutils literal notranslate"><span class="pre">query_trade_status()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.query.pivot_to_wide"><code class="docutils literal notranslate"><span class="pre">pivot_to_wide()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.query.align_to_dates"><code class="docutils literal notranslate"><span class="pre">align_to_dates()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.query.calculate_returns"><code class="docutils literal notranslate"><span class="pre">calculate_returns()</span></code></a></li>
@@ -326,6 +302,21 @@
 <li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.integration.incremental_insert"><code class="docutils literal notranslate"><span class="pre">incremental_insert()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.integration.save_error_file"><code class="docutils literal notranslate"><span class="pre">save_error_file()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.integration.process_directory_tree"><code class="docutils literal notranslate"><span class="pre">process_directory_tree()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#module-betalens.datafeed.industry">industry</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#id2">设计要点</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#id3">主要接口</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.industry.query_industry"><code class="docutils literal notranslate"><span class="pre">query_industry()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.industry.get_industry_members"><code class="docutils literal notranslate"><span class="pre">get_industry_members()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.industry.build_industry_records"><code class="docutils literal notranslate"><span class="pre">build_industry_records()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#module-betalens.datafeed.universe">universe</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#id4">设计要点</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#id5">主要接口</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.universe.get_index_universe_date"><code class="docutils literal notranslate"><span class="pre">get_index_universe_date()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/datafeed.html#betalens.datafeed.universe.get_index_universe"><code class="docutils literal notranslate"><span class="pre">get_index_universe()</span></code></a></li>
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="../../../api/datafeed.html#module-betalens.datafeed.config">config</a><ul>
@@ -361,68 +352,161 @@
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../../../api/factor.html">Factor API</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="../../../api/factor.html#factor-factor">factor.factor</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#id1">数据准备函数</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.get_tradable_pool"><code class="docutils literal notranslate"><span class="pre">get_tradable_pool()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.pre_query_characteristic_data"><code class="docutils literal notranslate"><span class="pre">pre_query_characteristic_data()</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#id2">单因子函数</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.single_characteristic"><code class="docutils literal notranslate"><span class="pre">single_characteristic()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.get_single_factor_weight"><code class="docutils literal notranslate"><span class="pre">get_single_factor_weight()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.describe_labeled_pool"><code class="docutils literal notranslate"><span class="pre">describe_labeled_pool()</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#id3">双因子函数</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.double_characteristic"><code class="docutils literal notranslate"><span class="pre">double_characteristic()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.get_double_factor_weight"><code class="docutils literal notranslate"><span class="pre">get_double_factor_weight()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.describe_double_labeled_pool"><code class="docutils literal notranslate"><span class="pre">describe_double_labeled_pool()</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#id4">多因子函数</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.multi_characteristic"><code class="docutils literal notranslate"><span class="pre">multi_characteristic()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.get_multi_factor_weight"><code class="docutils literal notranslate"><span class="pre">get_multi_factor_weight()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.describe_multi_labeled_pool"><code class="docutils literal notranslate"><span class="pre">describe_multi_labeled_pool()</span></code></a></li>
-</ul>
-</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.factor.get_tradable_pool"><code class="docutils literal notranslate"><span class="pre">get_tradable_pool()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.factor.pre_query_characteristic_data"><code class="docutils literal notranslate"><span class="pre">pre_query_characteristic_data()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.factor.single_characteristic"><code class="docutils literal notranslate"><span class="pre">single_characteristic()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.factor.double_characteristic"><code class="docutils literal notranslate"><span class="pre">double_characteristic()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.factor.multi_characteristic"><code class="docutils literal notranslate"><span class="pre">multi_characteristic()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.factor.get_single_factor_weight"><code class="docutils literal notranslate"><span class="pre">get_single_factor_weight()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.factor.describe_labeled_pool"><code class="docutils literal notranslate"><span class="pre">describe_labeled_pool()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.factor.describe_double_labeled_pool"><code class="docutils literal notranslate"><span class="pre">describe_double_labeled_pool()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.factor.describe_multi_labeled_pool"><code class="docutils literal notranslate"><span class="pre">describe_multi_labeled_pool()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.factor.get_multi_factor_weight"><code class="docutils literal notranslate"><span class="pre">get_multi_factor_weight()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.factor.get_double_factor_weight"><code class="docutils literal notranslate"><span class="pre">get_double_factor_weight()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#id1">重要口径</a></li>
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="../../../api/factor.html#factor-preprocessing">factor.preprocessing</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#id5">截面处理函数</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.winsorize_factor"><code class="docutils literal notranslate"><span class="pre">winsorize_factor()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.standardize_factor"><code class="docutils literal notranslate"><span class="pre">standardize_factor()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.neutralize_factor"><code class="docutils literal notranslate"><span class="pre">neutralize_factor()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.preprocessing.winsorize_factor"><code class="docutils literal notranslate"><span class="pre">winsorize_factor()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.preprocessing.standardize_factor"><code class="docutils literal notranslate"><span class="pre">standardize_factor()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.preprocessing.neutralize_factor"><code class="docutils literal notranslate"><span class="pre">neutralize_factor()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.preprocessing.neutralize_factor_by_factor"><code class="docutils literal notranslate"><span class="pre">neutralize_factor_by_factor()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.preprocessing.filter_pool_by_industry"><code class="docutils literal notranslate"><span class="pre">filter_pool_by_industry()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.preprocessing.apply_industry_weight_constraint"><code class="docutils literal notranslate"><span class="pre">apply_industry_weight_constraint()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.preprocessing.query_industry_panel"><code class="docutils literal notranslate"><span class="pre">query_industry_panel()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.preprocessing.preprocess_factor"><code class="docutils literal notranslate"><span class="pre">preprocess_factor()</span></code></a></li>
 </ul>
 </li>
-<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#id6">因子对因子中性化</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.neutralize_factor_by_factor"><code class="docutils literal notranslate"><span class="pre">neutralize_factor_by_factor()</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#id7">行业中性化工具</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.filter_pool_by_industry"><code class="docutils literal notranslate"><span class="pre">filter_pool_by_industry()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.apply_industry_weight_constraint"><code class="docutils literal notranslate"><span class="pre">apply_industry_weight_constraint()</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#id8">一键预处理流水线</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.preprocess_factor"><code class="docutils literal notranslate"><span class="pre">preprocess_factor()</span></code></a></li>
-</ul>
-</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/factor.html#factor-profiling">factor.profiling</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.profiling.describe_distribution"><code class="docutils literal notranslate"><span class="pre">describe_distribution()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.profiling.coverage_stats"><code class="docutils literal notranslate"><span class="pre">coverage_stats()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.profiling.detect_outliers"><code class="docutils literal notranslate"><span class="pre">detect_outliers()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.profiling.factor_autocorrelation"><code class="docutils literal notranslate"><span class="pre">factor_autocorrelation()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.profiling.factor_turnover"><code class="docutils literal notranslate"><span class="pre">factor_turnover()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.profiling.selection_overlap"><code class="docutils literal notranslate"><span class="pre">selection_overlap()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.profiling.distribution_stability"><code class="docutils literal notranslate"><span class="pre">distribution_stability()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.profiling.factor_profile_payload"><code class="docutils literal notranslate"><span class="pre">factor_profile_payload()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.profiling.cross_correlation"><code class="docutils literal notranslate"><span class="pre">cross_correlation()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.profiling.correlation_timeseries"><code class="docutils literal notranslate"><span class="pre">correlation_timeseries()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.profiling.selection_coincidence"><code class="docutils literal notranslate"><span class="pre">selection_coincidence()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.profiling.factor_clustering"><code class="docutils literal notranslate"><span class="pre">factor_clustering()</span></code></a></li>
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="../../../api/factor.html#factor-stats">factor.stats</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#ic-icir">IC / ICIR</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.calc_ic"><code class="docutils literal notranslate"><span class="pre">calc_ic()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.calc_icir"><code class="docutils literal notranslate"><span class="pre">calc_icir()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.summarize_ic"><code class="docutils literal notranslate"><span class="pre">summarize_ic()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.stats.calc_ic"><code class="docutils literal notranslate"><span class="pre">calc_ic()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.stats.calc_icir"><code class="docutils literal notranslate"><span class="pre">calc_icir()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.stats.summarize_ic"><code class="docutils literal notranslate"><span class="pre">summarize_ic()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.stats.calc_ic_from_factor_values"><code class="docutils literal notranslate"><span class="pre">calc_ic_from_factor_values()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.stats.fama_macbeth"><code class="docutils literal notranslate"><span class="pre">fama_macbeth()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.stats.group_return_summary"><code class="docutils literal notranslate"><span class="pre">group_return_summary()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.stats.calc_timing_ic"><code class="docutils literal notranslate"><span class="pre">calc_timing_ic()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.stats.generate_timing_signals"><code class="docutils literal notranslate"><span class="pre">generate_timing_signals()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.stats.test_timing_signal"><code class="docutils literal notranslate"><span class="pre">test_timing_signal()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.stats.test_all_timing_signals"><code class="docutils literal notranslate"><span class="pre">test_all_timing_signals()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.stats.timing_regression"><code class="docutils literal notranslate"><span class="pre">timing_regression()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.stats.timing_robustness"><code class="docutils literal notranslate"><span class="pre">timing_robustness()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.stats.backtest_timing_signal"><code class="docutils literal notranslate"><span class="pre">backtest_timing_signal()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.stats.compute_timing_score"><code class="docutils literal notranslate"><span class="pre">compute_timing_score()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.stats.run_timing_evaluation"><code class="docutils literal notranslate"><span class="pre">run_timing_evaluation()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.stats.export_timing_report"><code class="docutils literal notranslate"><span class="pre">export_timing_report()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.stats.plot_factor_timeseries"><code class="docutils literal notranslate"><span class="pre">plot_factor_timeseries()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.stats.plot_rolling_ic"><code class="docutils literal notranslate"><span class="pre">plot_rolling_ic()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.stats.plot_signal_avg_return"><code class="docutils literal notranslate"><span class="pre">plot_signal_avg_return()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.stats.plot_win_rate_comparison"><code class="docutils literal notranslate"><span class="pre">plot_win_rate_comparison()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.stats.plot_ic_by_period"><code class="docutils literal notranslate"><span class="pre">plot_ic_by_period()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.stats.plot_return_distribution"><code class="docutils literal notranslate"><span class="pre">plot_return_distribution()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.stats.plot_factor_vs_return"><code class="docutils literal notranslate"><span class="pre">plot_factor_vs_return()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.stats.plot_composite_score"><code class="docutils literal notranslate"><span class="pre">plot_composite_score()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.stats.plot_group_cumulative_returns"><code class="docutils literal notranslate"><span class="pre">plot_group_cumulative_returns()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.stats.monotonicity_test"><code class="docutils literal notranslate"><span class="pre">monotonicity_test()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.stats.run_cross_section_evaluation"><code class="docutils literal notranslate"><span class="pre">run_cross_section_evaluation()</span></code></a></li>
 </ul>
 </li>
-<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#fama-macbeth">Fama-MacBeth 截面回归</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.fama_macbeth"><code class="docutils literal notranslate"><span class="pre">fama_macbeth()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/factor.html#factor-mining">factor.mining</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.ParameterSweepConfig"><code class="docutils literal notranslate"><span class="pre">ParameterSweepConfig</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.ParameterSweepConfig.factor_module"><code class="docutils literal notranslate"><span class="pre">ParameterSweepConfig.factor_module</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.ParameterSweepConfig.output_dir"><code class="docutils literal notranslate"><span class="pre">ParameterSweepConfig.output_dir</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.ParameterSweepConfig.span"><code class="docutils literal notranslate"><span class="pre">ParameterSweepConfig.span</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.ParameterSweepConfig.grid"><code class="docutils literal notranslate"><span class="pre">ParameterSweepConfig.grid</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.ParameterSweepConfig.spec_factory"><code class="docutils literal notranslate"><span class="pre">ParameterSweepConfig.spec_factory</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.ParameterSweepConfig.gid_factory"><code class="docutils literal notranslate"><span class="pre">ParameterSweepConfig.gid_factory</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.ParameterSweepConfig.weight_hook"><code class="docutils literal notranslate"><span class="pre">ParameterSweepConfig.weight_hook</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.ParameterSweepConfig.warmup_days_factory"><code class="docutils literal notranslate"><span class="pre">ParameterSweepConfig.warmup_days_factory</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.ParameterSweepConfig.objective"><code class="docutils literal notranslate"><span class="pre">ParameterSweepConfig.objective</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.ParameterSweepConfig.objective_higher_is_better"><code class="docutils literal notranslate"><span class="pre">ParameterSweepConfig.objective_higher_is_better</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.ParameterSweepConfig.engine"><code class="docutils literal notranslate"><span class="pre">ParameterSweepConfig.engine</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.ParameterSweepConfig.workers"><code class="docutils literal notranslate"><span class="pre">ParameterSweepConfig.workers</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.ParameterSweepConfig.cache_dir"><code class="docutils literal notranslate"><span class="pre">ParameterSweepConfig.cache_dir</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.ParameterSweepConfig.rebuild_cache"><code class="docutils literal notranslate"><span class="pre">ParameterSweepConfig.rebuild_cache</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.ParameterSweepConfig.rebal_freq"><code class="docutils literal notranslate"><span class="pre">ParameterSweepConfig.rebal_freq</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.ParameterSweepConfig.n_quantiles_param"><code class="docutils literal notranslate"><span class="pre">ParameterSweepConfig.n_quantiles_param</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.ParameterSweepConfig.initial_amount"><code class="docutils literal notranslate"><span class="pre">ParameterSweepConfig.initial_amount</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.ParameterSweepConfig.time_tolerance"><code class="docutils literal notranslate"><span class="pre">ParameterSweepConfig.time_tolerance</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.ParameterSweepConfig.max_warmup_days"><code class="docutils literal notranslate"><span class="pre">ParameterSweepConfig.max_warmup_days</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.ParameterSweepConfig.max_memory_ratio"><code class="docutils literal notranslate"><span class="pre">ParameterSweepConfig.max_memory_ratio</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.ParameterSweepConfig.max_memory_bytes"><code class="docutils literal notranslate"><span class="pre">ParameterSweepConfig.max_memory_bytes</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.ParameterSweepConfig.cache_memory_multiplier"><code class="docutils literal notranslate"><span class="pre">ParameterSweepConfig.cache_memory_multiplier</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.ParameterSweepConfig.worker_memory_overhead_bytes"><code class="docutils literal notranslate"><span class="pre">ParameterSweepConfig.worker_memory_overhead_bytes</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.ParameterSweepConfig.universe"><code class="docutils literal notranslate"><span class="pre">ParameterSweepConfig.universe</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.ParameterSweepConfig.results_filename"><code class="docutils literal notranslate"><span class="pre">ParameterSweepConfig.results_filename</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.ParameterSweepConfig.__init__"><code class="docutils literal notranslate"><span class="pre">ParameterSweepConfig.__init__()</span></code></a></li>
 </ul>
 </li>
-<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#id9">分组收益统计</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.group_return_summary"><code class="docutils literal notranslate"><span class="pre">group_return_summary()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.RollingMiningConfig"><code class="docutils literal notranslate"><span class="pre">RollingMiningConfig</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.RollingMiningConfig.factor_module"><code class="docutils literal notranslate"><span class="pre">RollingMiningConfig.factor_module</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.RollingMiningConfig.output_dir"><code class="docutils literal notranslate"><span class="pre">RollingMiningConfig.output_dir</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.RollingMiningConfig.grid"><code class="docutils literal notranslate"><span class="pre">RollingMiningConfig.grid</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.RollingMiningConfig.train"><code class="docutils literal notranslate"><span class="pre">RollingMiningConfig.train</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.RollingMiningConfig.test"><code class="docutils literal notranslate"><span class="pre">RollingMiningConfig.test</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.RollingMiningConfig.valid"><code class="docutils literal notranslate"><span class="pre">RollingMiningConfig.valid</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.RollingMiningConfig.train_schemes"><code class="docutils literal notranslate"><span class="pre">RollingMiningConfig.train_schemes</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.RollingMiningConfig.test_schemes"><code class="docutils literal notranslate"><span class="pre">RollingMiningConfig.test_schemes</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.RollingMiningConfig.spec_factory"><code class="docutils literal notranslate"><span class="pre">RollingMiningConfig.spec_factory</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.RollingMiningConfig.gid_factory"><code class="docutils literal notranslate"><span class="pre">RollingMiningConfig.gid_factory</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.RollingMiningConfig.weight_hook"><code class="docutils literal notranslate"><span class="pre">RollingMiningConfig.weight_hook</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.RollingMiningConfig.valid_report_hook"><code class="docutils literal notranslate"><span class="pre">RollingMiningConfig.valid_report_hook</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.RollingMiningConfig.warmup_days_factory"><code class="docutils literal notranslate"><span class="pre">RollingMiningConfig.warmup_days_factory</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.RollingMiningConfig.objective"><code class="docutils literal notranslate"><span class="pre">RollingMiningConfig.objective</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.RollingMiningConfig.objective_higher_is_better"><code class="docutils literal notranslate"><span class="pre">RollingMiningConfig.objective_higher_is_better</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.RollingMiningConfig.candidate_percentile"><code class="docutils literal notranslate"><span class="pre">RollingMiningConfig.candidate_percentile</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.RollingMiningConfig.report_top_n"><code class="docutils literal notranslate"><span class="pre">RollingMiningConfig.report_top_n</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.RollingMiningConfig.engine"><code class="docutils literal notranslate"><span class="pre">RollingMiningConfig.engine</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.RollingMiningConfig.workers"><code class="docutils literal notranslate"><span class="pre">RollingMiningConfig.workers</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.RollingMiningConfig.cache_dir"><code class="docutils literal notranslate"><span class="pre">RollingMiningConfig.cache_dir</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.RollingMiningConfig.rebuild_cache"><code class="docutils literal notranslate"><span class="pre">RollingMiningConfig.rebuild_cache</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.RollingMiningConfig.rebal_freq"><code class="docutils literal notranslate"><span class="pre">RollingMiningConfig.rebal_freq</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.RollingMiningConfig.n_quantiles_param"><code class="docutils literal notranslate"><span class="pre">RollingMiningConfig.n_quantiles_param</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.RollingMiningConfig.initial_amount"><code class="docutils literal notranslate"><span class="pre">RollingMiningConfig.initial_amount</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.RollingMiningConfig.time_tolerance"><code class="docutils literal notranslate"><span class="pre">RollingMiningConfig.time_tolerance</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.RollingMiningConfig.max_warmup_days"><code class="docutils literal notranslate"><span class="pre">RollingMiningConfig.max_warmup_days</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.RollingMiningConfig.max_memory_ratio"><code class="docutils literal notranslate"><span class="pre">RollingMiningConfig.max_memory_ratio</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.RollingMiningConfig.max_memory_bytes"><code class="docutils literal notranslate"><span class="pre">RollingMiningConfig.max_memory_bytes</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.RollingMiningConfig.cache_memory_multiplier"><code class="docutils literal notranslate"><span class="pre">RollingMiningConfig.cache_memory_multiplier</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.RollingMiningConfig.worker_memory_overhead_bytes"><code class="docutils literal notranslate"><span class="pre">RollingMiningConfig.worker_memory_overhead_bytes</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.RollingMiningConfig.max_windows_per_scheme"><code class="docutils literal notranslate"><span class="pre">RollingMiningConfig.max_windows_per_scheme</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.RollingMiningConfig.universe"><code class="docutils literal notranslate"><span class="pre">RollingMiningConfig.universe</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.RollingMiningConfig.__init__"><code class="docutils literal notranslate"><span class="pre">RollingMiningConfig.__init__()</span></code></a></li>
 </ul>
 </li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.build_grid_combos"><code class="docutils literal notranslate"><span class="pre">build_grid_combos()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.gen_rolling_windows"><code class="docutils literal notranslate"><span class="pre">gen_rolling_windows()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.metrics_from_nav"><code class="docutils literal notranslate"><span class="pre">metrics_from_nav()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.run_parameter_sweep"><code class="docutils literal notranslate"><span class="pre">run_parameter_sweep()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.run_walk_forward"><code class="docutils literal notranslate"><span class="pre">run_walk_forward()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.mining.tally_champions"><code class="docutils literal notranslate"><span class="pre">tally_champions()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/factor.html#factor-config">factor.config</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.config.ConfigError"><code class="docutils literal notranslate"><span class="pre">ConfigError</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.config.load_yaml_config"><code class="docutils literal notranslate"><span class="pre">load_yaml_config()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.config.write_yaml_config"><code class="docutils literal notranslate"><span class="pre">write_yaml_config()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.config.section"><code class="docutils literal notranslate"><span class="pre">section()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.config.require_keys"><code class="docutils literal notranslate"><span class="pre">require_keys()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.config.resolve_path"><code class="docutils literal notranslate"><span class="pre">resolve_path()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.config.resolve_run_output_dir"><code class="docutils literal notranslate"><span class="pre">resolve_run_output_dir()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.config.factor_metadata"><code class="docutils literal notranslate"><span class="pre">factor_metadata()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.config.run_parameters"><code class="docutils literal notranslate"><span class="pre">run_parameters()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/factor.html#betalens.factor.config.factor_spec_options"><code class="docutils literal notranslate"><span class="pre">factor_spec_options()</span></code></a></li>
 </ul>
 </li>
 </ul>
@@ -431,39 +515,60 @@
 <li class="toctree-l2"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.BacktestBase"><code class="docutils literal notranslate"><span class="pre">BacktestBase</span></code></a><ul>
 <li class="toctree-l3"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.BacktestBase.__init__"><code class="docutils literal notranslate"><span class="pre">BacktestBase.__init__()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.BacktestBase.melt_weights"><code class="docutils literal notranslate"><span class="pre">BacktestBase.melt_weights()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.BacktestBase.get_trade_status"><code class="docutils literal notranslate"><span class="pre">BacktestBase.get_trade_status()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.BacktestBase.get_rebalance_data"><code class="docutils literal notranslate"><span class="pre">BacktestBase.get_rebalance_data()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.BacktestBase.get_position_data"><code class="docutils literal notranslate"><span class="pre">BacktestBase.get_position_data()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.BacktestBase.get_daily_position_data"><code class="docutils literal notranslate"><span class="pre">BacktestBase.get_daily_position_data()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.BacktestBase.dump_to_excel"><code class="docutils literal notranslate"><span class="pre">BacktestBase.dump_to_excel()</span></code></a></li>
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.BacktestDataError"><code class="docutils literal notranslate"><span class="pre">BacktestDataError</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.DateMismatchError"><code class="docutils literal notranslate"><span class="pre">DateMismatchError</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.CodeMismatchError"><code class="docutils literal notranslate"><span class="pre">CodeMismatchError</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../../api/backtest.html#backtest-backtest">backtest.backtest</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="../../../api/backtest.html#backtestbase">BacktestBase</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="../../../api/backtest.html#id0"><code class="docutils literal notranslate"><span class="pre">BacktestBase</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/backtest.html#module-betalens.backtest.backtest">backtest.backtest</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.backtest.BacktestDataError"><code class="docutils literal notranslate"><span class="pre">BacktestDataError</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.backtest.DateMismatchError"><code class="docutils literal notranslate"><span class="pre">DateMismatchError</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.backtest.CodeMismatchError"><code class="docutils literal notranslate"><span class="pre">CodeMismatchError</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.backtest.format_data_sample"><code class="docutils literal notranslate"><span class="pre">format_data_sample()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.backtest.validate_weight_input"><code class="docutils literal notranslate"><span class="pre">validate_weight_input()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.backtest.validate_query_result"><code class="docutils literal notranslate"><span class="pre">validate_query_result()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.backtest.validate_pivot_result"><code class="docutils literal notranslate"><span class="pre">validate_pivot_result()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.backtest.validate_index_alignment"><code class="docutils literal notranslate"><span class="pre">validate_index_alignment()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.backtest.validate_calculation_inputs"><code class="docutils literal notranslate"><span class="pre">validate_calculation_inputs()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.backtest.BacktestBase"><code class="docutils literal notranslate"><span class="pre">BacktestBase</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.backtest.BacktestBase.__init__"><code class="docutils literal notranslate"><span class="pre">BacktestBase.__init__()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.backtest.BacktestBase.melt_weights"><code class="docutils literal notranslate"><span class="pre">BacktestBase.melt_weights()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.backtest.BacktestBase.get_trade_status"><code class="docutils literal notranslate"><span class="pre">BacktestBase.get_trade_status()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.backtest.BacktestBase.get_rebalance_data"><code class="docutils literal notranslate"><span class="pre">BacktestBase.get_rebalance_data()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.backtest.BacktestBase.get_position_data"><code class="docutils literal notranslate"><span class="pre">BacktestBase.get_position_data()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.backtest.BacktestBase.get_daily_position_data"><code class="docutils literal notranslate"><span class="pre">BacktestBase.get_daily_position_data()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.backtest.BacktestBase.dump_to_excel"><code class="docutils literal notranslate"><span class="pre">BacktestBase.dump_to_excel()</span></code></a></li>
 </ul>
 </li>
-<li class="toctree-l3"><a class="reference internal" href="../../../api/backtest.html#id4">异常类</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="../../../api/backtest.html#id5"><code class="docutils literal notranslate"><span class="pre">BacktestDataError</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../../../api/backtest.html#id6"><code class="docutils literal notranslate"><span class="pre">DateMismatchError</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../../../api/backtest.html#id7"><code class="docutils literal notranslate"><span class="pre">CodeMismatchError</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="../../../api/backtest.html#id8">验证函数</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.validate_weight_input"><code class="docutils literal notranslate"><span class="pre">validate_weight_input()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.validate_query_result"><code class="docutils literal notranslate"><span class="pre">validate_query_result()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.validate_pivot_result"><code class="docutils literal notranslate"><span class="pre">validate_pivot_result()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.validate_index_alignment"><code class="docutils literal notranslate"><span class="pre">validate_index_alignment()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.validate_calculation_inputs"><code class="docutils literal notranslate"><span class="pre">validate_calculation_inputs()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../../../api/backtest.html#betalens.backtest.format_data_sample"><code class="docutils literal notranslate"><span class="pre">format_data_sample()</span></code></a></li>
-</ul>
-</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/backtest.html#backtestbase">BacktestBase 当前签名</a></li>
 </ul>
 </li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../../../api/analyst.html">Analyst API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.Analyst"><code class="docutils literal notranslate"><span class="pre">Analyst</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.Analyst.__init__"><code class="docutils literal notranslate"><span class="pre">Analyst.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.Analyst.from_backtest"><code class="docutils literal notranslate"><span class="pre">Analyst.from_backtest()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.Analyst.from_excel"><code class="docutils literal notranslate"><span class="pre">Analyst.from_excel()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.Analyst.name_map"><code class="docutils literal notranslate"><span class="pre">Analyst.name_map</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.Analyst.summary_df"><code class="docutils literal notranslate"><span class="pre">Analyst.summary_df()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.Analyst.top_holdings_df"><code class="docutils literal notranslate"><span class="pre">Analyst.top_holdings_df()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.Analyst.contribution_df"><code class="docutils literal notranslate"><span class="pre">Analyst.contribution_df()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.Analyst.trade_pnl_df"><code class="docutils literal notranslate"><span class="pre">Analyst.trade_pnl_df()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.Analyst.monthly_table"><code class="docutils literal notranslate"><span class="pre">Analyst.monthly_table()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.Analyst.print_report"><code class="docutils literal notranslate"><span class="pre">Analyst.print_report()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.Analyst.plots"><code class="docutils literal notranslate"><span class="pre">Analyst.plots()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.Analyst.interactive_plots"><code class="docutils literal notranslate"><span class="pre">Analyst.interactive_plots()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.Analyst.to_excel"><code class="docutils literal notranslate"><span class="pre">Analyst.to_excel()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.Analyst.to_html"><code class="docutils literal notranslate"><span class="pre">Analyst.to_html()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.Analyst.report"><code class="docutils literal notranslate"><span class="pre">Analyst.report()</span></code></a></li>
+</ul>
+</li>
 <li class="toctree-l2"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.PortfolioAnalyzer"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer</span></code></a><ul>
 <li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.PortfolioAnalyzer.__init__"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer.__init__()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.PortfolioAnalyzer.total_return"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer.total_return()</span></code></a></li>
@@ -471,10 +576,11 @@
 <li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.PortfolioAnalyzer.annualized_volatility"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer.annualized_volatility()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.PortfolioAnalyzer.sharpe_ratio"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer.sharpe_ratio()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.PortfolioAnalyzer.max_drawdown"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer.max_drawdown()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.PortfolioAnalyzer.calmar_ratio"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer.calmar_ratio()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.PortfolioAnalyzer.rolling_max_drawdown"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer.rolling_max_drawdown()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.PortfolioAnalyzer.rolling_win_rate"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer.rolling_win_rate()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.PortfolioAnalyzer.calmar_ratio"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer.calmar_ratio()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.PortfolioAnalyzer.recovery_days"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer.recovery_days()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.PortfolioAnalyzer.summary"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer.summary()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.PortfolioAnalyzer.summary_grouped"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer.summary_grouped()</span></code></a></li>
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.ReportExporter"><code class="docutils literal notranslate"><span class="pre">ReportExporter</span></code></a><ul>
@@ -485,14 +591,81 @@
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="../../../api/analyst.html#analyst-analyst">analyst.analyst</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#analyst">Analyst（门面）</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/analyst.html#id0"><code class="docutils literal notranslate"><span class="pre">Analyst</span></code></a></li>
+</ul>
+</li>
 <li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#portfolioanalyzer">PortfolioAnalyzer</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="../../../api/analyst.html#id0"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/analyst.html#id15"><code class="docutils literal notranslate"><span class="pre">PortfolioAnalyzer</span></code></a></li>
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#reportexporter">ReportExporter</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="../../../api/analyst.html#id10"><code class="docutils literal notranslate"><span class="pre">ReportExporter</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/analyst.html#id20"><code class="docutils literal notranslate"><span class="pre">ReportExporter</span></code></a></li>
 </ul>
 </li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/analyst.html#module-betalens.analyst.metrics">analyst.metrics</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.metrics.excess_nav"><code class="docutils literal notranslate"><span class="pre">excess_nav()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.metrics.total_return"><code class="docutils literal notranslate"><span class="pre">total_return()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.metrics.annualized_return"><code class="docutils literal notranslate"><span class="pre">annualized_return()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.metrics.annualized_volatility"><code class="docutils literal notranslate"><span class="pre">annualized_volatility()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.metrics.sharpe_ratio"><code class="docutils literal notranslate"><span class="pre">sharpe_ratio()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.metrics.max_drawdown"><code class="docutils literal notranslate"><span class="pre">max_drawdown()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.metrics.calmar_ratio"><code class="docutils literal notranslate"><span class="pre">calmar_ratio()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.metrics.ulcer_index"><code class="docutils literal notranslate"><span class="pre">ulcer_index()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.metrics.martin_ratio"><code class="docutils literal notranslate"><span class="pre">martin_ratio()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.metrics.pain_index"><code class="docutils literal notranslate"><span class="pre">pain_index()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.metrics.pain_ratio"><code class="docutils literal notranslate"><span class="pre">pain_ratio()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.metrics.max_drawdown_duration"><code class="docutils literal notranslate"><span class="pre">max_drawdown_duration()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.metrics.downside_deviation"><code class="docutils literal notranslate"><span class="pre">downside_deviation()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.metrics.sortino_ratio"><code class="docutils literal notranslate"><span class="pre">sortino_ratio()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.metrics.value_at_risk"><code class="docutils literal notranslate"><span class="pre">value_at_risk()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.metrics.conditional_var"><code class="docutils literal notranslate"><span class="pre">conditional_var()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.metrics.skewness"><code class="docutils literal notranslate"><span class="pre">skewness()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.metrics.kurtosis"><code class="docutils literal notranslate"><span class="pre">kurtosis()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.metrics.rolling_win_rate"><code class="docutils literal notranslate"><span class="pre">rolling_win_rate()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.metrics.rolling_sharpe"><code class="docutils literal notranslate"><span class="pre">rolling_sharpe()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.metrics.rolling_max_drawdown"><code class="docutils literal notranslate"><span class="pre">rolling_max_drawdown()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.metrics.turnover"><code class="docutils literal notranslate"><span class="pre">turnover()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.metrics.top_holdings"><code class="docutils literal notranslate"><span class="pre">top_holdings()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.metrics.weight_hhi"><code class="docutils literal notranslate"><span class="pre">weight_hhi()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.metrics.top_n_concentration"><code class="docutils literal notranslate"><span class="pre">top_n_concentration()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.metrics.avg_holdings_count"><code class="docutils literal notranslate"><span class="pre">avg_holdings_count()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.metrics.holding_period"><code class="docutils literal notranslate"><span class="pre">holding_period()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.metrics.return_contribution"><code class="docutils literal notranslate"><span class="pre">return_contribution()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.metrics.trade_pnl"><code class="docutils literal notranslate"><span class="pre">trade_pnl()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.metrics.beta"><code class="docutils literal notranslate"><span class="pre">beta()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.metrics.alpha"><code class="docutils literal notranslate"><span class="pre">alpha()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.metrics.tracking_error"><code class="docutils literal notranslate"><span class="pre">tracking_error()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.metrics.information_ratio"><code class="docutils literal notranslate"><span class="pre">information_ratio()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.metrics.win_rate_vs_benchmark"><code class="docutils literal notranslate"><span class="pre">win_rate_vs_benchmark()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.metrics.profit_loss_counts"><code class="docutils literal notranslate"><span class="pre">profit_loss_counts()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.metrics.profit_loss_ratio"><code class="docutils literal notranslate"><span class="pre">profit_loss_ratio()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.metrics.monthly_returns_table"><code class="docutils literal notranslate"><span class="pre">monthly_returns_table()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/analyst.html#module-betalens.analyst.naming">analyst.naming</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.naming.get_name_map"><code class="docutils literal notranslate"><span class="pre">get_name_map()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.naming.label"><code class="docutils literal notranslate"><span class="pre">label()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.naming.rename_codes"><code class="docutils literal notranslate"><span class="pre">rename_codes()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.naming.clear_cache"><code class="docutils literal notranslate"><span class="pre">clear_cache()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/analyst.html#module-betalens.analyst.plotting">analyst.plotting</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.plotting.plot_nav"><code class="docutils literal notranslate"><span class="pre">plot_nav()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.plotting.plot_drawdown"><code class="docutils literal notranslate"><span class="pre">plot_drawdown()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.plotting.plot_rolling_metric"><code class="docutils literal notranslate"><span class="pre">plot_rolling_metric()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.plotting.plot_contribution_bar"><code class="docutils literal notranslate"><span class="pre">plot_contribution_bar()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.plotting.plot_weight_concentration"><code class="docutils literal notranslate"><span class="pre">plot_weight_concentration()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.plotting.plot_monthly_heatmap"><code class="docutils literal notranslate"><span class="pre">plot_monthly_heatmap()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.plotting.ip_nav"><code class="docutils literal notranslate"><span class="pre">ip_nav()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.plotting.ip_drawdown"><code class="docutils literal notranslate"><span class="pre">ip_drawdown()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.plotting.ip_rolling"><code class="docutils literal notranslate"><span class="pre">ip_rolling()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.plotting.ip_contribution"><code class="docutils literal notranslate"><span class="pre">ip_contribution()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.plotting.ip_weight_area"><code class="docutils literal notranslate"><span class="pre">ip_weight_area()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.plotting.ip_monthly_heatmap"><code class="docutils literal notranslate"><span class="pre">ip_monthly_heatmap()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/analyst.html#betalens.analyst.plotting.fig_to_html_div"><code class="docutils literal notranslate"><span class="pre">fig_to_html_div()</span></code></a></li>
 </ul>
 </li>
 </ul>
@@ -579,15 +752,21 @@
 <span class="sd">提供截面级别的去极值、标准化、中性化，以及一键预处理流水线。</span>
 <span class="sd">&quot;&quot;&quot;</span>
 
-<span class="kn">import</span> <span class="nn">pandas</span> <span class="k">as</span> <span class="nn">pd</span>
-<span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
-<span class="kn">import</span> <span class="nn">sys</span>
-<span class="kn">from</span> <span class="nn">pathlib</span> <span class="kn">import</span> <span class="n">Path</span>
-<span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Optional</span>
-<span class="kn">import</span> <span class="nn">statsmodels.api</span> <span class="k">as</span> <span class="nn">sm</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">sys</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Optional</span>
 
 <span class="n">sys</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="vm">__file__</span><span class="p">)</span><span class="o">.</span><span class="n">parent</span><span class="o">.</span><span class="n">parent</span><span class="p">))</span>
-<span class="kn">from</span> <span class="nn">datafeed.validation</span> <span class="kn">import</span> <span class="n">fix_null_values</span><span class="p">,</span> <span class="n">FillStrategy</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">betalens.datafeed.validation</span><span class="w"> </span><span class="kn">import</span> <span class="n">fix_null_values</span><span class="p">,</span> <span class="n">FillStrategy</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">betalens.datafeed</span><span class="w"> </span><span class="kn">import</span> <span class="n">Datafeed</span><span class="p">,</span> <span class="n">query_industry</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_statsmodels</span><span class="p">():</span>
+    <span class="kn">import</span><span class="w"> </span><span class="nn">statsmodels.api</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">sm</span>
+
+    <span class="k">return</span> <span class="n">sm</span>
 
 
 <span class="c1"># ─────────────────────────────────────────────</span>
@@ -595,8 +774,8 @@
 <span class="c1"># ─────────────────────────────────────────────</span>
 
 <div class="viewcode-block" id="winsorize_factor">
-<a class="viewcode-back" href="../../../api/factor.html#betalens.factor.winsorize_factor">[文档]</a>
-<span class="k">def</span> <span class="nf">winsorize_factor</span><span class="p">(</span>
+<a class="viewcode-back" href="../../../api/factor.html#betalens.factor.preprocessing.winsorize_factor">[文档]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">winsorize_factor</span><span class="p">(</span>
     <span class="n">factor_series</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">,</span>
     <span class="n">method</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;mad&#39;</span><span class="p">,</span>
     <span class="n">n</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">3.0</span><span class="p">,</span>
@@ -640,8 +819,8 @@
 
 
 <div class="viewcode-block" id="standardize_factor">
-<a class="viewcode-back" href="../../../api/factor.html#betalens.factor.standardize_factor">[文档]</a>
-<span class="k">def</span> <span class="nf">standardize_factor</span><span class="p">(</span>
+<a class="viewcode-back" href="../../../api/factor.html#betalens.factor.preprocessing.standardize_factor">[文档]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">standardize_factor</span><span class="p">(</span>
     <span class="n">factor_series</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">,</span>
     <span class="n">method</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;zscore&#39;</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">:</span>
@@ -686,52 +865,69 @@
 
 
 <div class="viewcode-block" id="neutralize_factor">
-<a class="viewcode-back" href="../../../api/factor.html#betalens.factor.neutralize_factor">[文档]</a>
-<span class="k">def</span> <span class="nf">neutralize_factor</span><span class="p">(</span>
+<a class="viewcode-back" href="../../../api/factor.html#betalens.factor.preprocessing.neutralize_factor">[文档]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">neutralize_factor</span><span class="p">(</span>
     <span class="n">factor_series</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">,</span>
     <span class="n">industry_labels</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">log_market_cap</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">:</span>
+    <span class="n">return_stats</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+<span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    OLS 残差中性化（单截面）。</span>
 
 <span class="sd">    对行业哑变量 + log(市值) 做截面 OLS，返回残差。</span>
 <span class="sd">    参考 robust.py 中 neu() 的实现模式。</span>
 
+<span class="sd">    行业标签既可由调用方直接传入，也可由 preprocess_factor(industry_scheme=...)</span>
+<span class="sd">    自动从 industry 表（query_industry）按 point-in-time 注入。</span>
+
 <span class="sd">    Args:</span>
 <span class="sd">        factor_series: 因子值 Series，index=code（已标准化）</span>
 <span class="sd">        industry_labels: 行业标签 Series，index=code（传 None 则跳过）</span>
 <span class="sd">        log_market_cap: log市值 Series，index=code（传 None 则跳过）</span>
+<span class="sd">        return_stats: True 时额外返回回归诊断 dict（供 preprocess_factor 汇总）</span>
 
 <span class="sd">    Returns:</span>
-<span class="sd">        残差 Series，index=code；无法计算的 code 填 NaN</span>
+<span class="sd">        return_stats=False（默认）：残差 Series，index=code；无法计算的 code 填 NaN</span>
+<span class="sd">        return_stats=True：(残差 Series, stats dict)，stats 含</span>
+<span class="sd">            n_obs / n_industry_dummies / r2 / skipped</span>
 
 <span class="sd">    Example:</span>
 <span class="sd">        &gt;&gt;&gt; neutralize_factor(s, industry_labels=ind, log_market_cap=lmc)</span>
 <span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">stats</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;n_obs&#39;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s1">&#39;n_industry_dummies&#39;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s1">&#39;r2&#39;</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span><span class="p">,</span> <span class="s1">&#39;skipped&#39;</span><span class="p">:</span> <span class="kc">True</span><span class="p">}</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_ret</span><span class="p">(</span><span class="n">series</span><span class="p">):</span>
+        <span class="k">return</span> <span class="p">(</span><span class="n">series</span><span class="p">,</span> <span class="n">stats</span><span class="p">)</span> <span class="k">if</span> <span class="n">return_stats</span> <span class="k">else</span> <span class="n">series</span>
+
     <span class="k">if</span> <span class="n">industry_labels</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">log_market_cap</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="k">return</span> <span class="n">factor_series</span>
+        <span class="k">return</span> <span class="n">_ret</span><span class="p">(</span><span class="n">factor_series</span><span class="p">)</span>
 
     <span class="n">controls</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">index</span><span class="o">=</span><span class="n">factor_series</span><span class="o">.</span><span class="n">index</span><span class="p">)</span>
 
     <span class="k">if</span> <span class="n">industry_labels</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
         <span class="n">dummies</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">get_dummies</span><span class="p">(</span><span class="n">industry_labels</span><span class="p">,</span> <span class="n">prefix</span><span class="o">=</span><span class="s1">&#39;ind&#39;</span><span class="p">,</span> <span class="n">drop_first</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="n">stats</span><span class="p">[</span><span class="s1">&#39;n_industry_dummies&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">dummies</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
         <span class="n">controls</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">concat</span><span class="p">([</span><span class="n">controls</span><span class="p">,</span> <span class="n">dummies</span><span class="p">],</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
 
     <span class="k">if</span> <span class="n">log_market_cap</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
         <span class="n">controls</span><span class="p">[</span><span class="s1">&#39;log_mktcap&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">log_market_cap</span>
 
     <span class="n">aligned</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">concat</span><span class="p">([</span><span class="n">factor_series</span><span class="o">.</span><span class="n">rename</span><span class="p">(</span><span class="s1">&#39;y&#39;</span><span class="p">),</span> <span class="n">controls</span><span class="p">],</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">dropna</span><span class="p">()</span>
+    <span class="c1"># 样本不足以稳定估计：跳过，返回原序列并标记 skipped</span>
     <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">aligned</span><span class="p">)</span> <span class="o">&lt;</span> <span class="n">controls</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">+</span> <span class="mi">5</span><span class="p">:</span>
-        <span class="k">return</span> <span class="n">factor_series</span>
+        <span class="k">return</span> <span class="n">_ret</span><span class="p">(</span><span class="n">factor_series</span><span class="p">)</span>
 
     <span class="n">y</span> <span class="o">=</span> <span class="n">aligned</span><span class="p">[</span><span class="s1">&#39;y&#39;</span><span class="p">]</span>
+    <span class="n">sm</span> <span class="o">=</span> <span class="n">_statsmodels</span><span class="p">()</span>
     <span class="n">X</span> <span class="o">=</span> <span class="n">sm</span><span class="o">.</span><span class="n">add_constant</span><span class="p">(</span><span class="n">aligned</span><span class="o">.</span><span class="n">drop</span><span class="p">(</span><span class="n">columns</span><span class="o">=</span><span class="s1">&#39;y&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">float</span><span class="p">))</span>
     <span class="n">model</span> <span class="o">=</span> <span class="n">sm</span><span class="o">.</span><span class="n">OLS</span><span class="p">(</span><span class="n">y</span><span class="p">,</span> <span class="n">X</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">()</span>
 
+    <span class="n">stats</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">n_obs</span><span class="o">=</span><span class="nb">len</span><span class="p">(</span><span class="n">aligned</span><span class="p">),</span> <span class="n">r2</span><span class="o">=</span><span class="nb">float</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">rsquared</span><span class="p">),</span> <span class="n">skipped</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+
     <span class="n">result</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">nan</span><span class="p">,</span> <span class="n">index</span><span class="o">=</span><span class="n">factor_series</span><span class="o">.</span><span class="n">index</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="n">factor_series</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
     <span class="n">result</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">y</span><span class="o">.</span><span class="n">index</span><span class="p">]</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">resid</span><span class="o">.</span><span class="n">values</span>
-    <span class="k">return</span> <span class="n">result</span></div>
+    <span class="k">return</span> <span class="n">_ret</span><span class="p">(</span><span class="n">result</span><span class="p">)</span></div>
 
 
 
@@ -740,8 +936,8 @@
 <span class="c1"># ─────────────────────────────────────────────</span>
 
 <div class="viewcode-block" id="neutralize_factor_by_factor">
-<a class="viewcode-back" href="../../../api/factor.html#betalens.factor.neutralize_factor_by_factor">[文档]</a>
-<span class="k">def</span> <span class="nf">neutralize_factor_by_factor</span><span class="p">(</span>
+<a class="viewcode-back" href="../../../api/factor.html#betalens.factor.preprocessing.neutralize_factor_by_factor">[文档]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">neutralize_factor_by_factor</span><span class="p">(</span>
     <span class="n">factor_b_data</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span>
     <span class="n">factor_a_data</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span>
     <span class="n">metric_b</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
@@ -786,6 +982,7 @@
             <span class="k">continue</span>
 
         <span class="n">y</span> <span class="o">=</span> <span class="n">b_series</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">common</span><span class="p">]</span>
+        <span class="n">sm</span> <span class="o">=</span> <span class="n">_statsmodels</span><span class="p">()</span>
         <span class="n">X</span> <span class="o">=</span> <span class="n">sm</span><span class="o">.</span><span class="n">add_constant</span><span class="p">(</span><span class="n">a_series</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">common</span><span class="p">]</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">float</span><span class="p">))</span>
         <span class="k">try</span><span class="p">:</span>
             <span class="n">model</span> <span class="o">=</span> <span class="n">sm</span><span class="o">.</span><span class="n">OLS</span><span class="p">(</span><span class="n">y</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">float</span><span class="p">),</span> <span class="n">X</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">()</span>
@@ -810,8 +1007,8 @@
 <span class="c1"># ─────────────────────────────────────────────</span>
 
 <div class="viewcode-block" id="filter_pool_by_industry">
-<a class="viewcode-back" href="../../../api/factor.html#betalens.factor.filter_pool_by_industry">[文档]</a>
-<span class="k">def</span> <span class="nf">filter_pool_by_industry</span><span class="p">(</span>
+<a class="viewcode-back" href="../../../api/factor.html#betalens.factor.preprocessing.filter_pool_by_industry">[文档]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">filter_pool_by_industry</span><span class="p">(</span>
     <span class="n">labeled_pool</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span>
     <span class="n">industry_map</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span>
     <span class="n">include_industries</span><span class="p">:</span> <span class="nb">list</span><span class="p">,</span>
@@ -848,8 +1045,8 @@
 
 
 <div class="viewcode-block" id="apply_industry_weight_constraint">
-<a class="viewcode-back" href="../../../api/factor.html#betalens.factor.apply_industry_weight_constraint">[文档]</a>
-<span class="k">def</span> <span class="nf">apply_industry_weight_constraint</span><span class="p">(</span>
+<a class="viewcode-back" href="../../../api/factor.html#betalens.factor.preprocessing.apply_industry_weight_constraint">[文档]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">apply_industry_weight_constraint</span><span class="p">(</span>
     <span class="n">weights</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span>
     <span class="n">industry_map</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span>
     <span class="n">method</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;equal&#39;</span><span class="p">,</span>
@@ -912,7 +1109,7 @@
 
 
 
-<span class="k">def</span> <span class="nf">_rescale_side_by_industry</span><span class="p">(</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_rescale_side_by_industry</span><span class="p">(</span>
     <span class="n">row</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">,</span>
     <span class="n">codes</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">Index</span><span class="p">,</span>
     <span class="n">ind_ts</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">,</span>
@@ -969,9 +1166,149 @@
 <span class="c1"># 一键预处理流水线（处理整个 pre_queried_data）</span>
 <span class="c1"># ─────────────────────────────────────────────</span>
 
+<div class="viewcode-block" id="query_industry_panel">
+<a class="viewcode-back" href="../../../api/factor.html#betalens.factor.preprocessing.query_industry_panel">[文档]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">query_industry_panel</span><span class="p">(</span>
+    <span class="n">pre_queried_data</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span>
+    <span class="n">scheme</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;申万一级行业&#39;</span><span class="p">,</span>
+    <span class="n">industry_table</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;industry&#39;</span><span class="p">,</span>
+    <span class="n">verbose</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    面板行业查询：为 pre_queried_data 的每个 (input_ts, code) 取 point-in-time 行业名。</span>
+
+<span class="sd">    逐期调用 datafeed.query_industry（datetime&lt;=查询日 的最近一条，天然防前视），</span>
+<span class="sd">    复用现有 API，不另写 SQL。</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        pre_queried_data: 含 input_ts, code 列（pre_query_characteristic_data 的输出）</span>
+<span class="sd">        scheme: 分类体系（metric），不带版本后缀时自动落到查询日生效的版本</span>
+<span class="sd">        industry_table: 行业表名，默认 &#39;industry&#39;</span>
+<span class="sd">        verbose: True 时打印行业分布/缺失/面板平衡诊断</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Series，MultiIndex=(input_ts, code)，值为 ind_name；未匹配到的留空</span>
+
+<span class="sd">    Example:</span>
+<span class="sd">        &gt;&gt;&gt; ind_panel = query_industry_panel(pre_queried_data, &#39;申万一级行业&#39;)</span>
+<span class="sd">        &gt;&gt;&gt; ind_panel.xs(ts)  # 取某期 code-&gt;行业</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">data</span> <span class="o">=</span> <span class="n">Datafeed</span><span class="p">(</span><span class="n">industry_table</span><span class="p">)</span>
+    <span class="n">pieces</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">ts</span><span class="p">,</span> <span class="n">grp</span> <span class="ow">in</span> <span class="n">pre_queried_data</span><span class="o">.</span><span class="n">groupby</span><span class="p">(</span><span class="s1">&#39;input_ts&#39;</span><span class="p">):</span>
+            <span class="n">codes</span> <span class="o">=</span> <span class="n">grp</span><span class="p">[</span><span class="s1">&#39;code&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">str</span><span class="p">)</span><span class="o">.</span><span class="n">unique</span><span class="p">()</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">codes</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="n">date_str</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">Timestamp</span><span class="p">(</span><span class="n">ts</span><span class="p">)</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="s1">&#39;%Y-%m-</span><span class="si">%d</span><span class="s1">&#39;</span><span class="p">)</span>
+            <span class="n">res</span> <span class="o">=</span> <span class="n">query_industry</span><span class="p">(</span>
+                <span class="n">cursor</span><span class="o">=</span><span class="n">data</span><span class="o">.</span><span class="n">cursor</span><span class="p">,</span>
+                <span class="n">codes</span><span class="o">=</span><span class="n">codes</span><span class="p">,</span>
+                <span class="n">dates</span><span class="o">=</span><span class="n">date_str</span><span class="p">,</span>
+                <span class="n">scheme</span><span class="o">=</span><span class="n">scheme</span><span class="p">,</span>
+                <span class="n">table_name</span><span class="o">=</span><span class="n">industry_table</span><span class="p">,</span>
+            <span class="p">)</span>
+            <span class="k">if</span> <span class="n">res</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">res</span><span class="o">.</span><span class="n">empty</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="n">s</span> <span class="o">=</span> <span class="n">res</span><span class="o">.</span><span class="n">set_index</span><span class="p">(</span><span class="s1">&#39;code&#39;</span><span class="p">)[</span><span class="s1">&#39;ind_name&#39;</span><span class="p">]</span>
+            <span class="n">s</span><span class="o">.</span><span class="n">index</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">MultiIndex</span><span class="o">.</span><span class="n">from_product</span><span class="p">(</span>
+                <span class="p">[[</span><span class="n">pd</span><span class="o">.</span><span class="n">Timestamp</span><span class="p">(</span><span class="n">ts</span><span class="p">)],</span> <span class="n">s</span><span class="o">.</span><span class="n">index</span><span class="p">],</span> <span class="n">names</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;input_ts&#39;</span><span class="p">,</span> <span class="s1">&#39;code&#39;</span><span class="p">]</span>
+            <span class="p">)</span>
+            <span class="n">pieces</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+    <span class="k">finally</span><span class="p">:</span>
+        <span class="n">data</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">pieces</span><span class="p">:</span>
+        <span class="n">ind_panel</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">(</span>
+            <span class="n">dtype</span><span class="o">=</span><span class="nb">object</span><span class="p">,</span>
+            <span class="n">index</span><span class="o">=</span><span class="n">pd</span><span class="o">.</span><span class="n">MultiIndex</span><span class="o">.</span><span class="n">from_arrays</span><span class="p">([[],</span> <span class="p">[]],</span> <span class="n">names</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;input_ts&#39;</span><span class="p">,</span> <span class="s1">&#39;code&#39;</span><span class="p">]),</span>
+            <span class="n">name</span><span class="o">=</span><span class="s1">&#39;ind_name&#39;</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">ind_panel</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">concat</span><span class="p">(</span><span class="n">pieces</span><span class="p">)</span>
+        <span class="n">ind_panel</span><span class="o">.</span><span class="n">name</span> <span class="o">=</span> <span class="s1">&#39;ind_name&#39;</span>
+
+    <span class="k">if</span> <span class="n">verbose</span><span class="p">:</span>
+        <span class="n">_print_industry_diagnostics</span><span class="p">(</span><span class="n">ind_panel</span><span class="p">,</span> <span class="n">pre_queried_data</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">ind_panel</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_print_industry_diagnostics</span><span class="p">(</span>
+    <span class="n">ind_panel</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">,</span>
+    <span class="n">pre_queried_data</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span>
+    <span class="n">metric</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;打印行业分布 / 缺失情况 / 面板平衡诊断（中文 [INFO] 风格）。&quot;&quot;&quot;</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="se">\n</span><span class="si">{</span><span class="s1">&#39;─&#39;</span><span class="o">*</span><span class="mi">52</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;[INFO] 行业中性化诊断&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="s1">&#39;─&#39;</span><span class="o">*</span><span class="mi">52</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+    <span class="n">n_periods</span> <span class="o">=</span> <span class="n">pre_queried_data</span><span class="p">[</span><span class="s1">&#39;input_ts&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">nunique</span><span class="p">()</span>
+    <span class="c1"># (input_ts, code) 为分析单元；以 pre_queried_data 的 (期,股票) 为分母</span>
+    <span class="n">base</span> <span class="o">=</span> <span class="n">pre_queried_data</span><span class="p">[[</span><span class="s1">&#39;input_ts&#39;</span><span class="p">,</span> <span class="s1">&#39;code&#39;</span><span class="p">]]</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+    <span class="n">base</span><span class="p">[</span><span class="s1">&#39;input_ts&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">to_datetime</span><span class="p">(</span><span class="n">base</span><span class="p">[</span><span class="s1">&#39;input_ts&#39;</span><span class="p">])</span>
+    <span class="n">base</span><span class="p">[</span><span class="s1">&#39;code&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">base</span><span class="p">[</span><span class="s1">&#39;code&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">str</span><span class="p">)</span>
+    <span class="n">n_pairs</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">base</span><span class="p">)</span>
+
+    <span class="n">matched</span> <span class="o">=</span> <span class="n">ind_panel</span><span class="o">.</span><span class="n">dropna</span><span class="p">()</span>
+    <span class="n">n_matched</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">matched</span><span class="p">)</span>
+
+    <span class="c1"># 1) 行业分布：跨期平均每期成分股数 + 占比</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">· 行业分布（按 (期,股票) 计，跨全样本）：&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">n_matched</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;  [WARN] 未匹配到任何行业，将退化为不做行业中性化&quot;</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">vc</span> <span class="o">=</span> <span class="n">matched</span><span class="o">.</span><span class="n">value_counts</span><span class="p">()</span>
+        <span class="n">share</span> <span class="o">=</span> <span class="n">vc</span> <span class="o">/</span> <span class="n">n_matched</span>
+        <span class="n">per_period</span> <span class="o">=</span> <span class="n">vc</span> <span class="o">/</span> <span class="nb">max</span><span class="p">(</span><span class="n">n_periods</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  行业总数：</span><span class="si">{</span><span class="n">vc</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="si">}</span><span class="s2">，覆盖 </span><span class="si">{</span><span class="n">n_matched</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="n">n_pairs</span><span class="si">}</span><span class="s2"> 个(期,股票)&quot;</span><span class="p">)</span>
+        <span class="n">top</span> <span class="o">=</span> <span class="n">vc</span><span class="o">.</span><span class="n">head</span><span class="p">(</span><span class="mi">10</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">ind_name</span><span class="p">,</span> <span class="n">cnt</span> <span class="ow">in</span> <span class="n">top</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;    </span><span class="si">{</span><span class="n">ind_name</span><span class="si">:</span><span class="s2">&lt;14</span><span class="si">}</span><span class="s2"> 占比 </span><span class="si">{</span><span class="n">share</span><span class="p">[</span><span class="n">ind_name</span><span class="p">]</span><span class="si">:</span><span class="s2">6.2%</span><span class="si">}</span><span class="s2">  &quot;</span>
+                  <span class="sa">f</span><span class="s2">&quot;平均每期 </span><span class="si">{</span><span class="n">per_period</span><span class="p">[</span><span class="n">ind_name</span><span class="p">]</span><span class="si">:</span><span class="s2">5.1f</span><span class="si">}</span><span class="s2"> 只&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">vc</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mi">10</span><span class="p">:</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;    ...（其余 </span><span class="si">{</span><span class="n">vc</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">-</span><span class="mi">10</span><span class="si">}</span><span class="s2"> 个行业）&quot;</span><span class="p">)</span>
+
+    <span class="c1"># 2) 缺失情况</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">· 缺失情况：&quot;</span><span class="p">)</span>
+    <span class="n">miss_rate</span> <span class="o">=</span> <span class="mi">1</span> <span class="o">-</span> <span class="n">n_matched</span> <span class="o">/</span> <span class="n">n_pairs</span> <span class="k">if</span> <span class="n">n_pairs</span> <span class="k">else</span> <span class="mf">0.0</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  行业标签缺失率：</span><span class="si">{</span><span class="n">miss_rate</span><span class="si">:</span><span class="s2">.2%</span><span class="si">}</span><span class="s2">（</span><span class="si">{</span><span class="n">n_pairs</span><span class="o">-</span><span class="n">n_matched</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="n">n_pairs</span><span class="si">}</span><span class="s2">）&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">metric</span> <span class="ow">and</span> <span class="n">metric</span> <span class="ow">in</span> <span class="n">pre_queried_data</span><span class="o">.</span><span class="n">columns</span><span class="p">:</span>
+        <span class="n">fac_miss</span> <span class="o">=</span> <span class="n">pre_queried_data</span><span class="p">[</span><span class="n">metric</span><span class="p">]</span><span class="o">.</span><span class="n">isna</span><span class="p">()</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  因子值缺失率：</span><span class="si">{</span><span class="n">fac_miss</span><span class="si">:</span><span class="s2">.2%</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+    <span class="c1"># 按期覆盖率</span>
+    <span class="n">cov_by_ts</span> <span class="o">=</span> <span class="p">(</span>
+        <span class="n">matched</span><span class="o">.</span><span class="n">groupby</span><span class="p">(</span><span class="n">level</span><span class="o">=</span><span class="s1">&#39;input_ts&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">size</span><span class="p">()</span>
+        <span class="o">/</span> <span class="n">base</span><span class="o">.</span><span class="n">groupby</span><span class="p">(</span><span class="s1">&#39;input_ts&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">size</span><span class="p">()</span>
+    <span class="p">)</span><span class="o">.</span><span class="n">dropna</span><span class="p">()</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">cov_by_ts</span><span class="p">):</span>
+        <span class="n">worst</span> <span class="o">=</span> <span class="n">cov_by_ts</span><span class="o">.</span><span class="n">idxmin</span><span class="p">()</span>
+        <span class="n">best</span> <span class="o">=</span> <span class="n">cov_by_ts</span><span class="o">.</span><span class="n">idxmax</span><span class="p">()</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  按期行业覆盖率：最低 </span><span class="si">{</span><span class="n">cov_by_ts</span><span class="o">.</span><span class="n">min</span><span class="p">()</span><span class="si">:</span><span class="s2">.1%</span><span class="si">}</span><span class="s2">&quot;</span>
+              <span class="sa">f</span><span class="s2">&quot;（</span><span class="si">{</span><span class="n">pd</span><span class="o">.</span><span class="n">Timestamp</span><span class="p">(</span><span class="n">worst</span><span class="p">)</span><span class="o">.</span><span class="n">date</span><span class="p">()</span><span class="si">}</span><span class="s2">），&quot;</span>
+              <span class="sa">f</span><span class="s2">&quot;最高 </span><span class="si">{</span><span class="n">cov_by_ts</span><span class="o">.</span><span class="n">max</span><span class="p">()</span><span class="si">:</span><span class="s2">.1%</span><span class="si">}</span><span class="s2">（</span><span class="si">{</span><span class="n">pd</span><span class="o">.</span><span class="n">Timestamp</span><span class="p">(</span><span class="n">best</span><span class="p">)</span><span class="o">.</span><span class="n">date</span><span class="p">()</span><span class="si">}</span><span class="s2">）&quot;</span><span class="p">)</span>
+
+    <span class="c1"># 3) 面板平衡</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">· 面板平衡：&quot;</span><span class="p">)</span>
+    <span class="n">size_by_ts</span> <span class="o">=</span> <span class="n">base</span><span class="o">.</span><span class="n">groupby</span><span class="p">(</span><span class="s1">&#39;input_ts&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">size</span><span class="p">()</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  调仓期数：</span><span class="si">{</span><span class="n">n_periods</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  每期股票数：min </span><span class="si">{</span><span class="n">size_by_ts</span><span class="o">.</span><span class="n">min</span><span class="p">()</span><span class="si">}</span><span class="s2"> / &quot;</span>
+          <span class="sa">f</span><span class="s2">&quot;median </span><span class="si">{</span><span class="nb">int</span><span class="p">(</span><span class="n">size_by_ts</span><span class="o">.</span><span class="n">median</span><span class="p">())</span><span class="si">}</span><span class="s2"> / max </span><span class="si">{</span><span class="n">size_by_ts</span><span class="o">.</span><span class="n">max</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">n_matched</span><span class="p">:</span>
+        <span class="n">nind_by_ts</span> <span class="o">=</span> <span class="n">matched</span><span class="o">.</span><span class="n">groupby</span><span class="p">(</span><span class="n">level</span><span class="o">=</span><span class="s1">&#39;input_ts&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">nunique</span><span class="p">()</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  每期有效行业数：min </span><span class="si">{</span><span class="n">nind_by_ts</span><span class="o">.</span><span class="n">min</span><span class="p">()</span><span class="si">}</span><span class="s2"> / &quot;</span>
+              <span class="sa">f</span><span class="s2">&quot;median </span><span class="si">{</span><span class="nb">int</span><span class="p">(</span><span class="n">nind_by_ts</span><span class="o">.</span><span class="n">median</span><span class="p">())</span><span class="si">}</span><span class="s2"> / max </span><span class="si">{</span><span class="n">nind_by_ts</span><span class="o">.</span><span class="n">max</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="n">thin</span> <span class="o">=</span> <span class="n">nind_by_ts</span><span class="p">[</span><span class="n">nind_by_ts</span> <span class="o">&lt;</span> <span class="mi">3</span><span class="p">]</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">thin</span><span class="p">):</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  [WARN] </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">thin</span><span class="p">)</span><span class="si">}</span><span class="s2"> 期行业数 &lt; 3，哑变量回归可能不稳&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="s1">&#39;─&#39;</span><span class="o">*</span><span class="mi">52</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+
+
 <div class="viewcode-block" id="preprocess_factor">
-<a class="viewcode-back" href="../../../api/factor.html#betalens.factor.preprocess_factor">[文档]</a>
-<span class="k">def</span> <span class="nf">preprocess_factor</span><span class="p">(</span>
+<a class="viewcode-back" href="../../../api/factor.html#betalens.factor.preprocessing.preprocess_factor">[文档]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">preprocess_factor</span><span class="p">(</span>
     <span class="n">pre_queried_data</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span>
     <span class="n">metric</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
     <span class="n">winsorize_method</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;mad&#39;</span><span class="p">,</span>
@@ -979,10 +1316,19 @@
     <span class="n">standardize_method</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;zscore&#39;</span><span class="p">,</span>
     <span class="n">industry_col</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">log_mktcap_col</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">industry_scheme</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">industry_table</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;industry&#39;</span><span class="p">,</span>
+    <span class="n">verbose</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    逐截面（按 input_ts）依次执行：</span>
 <span class="sd">      fix_null_values(drop) → winsorize_factor() → standardize_factor() → neutralize_factor()</span>
+
+<span class="sd">    行业中性化的标签有两种来源：</span>
+<span class="sd">      - industry_scheme 给定（推荐）：自动从 industry 表（query_industry，point-in-time）</span>
+<span class="sd">        逐期查询行业，并打印行业分布/缺失/面板平衡及中性化执行摘要。</span>
+<span class="sd">      - industry_col 给定：使用调用方预先 merge 进 pre_queried_data 的行业列（旧行为）。</span>
+<span class="sd">    两者都不给则不做行业中性化。市值中性化仍由 log_mktcap_col 手动提供。</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        pre_queried_data: pre_query_characteristic_data() 的输出，</span>
@@ -993,18 +1339,36 @@
 <span class="sd">        standardize_method: &#39;zscore&#39; | &#39;rank&#39; | &#39;minmax&#39;</span>
 <span class="sd">        industry_col: pre_queried_data 中的行业列名（None 则跳过中性化该项）</span>
 <span class="sd">        log_mktcap_col: pre_queried_data 中的 log市值列名（None 则跳过市值中性化）</span>
+<span class="sd">        industry_scheme: 自动查 industry 表的分类体系名，如 &#39;申万一级行业&#39;；</span>
+<span class="sd">                         给定即自动注入行业标签并打印诊断（优先于 industry_col）</span>
+<span class="sd">        industry_table: 行业表名，默认 &#39;industry&#39;</span>
+<span class="sd">        verbose: True 时打印行业诊断与中性化执行摘要</span>
 
 <span class="sd">    Returns:</span>
 <span class="sd">        同 pre_queried_data 格式的 DataFrame，{metric} 列已替换为处理后的值</span>
 
 <span class="sd">    Example:</span>
+<span class="sd">        &gt;&gt;&gt; # 自动查表 + 诊断打印（推荐）</span>
+<span class="sd">        &gt;&gt;&gt; cleaned = preprocess_factor(raw_data, &#39;ROE&#39;, industry_scheme=&#39;申万一级行业&#39;)</span>
+<span class="sd">        &gt;&gt;&gt; # 旧用法：调用方自带行业列</span>
 <span class="sd">        &gt;&gt;&gt; cleaned = preprocess_factor(raw_data, &#39;ROE&#39;, industry_col=&#39;industry&#39;)</span>
 <span class="sd">        &gt;&gt;&gt; labeled = single_characteristic(cleaned, &#39;ROE&#39;, quantiles={&#39;ROE&#39;: 10})</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="c1"># 1. 删除因子列空值行</span>
     <span class="n">data</span> <span class="o">=</span> <span class="n">fix_null_values</span><span class="p">(</span><span class="n">pre_queried_data</span><span class="p">,</span> <span class="n">strategy</span><span class="o">=</span><span class="n">FillStrategy</span><span class="o">.</span><span class="n">DROP</span><span class="p">,</span> <span class="n">columns</span><span class="o">=</span><span class="p">[</span><span class="n">metric</span><span class="p">])</span>
 
+    <span class="c1"># 1b. 行业标签：industry_scheme 给定则自动查表（point-in-time），否则用 industry_col</span>
+    <span class="n">ind_panel</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="k">if</span> <span class="n">industry_scheme</span><span class="p">:</span>
+        <span class="n">ind_panel</span> <span class="o">=</span> <span class="n">query_industry_panel</span><span class="p">(</span>
+            <span class="n">data</span><span class="p">,</span> <span class="n">scheme</span><span class="o">=</span><span class="n">industry_scheme</span><span class="p">,</span>
+            <span class="n">industry_table</span><span class="o">=</span><span class="n">industry_table</span><span class="p">,</span> <span class="n">verbose</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="k">if</span> <span class="n">verbose</span><span class="p">:</span>
+            <span class="n">_print_industry_diagnostics</span><span class="p">(</span><span class="n">ind_panel</span><span class="p">,</span> <span class="n">data</span><span class="p">,</span> <span class="n">metric</span><span class="o">=</span><span class="n">metric</span><span class="p">)</span>
+
     <span class="n">groups</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">neu_stats</span> <span class="o">=</span> <span class="p">[]</span>  <span class="c1"># 逐期中性化诊断</span>
     <span class="k">for</span> <span class="n">ts</span><span class="p">,</span> <span class="n">group</span> <span class="ow">in</span> <span class="n">data</span><span class="o">.</span><span class="n">groupby</span><span class="p">(</span><span class="s1">&#39;input_ts&#39;</span><span class="p">):</span>
         <span class="n">sub</span> <span class="o">=</span> <span class="n">group</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
         <span class="n">series</span> <span class="o">=</span> <span class="n">sub</span><span class="o">.</span><span class="n">set_index</span><span class="p">(</span><span class="s1">&#39;code&#39;</span><span class="p">)[</span><span class="n">metric</span><span class="p">]</span>
@@ -1015,11 +1379,22 @@
         <span class="c1"># 3. 标准化</span>
         <span class="n">series</span> <span class="o">=</span> <span class="n">standardize_factor</span><span class="p">(</span><span class="n">series</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="n">standardize_method</span><span class="p">)</span>
 
-        <span class="c1"># 4. 中性化（可选）</span>
-        <span class="n">industry</span> <span class="o">=</span> <span class="n">sub</span><span class="o">.</span><span class="n">set_index</span><span class="p">(</span><span class="s1">&#39;code&#39;</span><span class="p">)[</span><span class="n">industry_col</span><span class="p">]</span> <span class="k">if</span> <span class="n">industry_col</span> <span class="ow">and</span> <span class="n">industry_col</span> <span class="ow">in</span> <span class="n">sub</span><span class="o">.</span><span class="n">columns</span> <span class="k">else</span> <span class="kc">None</span>
+        <span class="c1"># 4. 中性化（可选）：行业标签优先取自动查表结果，否则回退 industry_col</span>
+        <span class="k">if</span> <span class="n">ind_panel</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">pd</span><span class="o">.</span><span class="n">Timestamp</span><span class="p">(</span><span class="n">ts</span><span class="p">)</span> <span class="ow">in</span> <span class="n">ind_panel</span><span class="o">.</span><span class="n">index</span><span class="o">.</span><span class="n">get_level_values</span><span class="p">(</span><span class="s1">&#39;input_ts&#39;</span><span class="p">):</span>
+            <span class="n">industry</span> <span class="o">=</span> <span class="n">ind_panel</span><span class="o">.</span><span class="n">xs</span><span class="p">(</span><span class="n">pd</span><span class="o">.</span><span class="n">Timestamp</span><span class="p">(</span><span class="n">ts</span><span class="p">),</span> <span class="n">level</span><span class="o">=</span><span class="s1">&#39;input_ts&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">reindex</span><span class="p">(</span><span class="n">series</span><span class="o">.</span><span class="n">index</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">industry_col</span> <span class="ow">and</span> <span class="n">industry_col</span> <span class="ow">in</span> <span class="n">sub</span><span class="o">.</span><span class="n">columns</span><span class="p">:</span>
+            <span class="n">industry</span> <span class="o">=</span> <span class="n">sub</span><span class="o">.</span><span class="n">set_index</span><span class="p">(</span><span class="s1">&#39;code&#39;</span><span class="p">)[</span><span class="n">industry_col</span><span class="p">]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">industry</span> <span class="o">=</span> <span class="kc">None</span>
         <span class="n">mktcap</span> <span class="o">=</span> <span class="n">sub</span><span class="o">.</span><span class="n">set_index</span><span class="p">(</span><span class="s1">&#39;code&#39;</span><span class="p">)[</span><span class="n">log_mktcap_col</span><span class="p">]</span> <span class="k">if</span> <span class="n">log_mktcap_col</span> <span class="ow">and</span> <span class="n">log_mktcap_col</span> <span class="ow">in</span> <span class="n">sub</span><span class="o">.</span><span class="n">columns</span> <span class="k">else</span> <span class="kc">None</span>
+
         <span class="k">if</span> <span class="n">industry</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">mktcap</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="n">series</span> <span class="o">=</span> <span class="n">neutralize_factor</span><span class="p">(</span><span class="n">series</span><span class="p">,</span> <span class="n">industry_labels</span><span class="o">=</span><span class="n">industry</span><span class="p">,</span> <span class="n">log_market_cap</span><span class="o">=</span><span class="n">mktcap</span><span class="p">)</span>
+            <span class="n">series</span><span class="p">,</span> <span class="n">st</span> <span class="o">=</span> <span class="n">neutralize_factor</span><span class="p">(</span>
+                <span class="n">series</span><span class="p">,</span> <span class="n">industry_labels</span><span class="o">=</span><span class="n">industry</span><span class="p">,</span>
+                <span class="n">log_market_cap</span><span class="o">=</span><span class="n">mktcap</span><span class="p">,</span> <span class="n">return_stats</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+            <span class="p">)</span>
+            <span class="n">st</span><span class="p">[</span><span class="s1">&#39;input_ts&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">Timestamp</span><span class="p">(</span><span class="n">ts</span><span class="p">)</span>
+            <span class="n">neu_stats</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">st</span><span class="p">)</span>
 
         <span class="c1"># 写回</span>
         <span class="n">sub</span> <span class="o">=</span> <span class="n">sub</span><span class="o">.</span><span class="n">set_index</span><span class="p">(</span><span class="s1">&#39;code&#39;</span><span class="p">)</span>
@@ -1027,10 +1402,31 @@
         <span class="n">sub</span> <span class="o">=</span> <span class="n">sub</span><span class="o">.</span><span class="n">reset_index</span><span class="p">()</span>
         <span class="n">groups</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">sub</span><span class="p">)</span>
 
+    <span class="k">if</span> <span class="n">verbose</span> <span class="ow">and</span> <span class="n">neu_stats</span><span class="p">:</span>
+        <span class="n">_print_neutralize_summary</span><span class="p">(</span><span class="n">neu_stats</span><span class="p">)</span>
+
     <span class="k">if</span> <span class="ow">not</span> <span class="n">groups</span><span class="p">:</span>
         <span class="k">return</span> <span class="n">data</span><span class="o">.</span><span class="n">iloc</span><span class="p">[</span><span class="mi">0</span><span class="p">:</span><span class="mi">0</span><span class="p">]</span>
     <span class="k">return</span> <span class="n">pd</span><span class="o">.</span><span class="n">concat</span><span class="p">(</span><span class="n">groups</span><span class="p">,</span> <span class="n">ignore_index</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></div>
 
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_print_neutralize_summary</span><span class="p">(</span><span class="n">neu_stats</span><span class="p">:</span> <span class="nb">list</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;打印中性化执行摘要：成功/跳过期数、平均 R^2、平均行业哑变量数。&quot;&quot;&quot;</span>
+    <span class="n">total</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">neu_stats</span><span class="p">)</span>
+    <span class="n">done</span> <span class="o">=</span> <span class="p">[</span><span class="n">s</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">neu_stats</span> <span class="k">if</span> <span class="ow">not</span> <span class="n">s</span><span class="p">[</span><span class="s1">&#39;skipped&#39;</span><span class="p">]]</span>
+    <span class="n">n_done</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">done</span><span class="p">)</span>
+    <span class="n">n_skip</span> <span class="o">=</span> <span class="n">total</span> <span class="o">-</span> <span class="n">n_done</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="s1">&#39;─&#39;</span><span class="o">*</span><span class="mi">52</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;[INFO] 中性化执行摘要&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  总期数 </span><span class="si">{</span><span class="n">total</span><span class="si">}</span><span class="s2">：成功 </span><span class="si">{</span><span class="n">n_done</span><span class="si">}</span><span class="s2">，跳过 </span><span class="si">{</span><span class="n">n_skip</span><span class="si">}</span><span class="s2">（样本不足/无控制变量）&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">done</span><span class="p">:</span>
+        <span class="n">avg_r2</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">([</span><span class="n">s</span><span class="p">[</span><span class="s1">&#39;r2&#39;</span><span class="p">]</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">done</span><span class="p">]))</span>
+        <span class="n">avg_k</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">([</span><span class="n">s</span><span class="p">[</span><span class="s1">&#39;n_industry_dummies&#39;</span><span class="p">]</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">done</span><span class="p">]))</span>
+        <span class="n">avg_n</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">([</span><span class="n">s</span><span class="p">[</span><span class="s1">&#39;n_obs&#39;</span><span class="p">]</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">done</span><span class="p">]))</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  平均回归 R^2：</span><span class="si">{</span><span class="n">avg_r2</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">（行业+市值对因子的解释度）&quot;</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  平均行业哑变量数：</span><span class="si">{</span><span class="n">avg_k</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2">，平均有效样本：</span><span class="si">{</span><span class="n">avg_n</span><span class="si">:</span><span class="s2">.0f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="s1">&#39;─&#39;</span><span class="o">*</span><span class="mi">52</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
 </pre></div>
 
            </div>

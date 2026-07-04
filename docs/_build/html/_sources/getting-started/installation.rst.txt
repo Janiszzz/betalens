@@ -1,18 +1,14 @@
 安装指南
 ========
 
-本节汇总 Betalens 在 Windows 与 Linux 环境下的安装要点。
-
 环境要求
 --------
 
-- Python 3.10 及以上（建议开启虚拟环境）
-- PostgreSQL 13+（`datafeed` 默认依赖）
-- WindPy（可选，用于数据抓取）
-- psycopg2、openpyxl、prettytable 等依赖
-- Git ≥ 2.40（用于克隆源码）
+* Python 3.10 及以上用于开发和文档构建；包配置声明兼容 Python 3.8+。
+* PostgreSQL 13+，用于 ``datafeed`` 查询与本地数据库管理工具。
+* 可选依赖：``plotly`` 用于交互图，``fastapi``/``uvicorn``/``pyarrow`` 用于 Dashboard，``PySide6`` 用于数据库管理 GUI，WindPy 用于 Wind 数据源。
 
-推荐在新建虚拟环境后执行以下命令：
+推荐先创建虚拟环境：
 
 .. code-block:: powershell
 
@@ -20,116 +16,91 @@
    .\.venv\Scripts\Activate.ps1
    python -m pip install --upgrade pip
 
-通过 PyPI 安装
---------------
+源码安装
+--------
 
-.. code-block:: powershell
-
-   pip install betalens
-
-框架会自动拉取所有子模块依赖。
-
-源码安装（推荐开发者）
-----------------------
+在仓库根目录执行：
 
 .. code-block:: powershell
 
    git clone https://github.com/Janiszzz/betalens.git
-   cd betalens\gitworks
-   pip install -e .
+   cd betalens
+   python -m pip install -e .
+   python -m pip install -r requirements.txt
 
-开发流程建议在仓库根目录安装依赖：
+按需安装可选依赖：
 
 .. code-block:: powershell
 
-   pip install -r gitworks\requirements.txt
-   pip install -r gitworks\docs\requirements.txt
+   python -m pip install -e ".[viz,dashboard,db,gui]"
+
+文档构建依赖单独安装：
+
+.. code-block:: powershell
+
+   python -m pip install -r docs\requirements.txt
 
 数据库与配置
 ------------
 
-``datafeed/config.example.json`` 给出了完整模板。复制后按需修改：
+``betalens/datafeed/config.example.json`` 是配置模板。复制为本地配置后修改数据库连接：
 
 .. code-block:: powershell
 
-   Copy-Item datafeed\config.example.json datafeed\config.json
+   Copy-Item betalens\datafeed\config.example.json betalens\datafeed\config.json
 
-关键字段说明：
-
-- ``database``：连接 PostgreSQL 的 host / port / dbname / user / password
-- ``logging``：日志目录（默认 ``./logs``）
-
-配置示例：
+配置优先级为：运行时参数 > ``config.json`` > 代码内置默认值。
 
 .. code-block:: json
 
    {
-       "database": {
-           "host": "localhost",
-           "port": "5432",
-           "dbname": "betalens",
-           "user": "postgres",
-           "password": "your_password"
-       },
-       "logging": {
-           "log_dir": "./logs"
-       }
+     "database": {
+       "host": "localhost",
+       "port": "5432",
+       "dbname": "betalens",
+       "user": "postgres",
+       "password": "your_password"
+     },
+     "logging": {
+       "log_dir": "./logs"
+     }
    }
 
 验证安装
 --------
 
-1. 数据查询自检
+1. 导入自检
+
+   .. code-block:: powershell
+
+   python -c "import betalens; from betalens.datafeed import Datafeed; from betalens.factor.factor import single_characteristic; print(betalens.__version__)"
+
+2. 数据查询自检
 
    .. code-block:: python
 
       from betalens.datafeed import Datafeed
-      df = Datafeed("daily_market_data")
+
+      df = Datafeed("daily_market")
       latest = df.query_time_range(
           codes=["000001.SZ"],
           start_date="2024-01-01",
           end_date="2024-01-10",
-          metric="收盘价(元)"
+          metric="收盘价(元)",
       )
       print(latest.tail())
       df.close()
 
-2. 快速回测
+3. 文档构建自检
 
-   .. code-block:: python
+   .. code-block:: powershell
 
-      import pandas as pd
-      from betalens.backtest import BacktestBase
-
-      weights = pd.DataFrame(
-          [[0.5, -0.5, 0.0]] * 5,
-          index=pd.date_range("2024-01-01", periods=5, freq="D"),
-          columns=["000001.SZ", "000002.SZ", "cash"]
-      )
-      bb = BacktestBase(weight=weights, symbol="Demo", amount=1_000_000)
-      print(bb.nav.tail())
-
-3. 因子分组测试
-
-   .. code-block:: python
-
-      from betalens.datafeed import get_absolute_trade_days
-      from betalens.factor.factor import get_tradable_pool
-
-      days = get_absolute_trade_days("2024-01-01", "2024-06-30", "M")
-      print(f"交易日数量: {len(days)}")
+      python -m sphinx -b html -n -W --keep-going docs docs\_build\html
 
 常见问题
 --------
 
-- **psycopg2 编译失败**：优先安装 ``psycopg2-binary``，再在服务器环境切换为官方 wheel。
-
-- **缺少 WindPy**：若不需要 Wind 接入，可在 ``autodoc_mock_imports``（conf.py）中加入 ``WindPy``。
-
-- **ImportError: betalens.factor**：请确认已在仓库根目录或 ``gitworks`` 中执行安装命令。
-
-- **数据库连接失败**：检查 ``config.json`` 配置，确保 PostgreSQL 服务正在运行。
-
-完成上述步骤后，即可进入下一节的快速上手教程。
-
-
+* **数据库连接失败**：检查 ``betalens/datafeed/config.json``，确认 PostgreSQL 服务、库名、用户名和密码。
+* **psycopg2 编译失败**：本地开发优先安装 ``psycopg2-binary`` 或 ``.[db]`` 可选依赖。
+* **缺少 WindPy**：WindPy 是可选数据源；不抓取 Wind 数据时不影响核心回测。
+* **文档构建提示缺 sphinx**：执行 ``python -m pip install -r docs\requirements.txt``。

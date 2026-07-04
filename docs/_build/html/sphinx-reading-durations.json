@@ -1,0 +1,21 @@
+{
+    "api/analyst": 0.391,
+    "api/backtest": 0.297,
+    "api/datafeed": 1.281,
+    "api/eventstudy": 0.14,
+    "api/factor": 0.75,
+    "api/robust": 0.0,
+    "getting-started/installation": 0.125,
+    "getting-started/quickstart": 0.0,
+    "guide/analyst": 0.016,
+    "guide/backtest": 0.0,
+    "guide/dashboard": 0.0,
+    "guide/datafeed": 0.0,
+    "guide/db-manager": 0.016,
+    "guide/eventstudy": 0.0,
+    "guide/factor": 0.015,
+    "guide/factor-mining": 0.016,
+    "guide/factor-pipeline": 0.0,
+    "guide/robust": 0.016,
+    "index": 0.0
+}

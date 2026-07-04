@@ -1,23 +1,20 @@
 10 分钟快速上手
 ==============
 
-下面通过一个贯穿式示例演示 Betalens 的典型流水线：数据拉取 → 因子处理 → 权重生成 → 回测 → 绩效分析。
+本节演示 Betalens 的标准流水线：调仓日 → 可交易池 → 因子预查询 → 分组 → 权重 → 回测 → 报告。
 
-1. 准备调仓日与可交易标的
--------------------------
+1. 准备调仓日与可交易池
+-----------------------
 
 .. code-block:: python
 
-   from betalens.datafeed import Datafeed, get_absolute_trade_days
+   from betalens.datafeed import get_absolute_trade_days
    from betalens.factor.factor import get_tradable_pool
 
-   # 生成调仓日序列（每年4月30日）
-   trading_days = get_absolute_trade_days("2015-04-30", "2024-04-30", "Y")
-   
-   # 获取可交易股票池
-   date_ranges, code_ranges = get_tradable_pool(trading_days)
+   days = get_absolute_trade_days("2020-04-30", "2024-04-30", "Y")
+   date_ranges, code_ranges = get_tradable_pool(days)
 
-`get_tradable_pool` 会对每个调仓日过滤交易状态为1的证券，返回日期序列与候选代码列表。
+``get_tradable_pool`` 基于 ``trade_status`` 表筛选正常交易证券。默认 ``include_abnormal=False``，只纳入状态为 ``1`` 的证券；传入 ``include_abnormal=True`` 时可把停牌等异常状态也纳入候选池。
 
 2. 批量预查询因子数据
 ---------------------
@@ -26,180 +23,124 @@
 
    from betalens.factor.factor import pre_query_characteristic_data
 
-   # 预查询因子数据，time_tolerance为时间容差（小时）
-   pre_queried_data = pre_query_characteristic_data(
-       date_list=trading_days,
+   data = pre_query_characteristic_data(
+       date_list=days,
        metric="股息率(报告期)",
-       time_tolerance=24*2*365,  # 2年
-       table_name="fundamental_data",
+       time_tolerance=24 * 2 * 365,
+       table_name="fundamentals",
        date_ranges=date_ranges,
-       code_ranges=code_ranges
+       code_ranges=code_ranges,
    )
 
-`pre_query_characteristic_data` 返回格式化的DataFrame，包含 input_ts、code、因子值、datetime、diff_hours 等列。
+``pre_query_characteristic_data`` 默认查询 ``fundamentals`` 表。``time_tolerance`` 的单位是小时，默认值 ``24*2*365`` 表示最多回看约两年。
 
-3. 单因子分组打标签
--------------------
+3. 单因子分组
+-------------
 
 .. code-block:: python
 
-   from betalens.factor.factor import single_factor, describe_labeled_pool
+   from betalens.factor.factor import single_characteristic, describe_labeled_pool
 
-   # 单因子分组（分10组）
-   labeled_pool = single_characteristic(
-       pre_queried_data=pre_queried_data,
+   labeled = single_characteristic(
+       pre_queried_data=data,
        metric="股息率(报告期)",
-       quantiles={"股息率(报告期)": 10}
+       quantiles={"股息率(报告期)": 10},
    )
+   print(describe_labeled_pool(labeled))
 
-   # 查看分组统计
-   summary = describe_labeled_pool(labeled_pool)
-   print(summary)
+分组输出以 ``(input_ts, code)`` 为 MultiIndex，并新增 ``股息率(报告期)_label`` 标签列。
 
-`single_factor` 按 ``quantiles`` 配置打标签，结果以 ``input_ts`` 与 ``code`` 为 MultiIndex。
-
-4. 派生多空权重
----------------
+4. 生成权重
+-----------
 
 .. code-block:: python
 
    from betalens.factor.factor import get_single_factor_weight
 
-   # 经典多空模式
-   weights = get_single_factor_weight(
-       labeled_pool,
-       params={
-           "factor_key": "股息率(报告期)",
-           "mode": "classic-long-short",
-       }
-   )
-
-   # 或自定义多空组合（freeplay模式）
-   weights = get_single_factor_weight(
-       labeled_pool,
-       params={
-           "factor_key": "股息率(报告期)",
-           "mode": "freeplay",
-           "long": [9],     # 做多第9组（最高）
-           "short": [0],    # 做空第0组（最低）
-       }
-   )
+   weights = get_single_factor_weight(labeled, {
+       "factor_key": "股息率(报告期)",
+       "mode": "classic-long-short",
+   })
    weights["cash"] = 0
 
-`weights` 现为宽表（行：调仓时间，列：证券），可直接馈送回测模块。
+权重矩阵要求行是调仓时间、列是证券代码。建议显式补 ``cash`` 列；多头合计 1，空头合计 -1。
 
-5. 回测组合净值
----------------
+5. 回测
+-------
 
 .. code-block:: python
 
    from betalens.backtest import BacktestBase
 
-   engine = BacktestBase(weight=weights, symbol="DemoFactor", amount=1_000_000)
-   nav = engine.nav
-   nav.plot(title="DemoFactor NAV")
+   engine = BacktestBase(
+       weight=weights,
+       symbol="DemoFactor",
+       amount=1_000_000,
+       table_name="daily_market",
+       metric="收盘价(元)",
+       time_tolerance=24,
+   )
+   print(engine.nav.tail())
 
-`BacktestBase` 会自动调用 :class:`betalens.datafeed.Datafeed` 获取收盘价，并推导每日持仓。
+回测按整数手成交。输入的 ``weight`` 是目标权重，真正参与净值和持仓计算的是 ``engine.actual_weight``。
 
-6. 绩效分析与报告
------------------
+6. 绩效分析
+-----------
 
 .. code-block:: python
 
    from betalens.analyst import Analyst
 
-   # 一键门面：自动接 nav/持仓/损益/调仓记录
-   a = Analyst.from_backtest(engine, name="DemoFactor")
-   a.report(to_excel="report.xlsx", to_html="report.html")
+   analyst = Analyst.from_backtest(engine, name="DemoFactor")
+   analyst.report(to_excel="report.xlsx", to_html="report.html")
 
-`Analyst` 一键产出 CLI 指标表、Excel 报告与 plotly 交互 HTML，涵盖收益/回撤/风险/换手/
-归因等多维指标，并自动为证券代码匹配中文名。旧接口 `PortfolioAnalyzer` / `ReportExporter`
-仍兼容。详见 :doc:`../guide/analyst`。
+``Analyst.from_backtest`` 会自动读取回测实例的 ``nav``、``actual_weight``、``daily_position_value``、``daily_pnl`` 和 ``rebalance_log``。只有净值时也能生成收益/回撤/风险指标，持仓和归因类指标会自动跳过。
 
-7. 双因子分组（Double Sort）
-----------------------------
+7. 双因子与多因子分组
+---------------------
 
 .. code-block:: python
 
-   from betalens.factor.factor import double_factor, get_double_factor_weight
+   from betalens.factor.factor import (
+       double_characteristic,
+       get_double_factor_weight,
+       multi_characteristic,
+       get_multi_factor_weight,
+   )
 
-   # 预查询两个因子的数据
-   data1 = pre_query_characteristic_data(trading_days, "市值", date_ranges=date_ranges, code_ranges=code_ranges)
-   data2 = pre_query_characteristic_data(trading_days, "账面市值比", date_ranges=date_ranges, code_ranges=code_ranges)
+   size = pre_query_characteristic_data(days, "市值", date_ranges=date_ranges, code_ranges=code_ranges)
+   bm = pre_query_characteristic_data(days, "账面市值比", date_ranges=date_ranges, code_ranges=code_ranges)
 
-   # 双因子分组（条件排序：先按市值分组，再在组内按账面市值比分组）
-   labeled_pool = double_characteristic(
-       pre_queried_data1=data1,
-       pre_queried_data2=data2,
+   double_labeled = double_characteristic(
+       size,
+       bm,
        metric1="市值",
        metric2="账面市值比",
        quantiles1={"市值": 5},
        quantiles2={"账面市值比": 5},
-       sort_method='dependent'  # 或 'independent'
+       sort_method="dependent",
    )
+   double_weights = get_double_factor_weight(double_labeled, {
+       "factor_key1": "市值",
+       "factor_key2": "账面市值比",
+       "mode": "freeplay",
+       "long_combinations": [(0, 4)],
+       "short_combinations": [(4, 0)],
+   })
+   double_weights["cash"] = 0
 
-   # 生成双因子权重
-   weights = get_double_factor_weight(
-       labeled_pool,
-       params={
-           "factor_key1": "市值",
-           "factor_key2": "账面市值比",
-           "mode": "freeplay",
-           "long_combinations": [(0, 4), (1, 4)],   # 小市值+高BM
-           "short_combinations": [(4, 0), (4, 1)],  # 大市值+低BM
-       }
+   multi_labeled = multi_characteristic(
+       [size, bm],
+       [
+           {"name": "市值", "quantiles": 5, "method": "dependent"},
+           {"name": "账面市值比", "quantiles": 5, "method": "dependent"},
+       ],
    )
+   multi_weights = get_multi_factor_weight(multi_labeled, {
+       "mode": "freeplay",
+       "long_combinations": [(0, 4)],
+       "short_combinations": [(4, 0)],
+   })
+   multi_weights["cash"] = 0
 
-8. 多因子分组（Multi-Factor Sort）
-----------------------------------
-
-.. code-block:: python
-
-   from betalens.factor.factor import multi_factor, get_multi_factor_weight
-
-   # 预查询多个因子
-   data_list = [
-       pre_query_characteristic_data(trading_days, "市值", date_ranges=date_ranges, code_ranges=code_ranges),
-       pre_query_characteristic_data(trading_days, "账面市值比", date_ranges=date_ranges, code_ranges=code_ranges),
-       pre_query_characteristic_data(trading_days, "动量", date_ranges=date_ranges, code_ranges=code_ranges),
-   ]
-
-   # 多因子配置
-   factors = [
-       {'name': '市值', 'quantiles': 5, 'method': 'dependent'},
-       {'name': '账面市值比', 'quantiles': 5, 'method': 'dependent'},
-       {'name': '动量', 'quantiles': 3, 'method': 'independent'},
-   ]
-
-   labeled_pool = multi_characteristic(data_list, factors)
-
-   # 生成多因子权重
-   weights = get_multi_factor_weight(
-       labeled_pool,
-       params={
-           "mode": "freeplay",
-           "long_combinations": [(0, 4, 2)],   # 小市值+高BM+高动量
-           "short_combinations": [(4, 0, 0)],  # 大市值+低BM+低动量
-       }
-   )
-
-9. 启用稳健性检验（可选）
--------------------------
-
-.. code-block:: python
-
-   import pandas as pd
-   from betalens.robust import RobustTest
-
-   fund = nav.pct_change().dropna().rename("factor_nav")
-   factors = pd.DataFrame(...)  # 因子收益序列
-
-   test = RobustTest(fund=fund, factor=factors)
-   orthogonals, tvalues = test.neu()
-   eff_names, pvalues, pdf = test.bootstrap_once(n_bootstraps=500)
-
-`RobustTest` 基于 Harvey & Liu (2021) "Lucky Factors" 思路，可配合 bootstrap 过滤伪因子。
-
-通过以上步骤即可完成端到端的样板流程。后续章节将对每个子模块的高级特性进行详细说明。
-
-
+后续章节会分别展开数据、因子、回测、评价、Dashboard 和参数挖掘。

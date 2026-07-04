@@ -52,6 +52,7 @@
 - ``cumulative_stats``: 累积收益统计
 - ``event_count``: 有效事件数
 - ``returns_matrix``: 完整收益矩阵（行=相对天数，列=事件编号）
+- ``cumulative_returns_matrix``: 每次事件的累积收益矩阵（行=相对天数，列=事件编号）
 
 Day 0 成本价规则
 ~~~~~~~~~~~~~~~~
@@ -65,7 +66,7 @@ Day 0 成本价规则
 flexible 模式（默认）
 ~~~~~~~~~~~~~~~~~~~~~
 
-从窗口期第一个值开始累积到最后，适合观察事件前后的整体走势：
+以 ``holding_start_offset`` 指定的持有起点为分界点计算双向累积收益，适合观察事件前后的整体走势：
 
 .. code-block:: python
 
