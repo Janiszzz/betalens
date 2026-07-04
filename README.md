@@ -3,132 +3,145 @@
 [![Python Version](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**Betalens** 是一个用于量化分析和回测的 Python 框架，包含因子分析、数据获取、回测、绩效分析、稳健性检验等核心模块，适用于量化研究和策略开发。
+**Betalens** 是一个面向量化研究的 Python 框架，覆盖数据入库与查询、因子分组、回测、绩效评价、事件研究、稳健性检验，以及浏览器 Dashboard。
 
-## ✨ 特性
+## 特性
 
-- 📊 **因子分析** - 支持单因子/多因子分组、打标签、生成多空权重
-- 📈 **数据管理** - PostgreSQL 数据库接口，支持时间序列查询、EDE格式解析
-- 🔄 **回测框架** - 多资产多权重回测，自动获取价格数据
-- 📋 **绩效分析** - 计算夏普比率、最大回撤、年化收益等指标，生成报告
-- 🔬 **事件研究** - 事件窗口收益分析，支持多标的、基准超额、可视化
-- 🧪 **稳健性检验** - 因子增量检验、Bootstrap 重采样
+- **Datafeed**：PostgreSQL 数据访问、Excel/EDE/Wind 数据入库、交易日、行业、指数成分、交易状态。
+- **Factor**：可交易池、单/双/多因子分组、因子预处理、IC/回归/择时统计、参数挖掘。
+- **Backtest**：目标权重到日频净值，整数手成交，停牌状态处理，调仓审计日志。
+- **Analyst**：从回测实例生成指标表、Excel 报告和 plotly 交互 HTML。
+- **EventStudy / Robust**：事件窗口收益分析和 Lucky Factors 风格因子增量检验。
+- **Dashboard**：FastAPI + React/Vite 前端，用浏览器发现因子、配参数、跑回测、下载报告。
 
-## 📦 安装
+## 安装
 
-```bash
+```powershell
 git clone https://github.com/Janiszzz/betalens.git
 cd betalens
-pip install -r requirements.txt
+python -m pip install -e .
+python -m pip install -r requirements.txt
 ```
 
-或使用 pip 安装（开发模式）：
+按需安装可选依赖：
 
-```bash
-pip install -e .
+```powershell
+python -m pip install -e ".[viz,dashboard,db,gui]"
 ```
 
-## 🚀 快速开始
+## 快速开始
 
 ```python
-import pandas as pd
-from betalens.datafeed import Datafeed, get_absolute_trade_days
+from betalens.datafeed import get_absolute_trade_days
+from betalens.factor.factor import (
+    get_tradable_pool,
+    pre_query_characteristic_data,
+    single_characteristic,
+    get_single_factor_weight,
+)
 from betalens.backtest import BacktestBase
-from betalens.analyst import PortfolioAnalyzer, ReportExporter
+from betalens.analyst import Analyst
 
-# 1. 获取数据
-data = Datafeed("daily_market_data")
-date_ranges = get_absolute_trade_days('2020-01-01', '2024-01-01', 'W')
+# 1. 调仓日 + 可交易池
+days = get_absolute_trade_days("2020-04-30", "2024-04-30", "Y")
+date_ranges, code_ranges = get_tradable_pool(days)
 
-params = {
-    'codes': ['000001.SZ'],
-    'datetimes': date_ranges,
-    'metric': "收盘价(元)",
-    'time_tolerance': 48
-}
-price = data.query_nearest_before(params)
+# 2. 查询因子并分组
+data = pre_query_characteristic_data(
+    days,
+    "股息率(报告期)",
+    table_name="fundamentals",
+    date_ranges=date_ranges,
+    code_ranges=code_ranges,
+)
+labeled = single_characteristic(data, "股息率(报告期)", {"股息率(报告期)": 10})
 
-# 2. 构建权重
-weights = pd.DataFrame(...)  # 你的权重逻辑
-weights['cash'] = 1 - weights.sum(axis=1)
+# 3. 生成多空权重
+weights = get_single_factor_weight(labeled, {
+    "factor_key": "股息率(报告期)",
+    "mode": "classic-long-short",
+})
+weights["cash"] = 0
 
-# 3. 回测
-bb = BacktestBase(weight=weights, symbol="", amount=1000000)
-bb.nav.plot()
+# 4. 回测。BacktestBase 默认从 daily_market 取 收盘价(元)，time_tolerance=24 小时。
+engine = BacktestBase(
+    weight=weights,
+    symbol="Dividend",
+    amount=1_000_000,
+    table_name="daily_market",
+)
 
-# 4. 绩效分析
-analyzer = PortfolioAnalyzer(bb.nav)
-exporter = ReportExporter(analyzer)
-exporter.generate_annual_report()
+# 5. 绩效评价
+Analyst.from_backtest(engine, name="Dividend").report(
+    to_excel="report.xlsx",
+    to_html="report.html",
+)
 ```
 
-## 📁 项目结构
+关键口径：
 
+- 分组函数是真实接口 `single_characteristic` / `double_characteristic` / `multi_characteristic`。
+- `pre_query_characteristic_data` 默认表是 `fundamentals`，`time_tolerance` 单位是小时。
+- 回测按整数手成交；真实参与净值计算的是 `engine.actual_weight`，不是输入目标 `weight`。
+- 绩效评价首选 `Analyst.from_backtest(...).report(...)`。
+
+## Dashboard
+
+```powershell
+.\dashboard\run.bat
 ```
+
+默认地址：
+
+- 前端：`http://127.0.0.1:5173`
+- 后端 Swagger：`http://127.0.0.1:8000/docs`
+
+Dashboard 扫描 `betalens-factor/` 下的 YAML 因子配置，支持因子发现、参数编辑、运行日志、结果图表、持仓/交易明细分页、Excel/HTML/profiling 下载。详情见 [dashboard/README.md](dashboard/README.md)。
+
+## 项目结构
+
+```text
 betalens/
-├── betalens/              # 主包
-│   ├── analyst/           # 绩效分析模块
-│   ├── backtest/          # 回测模块
-│   ├── datafeed/          # 数据管理模块
-│   ├── eventstudy/        # 事件研究模块
-│   ├── factor/            # 因子分析模块
-│   └── robust/            # 稳健性检验模块
-├── docs/                  # Sphinx 文档（ReadTheDocs 部署）
-├── test/                  # 测试代码
-├── requirements.txt       # 依赖列表
-├── pyproject.toml         # 包配置
-└── README.md             # 本文件
+├── betalens/              # 主包：datafeed / factor / backtest / analyst / eventstudy / robust
+├── betalens-factor/       # 因子脚本、YAML 参数、运行产物和参数挖掘入口
+├── betalens-db-manager/   # 数据库管理工具源码目录；稳定 Python import 名为 betalens_db_manager
+├── dashboard/             # FastAPI + React/Vite Dashboard
+├── docs/                  # Sphinx 文档
+├── tests/                 # 测试
+├── requirements.txt
+├── pyproject.toml
+└── README.md
 ```
 
-## 📖 文档
+## 文档
 
-完整文档基于 Sphinx 构建，可通过 ReadTheDocs 在线访问，或本地构建：
+本地构建：
 
-```bash
-cd docs
-pip install -r requirements.txt
-pip install -e ..
-sphinx-build -b html . _build/html
+```powershell
+python -m pip install -r docs\requirements.txt
+python -m sphinx -b html -n -W --keep-going docs docs\_build\html
 ```
 
-**文档结构：**
+文档入口：
 
-- **快速上手** - [安装指南](docs/getting-started/installation.rst) · [10 分钟快速上手](docs/getting-started/quickstart.rst)
-- **用户指南** - [Datafeed](docs/guide/datafeed.rst) · [Factor](docs/guide/factor.rst) · [Backtest](docs/guide/backtest.rst) · [Analyst](docs/guide/analyst.rst) · [EventStudy](docs/guide/eventstudy.rst) · [Robust](docs/guide/robust.rst)
-- **API 参考** - [Datafeed](docs/api/datafeed.rst) · [Factor](docs/api/factor.rst) · [Backtest](docs/api/backtest.rst) · [Analyst](docs/api/analyst.rst) · [EventStudy](docs/api/eventstudy.rst) · [Robust](docs/api/robust.rst)
+- 快速开始：[安装指南](docs/getting-started/installation.rst) · [10 分钟快速上手](docs/getting-started/quickstart.rst)
+- 用户指南：[Datafeed](docs/guide/datafeed.rst) · [Factor](docs/guide/factor.rst) · [Backtest](docs/guide/backtest.rst) · [Analyst](docs/guide/analyst.rst) · [Dashboard](docs/guide/dashboard.rst) · [因子管线](docs/guide/factor-pipeline.rst) · [参数挖掘](docs/guide/factor-mining.rst) · [数据库管理](docs/guide/db-manager.rst)
+- API 参考：[Datafeed](docs/api/datafeed.rst) · [Factor](docs/api/factor.rst) · [Backtest](docs/api/backtest.rst) · [Analyst](docs/api/analyst.rst) · [EventStudy](docs/api/eventstudy.rst) · [Robust](docs/api/robust.rst)
 
-## 🔧 依赖
+## 依赖
 
-- Python >= 3.10
-- pandas >= 1.3.0
-- numpy >= 1.20.0
-- psycopg2 >= 2.9.0
-- prettytable >= 3.0.0
-- matplotlib >= 3.4.0
-- openpyxl >= 3.0.0
+核心依赖见 [pyproject.toml](pyproject.toml) 和 [requirements.txt](requirements.txt)。可选依赖组：
 
-完整依赖列表见 [requirements.txt](requirements.txt)
+- `viz`：plotly 交互图。
+- `dashboard`：FastAPI / Uvicorn / Pydantic / PyArrow。
+- `db`：psycopg2-binary。
+- `gui`：PySide6 数据库管理 GUI。
 
-## 🤝 贡献
+## 许可证
 
-欢迎贡献代码！请遵循以下步骤：
+本项目采用 MIT 许可证，详见 [LICENSE](LICENSE)。
 
-1. Fork 本仓库
-2. 创建特性分支 (`git checkout -b feature/AmazingFeature`)
-3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
-4. 推送到分支 (`git push origin feature/AmazingFeature`)
-5. 提交 Pull Request
-
-## 📄 许可证
-
-本项目采用 MIT 许可证 - 详见 [LICENSE](LICENSE) 文件
-
-## 📧 联系
+## 联系
 
 - 作者：Janis
 - GitHub：[@Janiszzz](https://github.com/Janiszzz)
-
----
-
-如果这个项目对你有帮助，请给一个 ⭐ Star！
-
