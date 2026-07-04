@@ -1,47 +1,76 @@
 #%%
-"""Alpha#12 = sign(delta(volume, 1)) * (-1 * delta(close, 1))
+"""Alpha#12 factor."""
+from __future__ import annotations
 
-来源: WorldQuant 101 Formulaic Alphas (Kakushadze, 2016), Appendix A.1
-逻辑: 量增价跌 / 量缩价涨 → 因子值高（看多）；方向 positive。
-
-本脚本设置：
-    股票池   中证800（000906.SH），逐信号日 point-in-time 取成分股，时变
-    中性化   申万一级行业中性化（preprocess_factor 自动查 industry 表）
-"""
+import argparse
+import logging
 import sys
 from pathlib import Path
 
-import logging
-
-# 压制 point-in-time 成分股查询的逐日 INFO 日志（每个信号日一条，过于啰嗦）
 logging.getLogger("IndexUniverseQuery").setLevel(logging.WARNING)
 
-_CLASS_DIR = Path(__file__).resolve().parent.parent   # alpha101/
-sys.path.insert(0, str(_CLASS_DIR))                   # alpha101/（类模板所在）
-from factor_template_alpha101 import (
-    FactorSpec, FactorPipeline, sign, delta, clean_inf,
+_FACTOR_DIR = Path(__file__).resolve().parent
+_CLASS_DIR = _FACTOR_DIR.parent
+_FACTOR_ROOT = _CLASS_DIR.parent
+_REPO_ROOT = _FACTOR_ROOT.parent
+for _path in (_REPO_ROOT, _CLASS_DIR):
+    if str(_path) not in sys.path:
+        sys.path.insert(0, str(_path))
+
+from betalens.factor.config import (  # noqa: E402
+    factor_spec_options,
+    load_yaml_config,
+    run_parameters,
+    section,
 )
+from factor_template_alpha101 import (  # noqa: E402
+    FactorPipeline,
+    FactorSpec,
+    clean_inf,
+    delta,
+    sign,
+)
+
+
+_CONFIG_FILE = _FACTOR_DIR / "factor_ALPHA12.yaml"
+_REQUIRED_SECTIONS = ("meta", "factor_spec", "weight", "run")
+
+
+def load_config(path: str | Path = _CONFIG_FILE) -> dict:
+    return load_yaml_config(path, required_sections=_REQUIRED_SECTIONS)
 
 
 def compute_alpha12(close_wide, volume_wide):
     return clean_inf(sign(delta(volume_wide, 1)) * (-1 * delta(close_wide, 1)))
 
 
-spec = FactorSpec(
-    name="ALPHA12",
-    inputs={"close_wide": "收盘价(元)", "volume_wide": "成交量(股)"},
-    compute=compute_alpha12,
-    direction="positive",
-    index_code="000906.SH",          # 中证800，时变成分股
-    use_industry=True,               # 申万一级行业中性化
-    industry_scheme="申万一级行业",
-    backtest_metric="开盘价(元)",     # alpha101 类沿用开盘价撮合
-)
+def build_spec(config: dict, config_path: str | Path = _CONFIG_FILE) -> FactorSpec:
+    options = factor_spec_options(config, config_path)
+    return FactorSpec(
+        name=str(section(config, "meta")["name"]),
+        compute=compute_alpha12,
+        **options,
+    )
+
+
+spec = build_spec(load_config())
+
+
+def run_from_config(config_path: str | Path = _CONFIG_FILE):
+    config = load_config(config_path)
+    kwargs = run_parameters(config, config_path)
+    start_date = kwargs.pop("start_date")
+    end_date = kwargs.pop("end_date")
+    Path(kwargs["output_dir"]).mkdir(parents=True, exist_ok=True)
+    return FactorPipeline(build_spec(config, config_path)).run(start_date, end_date, **kwargs)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Run ALPHA12 from its YAML parameter file.")
+    parser.add_argument("--config", default=str(_CONFIG_FILE), help="YAML parameter file")
+    args = parser.parse_args()
+    run_from_config(args.config)
 
 
 if __name__ == "__main__":
-    FactorPipeline(spec).run(
-        "2024-01-01", "2025-12-31",
-        n_quantiles=20,
-        output_dir=str(Path(__file__).resolve().parent),
-    )
+    main()

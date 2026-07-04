@@ -15,10 +15,10 @@ class EventStudyDashboardTests(unittest.TestCase):
         files = payload["files"]
 
         self.assertIn("defaults", payload)
-        self.assertEqual(payload["defaults"]["event_file"], "events.xlsx")
+        self.assertEqual(payload["defaults"]["event_file"], "1.春节假期.xlsx")
         self.assertGreaterEqual(len(files), 1)
-        self.assertTrue(any(item["id"] == "events.xlsx" for item in files))
-        first = next(item for item in files if item["id"] == "events.xlsx")
+        self.assertTrue(any(item["id"] == "1.春节假期.xlsx" for item in files))
+        first = next(item for item in files if item["id"] == "1.春节假期.xlsx")
         self.assertIn("date", first["columns"])
         self.assertGreater(first["eventCount"], 0)
 

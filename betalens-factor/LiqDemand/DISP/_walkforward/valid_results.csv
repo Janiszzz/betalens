@@ -1,2 +1,0 @@
-﻿window,pretom_lo,pretom_hi,pretom_only,n_q,win_start,win_end,scheme,phase,gid,sharpe,ann_ret,ann_vol,mdd,calmar,n_days,rank
-252,9,4,True,20,2023-01-01,2025-12-31,full,valid,w252_p9-4_PT_q20,0.6229,0.1222,0.1962,0.2291,0.5335,715,1

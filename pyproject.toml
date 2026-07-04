@@ -16,6 +16,7 @@ dependencies = [
     "akshare>=1.17.0",
     "prettytable>=3.0.0",
     "openpyxl>=3.0.0",
+    "PyYAML>=6.0",
 ]
 
 [project.optional-dependencies]

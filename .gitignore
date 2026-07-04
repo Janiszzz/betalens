@@ -43,7 +43,12 @@ config.json
 #临时文件
 *.tmp
 *.bak
+*.pkl
 ~*
+
+#因子挖掘缓存
+**/_sweep/_cache/
+**/_walkforward/_cache/
 
 #版权问题
 *XICHOU*

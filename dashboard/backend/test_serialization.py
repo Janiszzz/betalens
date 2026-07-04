@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from . import serialization as serialization_module
 from .serialization import build_chart_data, build_position_table, read_table_page, write_table_parquet
 
 
@@ -108,7 +109,7 @@ class TablePagingTests(unittest.TestCase):
             daily_amount = pd.Series([100.0], index=nav.index)
             daily_position_value = pd.DataFrame(index=nav.index)
             actual_weight = pd.DataFrame(
-                {"000001.SZ": [0.6], "000002.SZ": [0.0], "cash": [0.4]},
+                {"000001.SZ": [0.6], "000002.SZ": [-0.4], "cash": [0.8]},
                 index=pd.to_datetime(["2024-01-02 15:10:01"]),
             )
 
@@ -121,13 +122,27 @@ class TablePagingTests(unittest.TestCase):
             }
         )
 
-        records = build_chart_data(FakeBacktest(), factor_values)["rebalanceHoldings"]
+        original_name_map = serialization_module._name_map_for_codes
+        serialization_module._name_map_for_codes = lambda codes: {
+            "000001.SZ": "平安银行",
+            "000002.SZ": "万科A",
+        }
+        try:
+            records = build_chart_data(FakeBacktest(), factor_values)["rebalanceHoldings"]
+        finally:
+            serialization_module._name_map_for_codes = original_name_map
 
-        self.assertEqual(len(records), 1)
+        self.assertEqual(len(records), 2)
         self.assertEqual(records[0]["code"], "000001.SZ")
+        self.assertEqual(records[0]["name"], "平安银行(000001.SZ)")
         self.assertEqual(records[0]["factorValue"], 1.25)
         self.assertEqual(records[0]["group"], 9)
         self.assertEqual(records[0]["signalDate"], "2024-01-02")
+        self.assertEqual(records[1]["code"], "000002.SZ")
+        self.assertEqual(records[1]["name"], "万科A(000002.SZ)")
+        self.assertEqual(records[1]["side"], "short")
+        self.assertEqual(records[1]["weight"], -0.4)
+        self.assertEqual(records[1]["group"], 1)
 
     def test_position_table_skips_zero_quantity_rows(self) -> None:
         class FakeBacktest:

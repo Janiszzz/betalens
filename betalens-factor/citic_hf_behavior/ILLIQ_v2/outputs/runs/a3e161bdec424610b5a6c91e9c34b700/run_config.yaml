@@ -1,0 +1,34 @@
+meta:
+  class: citic_hf_behavior
+  name: ILLIQ_v2
+  source: 中信建投高频和行为金融学选股因子跟踪周报
+  formula: ILLIQ = mean(|r| / amount, N)
+  logic: Amihud illiquidity，流动性冲击越大因子值越高，方向 positive。
+factor_spec:
+  inputs:
+    close_wide: 收盘价(元)
+    amount_wide: 成交金额(元)
+  compute_kwargs:
+    window: 20
+  direction: positive
+  table_name: daily_market
+  index_code: 000906.SH
+  use_industry: false
+  use_mktcap: false
+  industry_scheme: 申万一级行业
+  backtest_metric: 收盘价(元)
+weight:
+  mode: freeplay
+  long_groups: null
+  short_groups: null
+  group_weights: {}
+  intra_group_allocation: {}
+run:
+  start_date: '2024-01-01'
+  end_date: '2025-12-31'
+  rebal_freq: D
+  n_quantiles: 20
+  initial_amount: 100000000
+  include_profiling: true
+  dump_excel: false
+  output_dir: C:\Users\Janis\OneDrive\betalens\betalens-factor\citic_hf_behavior\ILLIQ_v2\outputs\runs\a3e161bdec424610b5a6c91e9c34b700

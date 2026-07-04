@@ -1,0 +1,17 @@
+class: tdx
+template_module: factor_template_tdx
+source: 通达信(TDX)指标公式：RSI 快慢线 + 侯神吸筹能量
+defaults:
+  direction: positive
+  index_code: 000906.SH
+  use_industry: true
+  use_mktcap: false
+  industry_scheme: 申万一级行业
+  backtest_metric: 收盘价(元)
+  start_date: '2024-01-01'
+  end_date: '2024-12-31'
+  rebal_freq: W
+  n_quantiles: 80
+  initial_amount: 100000000
+  include_profiling: true
+  dump_excel: true

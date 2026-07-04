@@ -55,6 +55,33 @@ const STATUS_LABELS: Record<string, string> = {
   failed: '运行失败'
 };
 
+const WEIGHT_MODE_LABELS: Record<string, string> = {
+  freeplay: '自由分组',
+  'classic-long-short': '经典多空'
+};
+
+const EXCESS_METRIC_LABELS = new Set([
+  '基准收益',
+  '基准年化收益',
+  '基准波动率',
+  '超额收益',
+  '超额年化收益',
+  '超额波动率',
+  '超额最大回撤',
+  '超额收益最大回撤',
+  '超额夏普比率',
+  '超额收益夏普比率',
+  '超额卡玛比率',
+  '日均超额收益',
+  '贝塔',
+  'Beta',
+  '阿尔法',
+  'Alpha',
+  '跟踪误差',
+  '信息比率',
+  '相对基准胜率'
+]);
+
 const EVENT_FALLBACK_PARAMS: Record<string, unknown> = {
   event_file: '',
   code: '000001.SZ',
@@ -78,6 +105,14 @@ const formatValue = (metric: Metric) => {
   return Math.abs(metric.value) >= 100 ? metric.value.toFixed(2) : metric.value.toFixed(3);
 };
 
+const metricGroup = (metric: Metric): 'raw' | 'excess' => {
+  if (metric.group === 'raw' || metric.group === 'excess') return metric.group;
+  if (EXCESS_METRIC_LABELS.has(metric.label) || metric.label.startsWith('超额') || metric.label.startsWith('基准')) {
+    return 'excess';
+  }
+  return 'raw';
+};
+
 const asString = (value: unknown, fallback = '') => {
   if (value === undefined || value === null) return fallback;
   return String(value);
@@ -92,6 +127,18 @@ const asNumber = (value: unknown, fallback: number) => {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const formatGroupList = (value: unknown) => {
+  if (Array.isArray(value)) return value.join(',');
+  if (value === undefined || value === null) return '';
+  return String(value);
+};
+
+const hasGroupList = (value: unknown) => {
+  if (Array.isArray(value)) return value.length > 0;
+  if (value === undefined || value === null) return false;
+  return String(value).trim().length > 0;
 };
 
 const formatEventDateLabel = (value: unknown) => {
@@ -109,11 +156,17 @@ const buildRunParams = (defaults: Record<string, unknown>) => ({
   rebal_freq: asString(defaults.rebal_freq, 'W'),
   n_quantiles: asNumber(defaults.n_quantiles, 80),
   index_code: asString(defaults.index_code),
+  benchmark_code: asString(defaults.benchmark_code, asString(defaults.index_code)),
   direction: asString(defaults.direction, 'positive'),
   use_industry: asBool(defaults.use_industry),
   use_mktcap: asBool(defaults.use_mktcap),
   industry_scheme: asString(defaults.industry_scheme, '申万一级行业'),
   backtest_metric: asString(defaults.backtest_metric, '收盘价(元)'),
+  weight_mode: asString(defaults.weight_mode, 'freeplay'),
+  long_groups: defaults.long_groups ?? null,
+  short_groups: defaults.short_groups ?? null,
+  group_weights: defaults.group_weights || {},
+  intra_group_allocation: defaults.intra_group_allocation || {},
   include_profiling: asBool(defaults.include_profiling, true)
 });
 
@@ -392,6 +445,14 @@ function FactorPage({
   const startRun = async () => {
     if (!source) return;
     setError(null);
+    if (
+      asString(params.weight_mode, 'freeplay') === 'freeplay'
+      && !hasGroupList(params.long_groups)
+      && !hasGroupList(params.short_groups)
+    ) {
+      setError('自由分组模式必须至少填写做多分组或做空分组。');
+      return;
+    }
     setResult(null);
     setLogs('[dashboard] 正在提交回测任务...\n');
     setState(null);
@@ -460,6 +521,8 @@ function FactorPage({
         <strong>{asString(params.start_date)} 到 {asString(params.end_date)}</strong>
         <span>￥{Number(params.initial_amount || 0).toLocaleString()}</span>
         <span>{FREQ_LABELS[asString(params.rebal_freq)] || asString(params.rebal_freq)}</span>
+        <span>分组：{WEIGHT_MODE_LABELS[asString(params.weight_mode)] || asString(params.weight_mode, 'freeplay')}</span>
+        {asString(params.benchmark_code) ? <span>基准：{asString(params.benchmark_code)}</span> : null}
         <span>状态：{state ? STATUS_LABELS[state.status] : '未运行'}</span>
         {state?.elapsed_seconds ? <span>耗时 {state.elapsed_seconds.toFixed(1)}s</span> : null}
         <span className="python-pill">Python</span>
@@ -525,7 +588,32 @@ function ParameterPanel({
         </select>
       </label>
       <LabeledInput label="分组数" type="number" value={asString(params.n_quantiles)} onChange={(v) => onParam('n_quantiles', Number(v))} />
+      <h3><ListFilter size={16} />分组模式</h3>
+      <label className="field">
+        模式
+        <select value={asString(params.weight_mode, 'freeplay')} onChange={(event) => onParam('weight_mode', event.target.value)}>
+          <option value="freeplay">自由分组</option>
+          <option value="classic-long-short">经典多空</option>
+        </select>
+      </label>
+      {asString(params.weight_mode, 'freeplay') === 'freeplay' ? (
+        <>
+          <LabeledInput
+            label="做多分组"
+            value={formatGroupList(params.long_groups)}
+            placeholder="留空=无做多，如 19"
+            onChange={(v) => onParam('long_groups', v)}
+          />
+          <LabeledInput
+            label="做空分组"
+            value={formatGroupList(params.short_groups)}
+            placeholder="留空=无做空，如 0,1"
+            onChange={(v) => onParam('short_groups', v)}
+          />
+        </>
+      ) : null}
       <LabeledInput label="指数代码" value={asString(params.index_code)} onChange={(v) => onParam('index_code', v)} />
+      <LabeledInput label="基准代码" value={asString(params.benchmark_code)} onChange={(v) => onParam('benchmark_code', v)} />
       <LabeledInput label="交易价格" value={asString(params.backtest_metric)} onChange={(v) => onParam('backtest_metric', v)} />
       {'warmup_days' in params ? <LabeledInput label="预热天数" type="number" value={asString(params.warmup_days)} onChange={(v) => onParam('warmup_days', Number(v))} /> : null}
       {'pretom_only' in params ? <label className="field inline"><input type="checkbox" checked={Boolean(params.pretom_only)} onChange={(event) => onParam('pretom_only', event.target.checked)} />PreTOM择时</label> : null}
@@ -542,8 +630,20 @@ function ParameterPanel({
   );
 }
 
-function LabeledInput({ label, value, onChange, type = 'text' }: { label: string; value: string; onChange: (value: string) => void; type?: string }) {
-  return <label className="field">{label}<input type={type} value={value} onChange={(event) => onChange(event.target.value)} /></label>;
+function LabeledInput({
+  label,
+  value,
+  onChange,
+  type = 'text',
+  placeholder = ''
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  type?: string;
+  placeholder?: string;
+}) {
+  return <label className="field">{label}<input type={type} value={value} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} /></label>;
 }
 
 function EventStudyPage({ onBack }: { onBack: () => void }) {
@@ -592,7 +692,7 @@ function EventStudyPage({ onBack }: { onBack: () => void }) {
           <button className="ghost-button" onClick={onBack}>返回</button>
           <div>
             <h1>事件研究</h1>
-            <p>扫描 betalens-factor/eventstudy 下的事件时点文件，分析事件窗口收益表现。</p>
+            <p>扫描 betalens-factor/tools/eventstudy 下的事件时点文件，分析事件窗口收益表现。</p>
           </div>
         </div>
         <div className="run-actions">
@@ -906,20 +1006,34 @@ function SimpleTable({ rows, maxHeight = 260 }: { rows: Array<Record<string, unk
   );
 }
 
-function Overview({ result, state }: { result: RunResult | null; state: RunState | null }) {
-  if (!result) return <Waiting state={state} />;
-  const nav = result.charts.nav;
-  const pnl = result.charts.dailyPnl;
+function MetricsBlock({ title, metrics }: { title: string; metrics: Metric[] }) {
   return (
-    <div className="view-stack">
-      <div className="section-title">收益概述</div>
+    <div className="metric-block">
+      <div className="metric-block-title">{title}</div>
       <div className="metrics-grid">
-        {result.metrics.map((metric) => (
+        {metrics.map((metric) => (
           <div className="metric-tile" key={metric.label}>
             <span>{metric.label}</span>
             <strong className={typeof metric.value === 'number' && metric.value < 0 ? 'negative' : ''}>{formatValue(metric)}</strong>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+function Overview({ result, state }: { result: RunResult | null; state: RunState | null }) {
+  if (!result) return <Waiting state={state} />;
+  const nav = result.charts.nav;
+  const pnl = result.charts.dailyPnl;
+  const rawMetrics = result.metrics.filter((metric) => metricGroup(metric) === 'raw');
+  const excessMetrics = result.metrics.filter((metric) => metricGroup(metric) === 'excess');
+  return (
+    <div className="view-stack">
+      <div className="section-title">收益概述</div>
+      <div className="metric-columns">
+        <MetricsBlock title="裸指标" metrics={rawMetrics} />
+        <MetricsBlock title="超额指标" metrics={excessMetrics} />
       </div>
       <div className="chart-card">
         <Suspense fallback={<div className="chart-loading"><Loader2 className="spin" size={18} />加载图表...</div>}>
@@ -1216,7 +1330,8 @@ function RebalanceHoldings({ records }: { records: Array<Record<string, number |
                     <th>序号</th>
                     <th>股票代码</th>
                     <th>中文名称</th>
-                    <th>权重</th>
+                      <th>方向</th>
+                      <th>权重</th>
                     <th>因子值</th>
                     <th>分组</th>
                     <th>信号日</th>
@@ -1228,6 +1343,7 @@ function RebalanceHoldings({ records }: { records: Array<Record<string, number |
                       <td>{formatCell(row.rank)}</td>
                       <td>{asString(row.code)}</td>
                       <td>{asString(row.name)}</td>
+                      <td>{asString(row.side, asNumber(row.weight, 0) < 0 ? 'short' : 'long')}</td>
                       <td>{formatPercent(asNumber(row.weight, 0))}</td>
                       <td>{formatFactor(row.factorValue)}</td>
                       <td>{formatCell(row.group)}</td>

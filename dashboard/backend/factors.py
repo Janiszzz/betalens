@@ -2,45 +2,34 @@ from __future__ import annotations
 
 import importlib.util
 import ast
-import json
 import sys
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
+
+from betalens.factor.config import load_yaml_config, section
 
 from .schemas import FactorDetail, FactorSummary
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FACTOR_ROOT = REPO_ROOT / "betalens-factor"
-_FACTOR_METADATA_KEYS = {
-    "name",
-    "formula",
-    "logic",
-    "inputs",
-    "compute_kwargs",
-    "compute_body",
-}
-
-
-def _read_json(path: Path) -> dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8"))
+_FACTOR_REQUIRED_SECTIONS = ("meta", "factor_spec", "weight", "run")
 
 
 def _iter_factor_specs(class_dir: Path) -> list[dict[str, Any]]:
-    """扫描类目录下的因子子文件夹，读取各自 spec_{NAME}.json。"""
+    """扫描类目录下的因子子文件夹，读取各自 factor_{NAME}.yaml。"""
     factors: list[dict[str, Any]] = []
     for factor_dir in sorted(class_dir.iterdir()):
         if not factor_dir.is_dir() or factor_dir.name.startswith((".", "__")):
             continue
-        factor_spec_path = factor_dir / f"spec_{factor_dir.name}.json"
+        factor_spec_path = factor_dir / f"factor_{factor_dir.name}.yaml"
         if not factor_spec_path.exists():
             continue
         try:
-            factor_cfg = _read_json(factor_spec_path)
+            factor_cfg = load_yaml_config(factor_spec_path, required_sections=_FACTOR_REQUIRED_SECTIONS)
         except Exception:
             continue
-        factor_cfg.setdefault("name", factor_dir.name)
         factors.append(factor_cfg)
     return factors
 
@@ -52,11 +41,11 @@ def _iter_specs() -> list[tuple[str, Path, dict[str, Any]]]:
     for class_dir in sorted(FACTOR_ROOT.iterdir()):
         if not class_dir.is_dir() or class_dir.name.startswith((".", "__")):
             continue
-        spec_path = class_dir / f"spec_{class_dir.name}.json"
+        spec_path = class_dir / f"class_{class_dir.name}.yaml"
         if not spec_path.exists():
             continue
         try:
-            spec_data = _read_json(spec_path)
+            spec_data = load_yaml_config(spec_path)
         except Exception:
             continue
         spec_data["factors"] = _iter_factor_specs(class_dir)
@@ -69,14 +58,27 @@ def _factor_script(class_dir: Path, factor_name: str) -> Path:
 
 
 def effective_factor_defaults(spec_data: dict[str, Any], factor_cfg: dict[str, Any]) -> dict[str, Any]:
-    """Return class defaults overlaid with per-factor runtime overrides."""
-    defaults = dict(spec_data.get("defaults", {}) or {})
-    overrides = {
-        key: value
-        for key, value in factor_cfg.items()
-        if key not in _FACTOR_METADATA_KEYS
-    }
-    defaults.update(overrides)
+    """Return a flat runtime parameter view for the Dashboard form."""
+    del spec_data
+    factor_spec = section(factor_cfg, "factor_spec")
+    weight = section(factor_cfg, "weight")
+    run = section(factor_cfg, "run")
+    defaults = dict(run)
+    defaults.update(
+        {
+            "direction": factor_spec.get("direction"),
+            "index_code": factor_spec.get("index_code"),
+            "use_industry": factor_spec.get("use_industry"),
+            "use_mktcap": factor_spec.get("use_mktcap"),
+            "industry_scheme": factor_spec.get("industry_scheme"),
+            "backtest_metric": factor_spec.get("backtest_metric"),
+            "weight_mode": weight.get("mode"),
+            "long_groups": weight.get("long_groups"),
+            "short_groups": weight.get("short_groups"),
+            "group_weights": weight.get("group_weights", {}),
+            "intra_group_allocation": weight.get("intra_group_allocation", {}),
+        }
+    )
     return defaults
 
 
@@ -86,14 +88,16 @@ def discover_factors() -> tuple[FactorSummary, ...]:
     for cls, _class_dir, spec_data in _iter_specs():
         source = spec_data.get("source", "")
         for factor in spec_data.get("factors", []):
+            meta = section(factor, "meta")
+            factor_spec = section(factor, "factor_spec")
             found.append(
                 FactorSummary(
                     factor_class=cls,
-                    name=factor.get("name", ""),
-                    formula=factor.get("formula", ""),
-                    logic=factor.get("logic", ""),
-                    source=source,
-                    inputs=factor.get("inputs", {}),
+                    name=meta.get("name", ""),
+                    formula=meta.get("formula", ""),
+                    logic=meta.get("logic", ""),
+                    source=meta.get("source") or source,
+                    inputs=factor_spec.get("inputs", {}),
                     defaults=effective_factor_defaults(spec_data, factor),
                 )
             )
@@ -102,15 +106,14 @@ def discover_factors() -> tuple[FactorSummary, ...]:
 
 def get_factor_config(factor_class: str, name: str) -> tuple[Path, dict[str, Any], dict[str, Any]]:
     class_dir = FACTOR_ROOT / factor_class
-    spec_path = class_dir / f"spec_{factor_class}.json"
+    spec_path = class_dir / f"class_{factor_class}.yaml"
     if not spec_path.exists():
         raise FileNotFoundError(f"Factor class spec not found: {spec_path}")
-    spec_data = _read_json(spec_path)
-    factor_spec_path = class_dir / name / f"spec_{name}.json"
+    spec_data = load_yaml_config(spec_path)
+    factor_spec_path = class_dir / name / f"factor_{name}.yaml"
     if not factor_spec_path.exists():
         raise FileNotFoundError(f"Factor spec not found: {factor_spec_path}")
-    factor_cfg = _read_json(factor_spec_path)
-    factor_cfg.setdefault("name", name)
+    factor_cfg = load_yaml_config(factor_spec_path, required_sections=_FACTOR_REQUIRED_SECTIONS)
     script = _factor_script(class_dir, name)
     if not script.exists():
         raise FileNotFoundError(f"Factor script not found: {script}")
@@ -119,6 +122,8 @@ def get_factor_config(factor_class: str, name: str) -> tuple[Path, dict[str, Any
 
 def get_factor_detail(factor_class: str, name: str) -> FactorDetail:
     script, spec_data, factor_cfg = get_factor_config(factor_class, name)
+    meta = section(factor_cfg, "meta")
+    factor_spec = section(factor_cfg, "factor_spec")
     doc = ""
     try:
         module = ast.parse(script.read_text(encoding="utf-8"))
@@ -127,13 +132,13 @@ def get_factor_detail(factor_class: str, name: str) -> FactorDetail:
         doc = f"因子脚本可解析失败: {exc}"
     return FactorDetail(
         factor_class=factor_class,
-        name=name,
-        formula=factor_cfg.get("formula", ""),
-        logic=factor_cfg.get("logic", ""),
-        source=spec_data.get("source", ""),
-        inputs=factor_cfg.get("inputs", {}),
+        name=meta.get("name", name),
+        formula=meta.get("formula", ""),
+        logic=meta.get("logic", ""),
+        source=meta.get("source") or spec_data.get("source", ""),
+        inputs=factor_spec.get("inputs", {}),
         defaults=effective_factor_defaults(spec_data, factor_cfg),
-        compute_kwargs=factor_cfg.get("compute_kwargs", {}),
+        compute_kwargs=factor_spec.get("compute_kwargs", {}) or {},
         doc=doc,
         script_path=str(script),
         factor_dir=str(script.parent),

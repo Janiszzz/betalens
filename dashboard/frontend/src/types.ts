@@ -33,6 +33,7 @@ export type Metric = {
   label: string;
   value: number | string | null;
   format: 'number' | 'percent';
+  group?: 'raw' | 'excess';
 };
 
 export type RunResult = {

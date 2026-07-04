@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import contextlib
-import dataclasses
+import copy
 import inspect
 import io
 import shutil
@@ -15,6 +15,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from betalens.factor.config import run_parameters, section, write_yaml_config
+
 from .factors import get_factor_config, load_factor_module
 from .schemas import RunRequest, RunState, RunStatus
 
@@ -22,6 +24,28 @@ from .schemas import RunRequest, RunState, RunStatus
 MAX_RUNS = 20  # 内存里最多保留最近 N 次回测,超出按 LRU 淘汰
 TABLE_KINDS = ("trades", "positions")
 _CACHE_ROOT = Path(tempfile.gettempdir()) / "betalens_dashboard_runs"
+
+
+def _normalize_group_list(value: Any) -> list[Any] | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        raw = [part for part in text.replace("，", ",").replace("；", ",").replace(";", ",").split(",") if part.strip()]
+    elif isinstance(value, (list, tuple)):
+        raw = list(value)
+    else:
+        raw = [value]
+
+    groups: list[Any] = []
+    for item in raw:
+        if item is None or item == "":
+            continue
+        parsed = int(item) if str(item).strip().lstrip("-").isdigit() else item
+        groups.append(parsed)
+    return groups if groups else None
 
 
 class LogBuffer(io.TextIOBase):
@@ -55,6 +79,7 @@ class DashboardRun:
         self.backtest: Any = None
         self.analyst: Analyst | None = None
         self.factor_dir: str = ""
+        self.output_dir: str = ""
         # 巨表落 parquet 后释放 bt,这里缓存可 JSON 化的结果与各表元数据/路径
         self.payload: dict[str, Any] | None = None
         self.table_meta: dict[str, dict[str, Any]] = {}
@@ -174,31 +199,23 @@ class RunManager:
         run.mark_started()
         try:
             run.append_log("[dashboard] resolving factor config\n")
-            script, _spec_data, _factor_cfg = get_factor_config(run.factor_class, run.name)
+            script, _spec_data, factor_cfg = get_factor_config(run.factor_class, run.name)
             run.factor_dir = str(script.parent)
+            output_dir = Path(run.factor_dir) / "outputs" / "runs" / run.run_id
+            output_dir.mkdir(parents=True, exist_ok=True)
+            run.output_dir = str(output_dir)
+            run_config = self._build_run_config(factor_cfg, run, output_dir)
+            run_config_path = write_yaml_config(output_dir / "run_config.yaml", run_config)
+            run.parameters = self._flat_parameters(run_config)
+            run.compute_kwargs = dict(section(run_config, "factor_spec").get("compute_kwargs") or {})
+            run.append_log(f"[dashboard] wrote run YAML: {run_config_path}\n")
             run.append_log(f"[dashboard] loading factor module: {script}\n")
             mod = load_factor_module(script)
-            factor_spec = getattr(mod, "spec")
+            if hasattr(mod, "build_spec"):
+                factor_spec = mod.build_spec(run_config, run_config_path)
+            else:
+                factor_spec = getattr(mod, "spec")
             run.append_log("[dashboard] factor module loaded\n")
-
-            spec_updates = {}
-            for key in (
-                "direction",
-                "index_code",
-                "use_industry",
-                "use_mktcap",
-                "industry_scheme",
-                "backtest_metric",
-            ):
-                if key in run.parameters:
-                    spec_updates[key] = run.parameters[key]
-            if run.compute_kwargs:
-                merged_kwargs = dict(getattr(factor_spec, "compute_kwargs", {}) or {})
-                merged_kwargs.update(run.compute_kwargs)
-                spec_updates["compute_kwargs"] = merged_kwargs
-            if spec_updates:
-                factor_spec = dataclasses.replace(factor_spec, **spec_updates)
-                run.append_log(f"[dashboard] applied spec overrides: {sorted(spec_updates)}\n")
 
             class_dir = script.parent.parent
             import sys
@@ -215,21 +232,12 @@ class RunManager:
             if not start_date or not end_date:
                 raise ValueError("start_date and end_date are required")
 
-            output_dir = Path(run.factor_dir)
-            output_dir.mkdir(parents=True, exist_ok=True)
-            kwargs = {
-                "rebal_freq": run.parameters.get("rebal_freq", "D"),
-                "n_quantiles": int(run.parameters.get("n_quantiles", 20)),
-                "initial_amount": float(run.parameters.get("initial_amount", 100000)),
-                "output_dir": str(output_dir),
-                "include_profiling": bool(run.parameters.get("include_profiling", True)),
-                # dump 由后端异步落盘,避免阻塞出结果
-                "dump_excel": False,
-            }
+            kwargs = run_parameters(run_config, run_config_path)
+            start_date = kwargs.pop("start_date")
+            end_date = kwargs.pop("end_date")
             run_signature = inspect.signature(FactorPipeline.run)
-            for key in ("warmup_days", "pretom_only", "pretom_lo", "pretom_hi"):
-                if key in run.parameters and key in run_signature.parameters:
-                    kwargs[key] = run.parameters[key]
+            if not any(p.kind == inspect.Parameter.VAR_KEYWORD for p in run_signature.parameters.values()):
+                kwargs = {key: value for key, value in kwargs.items() if key in run_signature.parameters}
             run.append_log(
                 "[dashboard] starting pipeline "
                 f"{start_date} -> {end_date}, kwargs={kwargs}, compute_kwargs={run.compute_kwargs}\n"
@@ -241,13 +249,20 @@ class RunManager:
             run.append_log("[dashboard] pipeline returned, serializing result\n")
             run.result = result
             run.backtest = result.backtest
+            factor_values = getattr(result, "factor_values", None)
             run.append_log("[dashboard] resolving analyst\n")
             if result.analyst is not None:
                 run.analyst = result.analyst
             else:
                 from betalens.analyst import Analyst
 
-                run.analyst = Analyst.from_backtest(result.backtest, name=run.name)
+                run.analyst = Analyst.from_backtest(
+                    result.backtest,
+                    name=run.name,
+                    benchmark_code=run.parameters.get("benchmark_code"),
+                    benchmark_metric=run.parameters.get("backtest_metric", "收盘价(元)"),
+                    factor_values=factor_values,
+                )
             run.append_log("[dashboard] analyst ready\n")
 
             # 巨表落 parquet → 缓存可 JSON 化 payload → 释放 bt(省内存)→ 后台异步写 dump
@@ -255,7 +270,6 @@ class RunManager:
             self._persist_tables(run)
             run.append_log("[dashboard] tables persisted\n")
             bt = run.backtest
-            factor_values = getattr(result, "factor_values", None)
             pit_validation = getattr(result, "pit_validation", None)
             neutralize_stats = getattr(result, "neutralize_stats", None)
             from .serialization import build_result_payload, write_factor_values_parquet
@@ -289,6 +303,90 @@ class RunManager:
             )
         except Exception as exc:
             run.mark_failed(exc)
+
+    @staticmethod
+    def _build_run_config(factor_cfg: dict[str, Any], run: DashboardRun, output_dir: Path) -> dict[str, Any]:
+        config = copy.deepcopy(factor_cfg)
+        factor_spec = section(config, "factor_spec")
+        weight = section(config, "weight")
+        run_section = section(config, "run")
+
+        for key in (
+            "direction",
+            "index_code",
+            "use_industry",
+            "use_mktcap",
+            "industry_scheme",
+            "backtest_metric",
+        ):
+            if key in run.parameters:
+                factor_spec[key] = run.parameters[key]
+        if run.compute_kwargs:
+            factor_spec["compute_kwargs"] = dict(run.compute_kwargs)
+
+        weight_mapping = {
+            "weight_mode": "mode",
+            "long_groups": "long_groups",
+            "short_groups": "short_groups",
+            "group_weights": "group_weights",
+            "intra_group_allocation": "intra_group_allocation",
+        }
+        for source, target in weight_mapping.items():
+            if source in run.parameters:
+                value = run.parameters[source]
+                if source in ("long_groups", "short_groups"):
+                    value = _normalize_group_list(value)
+                weight[target] = value
+        if weight.get("mode") == "freeplay":
+            long_groups = _normalize_group_list(weight.get("long_groups"))
+            short_groups = _normalize_group_list(weight.get("short_groups"))
+            weight["long_groups"] = long_groups
+            weight["short_groups"] = short_groups
+            if not long_groups and not short_groups:
+                raise ValueError("freeplay 模式必须至少设置 long_groups 或 short_groups")
+
+        for key in (
+            "start_date",
+            "end_date",
+            "rebal_freq",
+            "n_quantiles",
+            "initial_amount",
+            "benchmark_code",
+            "include_profiling",
+            "warmup_days",
+            "pretom_only",
+            "pretom_lo",
+            "pretom_hi",
+            "universe",
+        ):
+            if key in run.parameters:
+                run_section[key] = run.parameters[key]
+        run_section["dump_excel"] = False
+        run_section["output_dir"] = str(output_dir.resolve())
+        return config
+
+    @staticmethod
+    def _flat_parameters(config: dict[str, Any]) -> dict[str, Any]:
+        factor_spec = section(config, "factor_spec")
+        weight = section(config, "weight")
+        run_section = section(config, "run")
+        flat = dict(run_section)
+        flat.update(
+            {
+                "direction": factor_spec.get("direction"),
+                "index_code": factor_spec.get("index_code"),
+                "use_industry": factor_spec.get("use_industry"),
+                "use_mktcap": factor_spec.get("use_mktcap"),
+                "industry_scheme": factor_spec.get("industry_scheme"),
+                "backtest_metric": factor_spec.get("backtest_metric"),
+                "weight_mode": weight.get("mode"),
+                "long_groups": weight.get("long_groups"),
+                "short_groups": weight.get("short_groups"),
+                "group_weights": weight.get("group_weights", {}),
+                "intra_group_allocation": weight.get("intra_group_allocation", {}),
+            }
+        )
+        return flat
 
     def _persist_tables(self, run: DashboardRun) -> None:
         from .serialization import build_table, write_table_parquet
@@ -341,7 +439,7 @@ class RunManager:
             raise ValueError(f"run is {run.status}")
         payload = dict(run.payload)
         # downloads 实时探测磁盘(dump 是异步写的,可能稍后才出现)
-        payload["downloads"] = build_downloads(Path(run.factor_dir), run.name)
+        payload["downloads"] = build_downloads(Path(run.output_dir or run.factor_dir), run.name)
         return payload
 
     def table_page(

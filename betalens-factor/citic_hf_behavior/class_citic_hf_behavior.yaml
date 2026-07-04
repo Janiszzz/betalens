@@ -1,0 +1,17 @@
+class: citic_hf_behavior
+template_module: factor_template
+source: 中信建投高频和行为金融学选股因子跟踪周报
+defaults:
+  direction: positive
+  index_code: 000906.SH
+  use_industry: false
+  use_mktcap: false
+  industry_scheme: 申万一级行业
+  backtest_metric: 收盘价(元)
+  start_date: '2024-01-01'
+  end_date: '2025-12-31'
+  rebal_freq: D
+  n_quantiles: 20
+  initial_amount: 100000000
+  include_profiling: true
+  dump_excel: true

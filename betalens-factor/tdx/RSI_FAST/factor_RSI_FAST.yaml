@@ -1,0 +1,34 @@
+meta:
+  class: tdx
+  name: RSI_FAST
+  source: 通达信(TDX)指标公式：RSI 快慢线
+  formula: RSI_FAST = SMA(MAX(CLOSE-REF(CLOSE,1),0),3,1) / SMA(|CLOSE-REF(CLOSE,1)|,3,1) * 100
+  logic: 3 日快速 RSI；高值=近期上涨动量强 → 高分组做多（positive）。
+factor_spec:
+  inputs:
+    close_wide: 收盘价(元)
+  compute_kwargs:
+    window: 3
+  direction: positive
+  table_name: daily_market
+  index_code: 000906.SH
+  use_industry: true
+  use_mktcap: false
+  industry_scheme: 申万一级行业
+  backtest_metric: 收盘价(元)
+weight:
+  mode: freeplay
+  long_groups: null
+  short_groups: null
+  group_weights: {}
+  intra_group_allocation: {}
+run:
+  start_date: '2024-01-01'
+  end_date: '2024-12-31'
+  rebal_freq: W
+  n_quantiles: 80
+  initial_amount: 100000000
+  benchmark_code: 000906.SH
+  include_profiling: true
+  dump_excel: true
+  output_dir: outputs/runs/manual

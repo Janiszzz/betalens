@@ -460,6 +460,27 @@ input {
   padding: 14px;
 }
 
+.metric-columns {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+
+.metric-block {
+  display: grid;
+  gap: 8px;
+}
+
+.metric-block-title {
+  font-weight: 800;
+  color: #314259;
+}
+
+.metric-block .metrics-grid {
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  align-content: start;
+}
+
 .metric-tile {
   padding: 12px 14px;
   min-height: 70px;
@@ -813,3 +834,4 @@ tr:nth-child(even) td {
   from { transform: rotate(0); }
   to { transform: rotate(360deg); }
 }
+

@@ -28,6 +28,20 @@ def _drawdown_series(nav: pd.Series) -> pd.Series:
     return (peak - nav) / peak
 
 
+def excess_nav(returns: pd.Series, bench_returns: pd.Series) -> pd.Series:
+    """由策略日收益 - 基准日收益构造超额净值。"""
+    diff = (returns - bench_returns).dropna()
+    if diff.empty:
+        return pd.Series(dtype=float)
+    nav = (1 + diff).cumprod()
+    first = diff.index[0]
+    if isinstance(first, pd.Timestamp):
+        start_index = first - pd.Timedelta(nanoseconds=1)
+    else:
+        start_index = '__start__'
+    return pd.concat([pd.Series([1.0], index=[start_index]), nav])
+
+
 # ── 收益类（几何年化，修正原 mean×252 口径）─────────────────────────────────
 
 def total_return(nav: pd.Series) -> float:
@@ -359,6 +373,20 @@ def information_ratio(returns: pd.Series, bench_returns: pd.Series,
 def win_rate_vs_benchmark(returns: pd.Series, bench_returns: pd.Series) -> float:
     diff = (returns - bench_returns).dropna()
     return (diff > 0).mean() if len(diff) else np.nan
+
+
+def profit_loss_counts(daily_pnl_total: pd.Series) -> tuple[int, int]:
+    pnl = daily_pnl_total.dropna()
+    return int((pnl > 0).sum()), int((pnl < 0).sum())
+
+
+def profit_loss_ratio(daily_pnl_total: pd.Series) -> float:
+    pnl = daily_pnl_total.dropna()
+    gains = pnl[pnl > 0]
+    losses = pnl[pnl < 0].abs()
+    if gains.empty or losses.empty or losses.mean() == 0:
+        return np.nan
+    return gains.mean() / losses.mean()
 
 
 # ── 月度收益矩阵 ────────────────────────────────────────────────────────────

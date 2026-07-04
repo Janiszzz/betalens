@@ -1,0 +1,35 @@
+# 每个因子脚本只读取同目录唯一 YAML；本文件是结构示例。
+meta:
+  class: example_class
+  name: SAMPLE
+  source: 因子来源说明
+  formula: 因子公式摘要
+  logic: 因子逻辑和方向说明
+factor_spec:
+  inputs:
+    close_wide: 收盘价(元)
+  compute_kwargs:
+    window: 20
+  direction: positive
+  table_name: daily_market
+  index_code: 000906.SH
+  use_industry: true
+  use_mktcap: false
+  industry_scheme: 申万一级行业
+  backtest_metric: 收盘价(元)
+weight:
+  mode: freeplay
+  long_groups: null
+  short_groups: null
+  group_weights: {}
+  intra_group_allocation: {}
+run:
+  start_date: '2024-01-01'
+  end_date: '2024-12-31'
+  rebal_freq: W
+  n_quantiles: 20
+  initial_amount: 100000000
+  benchmark_code: 000906.SH
+  include_profiling: true
+  dump_excel: true
+  output_dir: outputs/runs/manual

@@ -348,6 +348,8 @@ class FactorSpec:
     long_groups: list | None = None
     short_groups: list | None = None
     weight_mode: str = "freeplay"
+    group_weights: dict[str, Any] = field(default_factory=dict)
+    intra_group_allocation: dict[str, Any] = field(default_factory=dict)
     backtest_metric: str = "收盘价(元)"
 
 
@@ -379,13 +381,13 @@ class FactorPipeline:
 
     def _resolve_groups(self, n_q: int) -> tuple[list, list]:
         sp = self.spec
-        if sp.long_groups is not None or sp.short_groups is not None:
-            return sp.long_groups or [], sp.short_groups or []
-        if sp.direction == "positive":
-            return [n_q - 1], []
-        if sp.direction == "negative":
-            return [0], []
-        raise ValueError(f"未知 direction: {sp.direction}")
+        if sp.weight_mode == "classic-long-short":
+            return [n_q - 1], [0]
+        long_groups = sp.long_groups or []
+        short_groups = sp.short_groups or []
+        if not long_groups and not short_groups:
+            raise ValueError("freeplay 模式必须至少设置 long_groups 或 short_groups")
+        return long_groups or [], short_groups or []
 
     def _preprocess_with_stats(self, prequery, metric, industry_scheme,
                                mktcap_col, verbose):
@@ -545,6 +547,7 @@ class FactorPipeline:
             universe: list | None = None,
             n_quantiles: int = 20,
             initial_amount: float = 1e8,
+            benchmark_code: str | None = None,
             output_dir: str = ".",
             extra_inputs: dict[str, pd.DataFrame] | None = None,
             include_profiling: bool = True,
@@ -676,6 +679,8 @@ class FactorPipeline:
         weights = get_single_factor_weight(labeled, {
             'factor_key': sp.name, 'mode': sp.weight_mode,
             'long': long_groups, 'short': short_groups,
+            'group_weights': sp.group_weights,
+            'intra_group_allocation': sp.intra_group_allocation,
         })
         if verbose:
             print(f"  完成生成权重: {weights.shape}", flush=True)
@@ -698,7 +703,13 @@ class FactorPipeline:
         # 8. 绩效评价：Analyst 门面一键出全指标分组表 + Excel + 交互 HTML
         if verbose:
             print("  开始生成报告", flush=True)
-        analyst = Analyst.from_backtest(bt, name=sp.name)
+        analyst = Analyst.from_backtest(
+            bt,
+            name=sp.name,
+            benchmark_code=benchmark_code,
+            benchmark_metric=sp.backtest_metric,
+            factor_values=factor_values,
+        )
         summary = analyst.report(
             to_excel=f"{output_dir}/{sp.name}_report.xlsx",
             to_html=f"{output_dir}/{sp.name}_report.html",

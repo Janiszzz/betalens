@@ -200,7 +200,7 @@ def download(run_id: str, kind: str):
         raise HTTPException(status_code=404, detail="no output directory for this run")
     from .serialization import build_downloads
 
-    downloads = build_downloads(Path(run.factor_dir), run.name)
+    downloads = build_downloads(Path(run.output_dir or run.factor_dir), run.name)
     item = downloads.get(kind)
     if item is None:
         raise HTTPException(status_code=404, detail="unknown download kind")

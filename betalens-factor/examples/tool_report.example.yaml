@@ -1,0 +1,27 @@
+tool:
+  start_date: '2025-01-01'
+  end_date: '2025-12-31'
+  threshold: 0.1
+  trigger_operator: auto
+  table_name: daily_market
+  price_metric: 最低价(元)
+  stock_code: 000001.SZ
+  index_code: null
+  no_index_filter: false
+  output: outputs/report.xlsx
+  generate_chart: true
+  chart_output: outputs/chart.html
+factor:
+  direction: positive
+  compute_kwargs:
+    sma_n: 3
+    ema_n: 3
+    llv_n: 15
+  n_quantiles: 10
+  long_groups: null
+  short_groups: null
+  weight_mode: freeplay
+  use_industry: true
+  use_mktcap: false
+  industry_scheme: 申万一级行业
+  backtest_metric: 收盘价(元)

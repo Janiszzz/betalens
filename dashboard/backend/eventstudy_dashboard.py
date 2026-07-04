@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import math
-import json
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -11,41 +10,19 @@ import pandas as pd
 
 from betalens.datafeed import Datafeed
 from betalens.eventstudy.eventstudy import EventStudy
+from betalens.factor.config import load_yaml_config, section
 
 from .factors import FACTOR_ROOT, REPO_ROOT
 
 
-EVENT_ROOT = FACTOR_ROOT / "eventstudy"
+EVENT_ROOT = FACTOR_ROOT / "tools" / "eventstudy"
 EVENT_OUTPUT_ROOT = Path(tempfile.gettempdir()) / "betalens_dashboard_eventstudy"
-EVENT_PARAMS_FILE = EVENT_ROOT / "eventstudy_params.json"
-EVENT_FALLBACK_PARAMS: dict[str, Any] = {
-    "event_file": "1.春节假期.xlsx",
-    "code": "000906.SH",
-    "benchmark_code": "",
-    "metric": "收盘价",
-    "table_name": "daily_market",
-    "mode": "flexible",
-    "window_before": 20,
-    "window_after": 20,
-    "holding_start_offset": 0,
-    "market_close_hour": 15,
-    "holding_days": "1,2,3,4,5",
-    "holding_months": "1,3,6,9,12",
-    "save_results": False
-}
+EVENT_PARAMS_FILE = EVENT_ROOT / "eventstudy.yaml"
 
 
 def load_eventstudy_params() -> dict[str, Any]:
-    params = dict(EVENT_FALLBACK_PARAMS)
-    if not EVENT_PARAMS_FILE.exists():
-        return params
-    try:
-        loaded = json.loads(EVENT_PARAMS_FILE.read_text(encoding="utf-8"))
-        if isinstance(loaded, dict):
-            params.update(loaded)
-    except Exception:
-        pass
-    return params
+    loaded = load_yaml_config(EVENT_PARAMS_FILE, required_sections=("eventstudy",))
+    return section(loaded, "eventstudy", context=str(EVENT_PARAMS_FILE))
 
 
 def _clean_scalar(value: Any) -> Any:
@@ -191,10 +168,10 @@ def _parse_int_list(value: Any) -> list[int]:
 
 
 def _build_holding_periods(params: dict[str, Any]) -> dict[str, list[int]] | None:
-    if str(params.get("mode", "flexible")) != "fixed":
+    if str(params["mode"]) != "fixed":
         return None
-    days = _parse_int_list(params.get("holding_days", "1,2,3,4,5"))
-    months = _parse_int_list(params.get("holding_months", "1,3,6,9,12"))
+    days = _parse_int_list(params["holding_days"])
+    months = _parse_int_list(params["holding_months"])
     return {"days": days, "months": months}
 
 
@@ -293,13 +270,13 @@ def run_event_study(params: dict[str, Any]) -> dict[str, Any]:
 
     code = _parse_codes(merged.get("code"))
     benchmark_code = str(merged.get("benchmark_code") or merged.get("benchmarkCode") or "").strip() or None
-    metric = str(merged.get("metric") or EVENT_FALLBACK_PARAMS["metric"])
-    table_name = str(merged.get("table_name") or merged.get("tableName") or EVENT_FALLBACK_PARAMS["table_name"])
-    mode = str(merged.get("mode") or EVENT_FALLBACK_PARAMS["mode"])
-    window_before = int(_param_value(merged, "window_before", "windowBefore", EVENT_FALLBACK_PARAMS["window_before"]))
-    window_after = int(_param_value(merged, "window_after", "windowAfter", EVENT_FALLBACK_PARAMS["window_after"]))
-    holding_start_offset = int(_param_value(merged, "holding_start_offset", "holdingStartOffset", 0))
-    market_close_hour = int(_param_value(merged, "market_close_hour", "marketCloseHour", EVENT_FALLBACK_PARAMS["market_close_hour"]))
+    metric = str(merged.get("metric"))
+    table_name = str(merged.get("table_name") or merged.get("tableName"))
+    mode = str(merged.get("mode"))
+    window_before = int(_param_value(merged, "window_before", "windowBefore", merged["window_before"]))
+    window_after = int(_param_value(merged, "window_after", "windowAfter", merged["window_after"]))
+    holding_start_offset = int(_param_value(merged, "holding_start_offset", "holdingStartOffset", merged["holding_start_offset"]))
+    market_close_hour = int(_param_value(merged, "market_close_hour", "marketCloseHour", merged["market_close_hour"]))
 
     datafeed = Datafeed(table_name)
     try:

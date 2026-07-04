@@ -1,59 +1,70 @@
 #%%
-"""
-RSI_FAST  —  tdx 类因子
+"""RSI_FAST tdx factor."""
+from __future__ import annotations
 
-公式: RSI_FAST = SMA(MAX(CLOSE-REF(CLOSE,1),0),3,1) / SMA(|CLOSE-REF(CLOSE,1)|,3,1) * 100
-逻辑: 3 日快速 RSI；高值=近期上涨动量强 → 高分组做多（positive，按用户选定动量方向）。
-来源: 通达信(TDX)指标公式：吸筹能量 + RSI 快慢线
-方向: 正向（高分组做多）
-
-本脚本由 factor-forge/scaffold.py 生成；只定义算子与 FactorSpec，
-取数 / 分组 / 权重 / 回测全部复用 factor_template.FactorPipeline。
-"""
-import json
+import argparse
 import sys
 from pathlib import Path
 
-_CLASS_DIR = Path(__file__).resolve().parent.parent   # tdx/
-sys.path.insert(0, str(_CLASS_DIR))                   # tdx/（类模板所在）
-from factor_template_tdx import FactorSpec, FactorPipeline, SMA, REF, clean_inf
-
 _FACTOR_DIR = Path(__file__).resolve().parent
-_SPEC_FILE = _FACTOR_DIR / "spec_RSI_FAST.json"
-_CLASS_SPEC_FILE = _CLASS_DIR / "spec_tdx.json"
+_CLASS_DIR = _FACTOR_DIR.parent
+_FACTOR_ROOT = _CLASS_DIR.parent
+_REPO_ROOT = _FACTOR_ROOT.parent
+for _path in (_REPO_ROOT, _CLASS_DIR):
+    if str(_path) not in sys.path:
+        sys.path.insert(0, str(_path))
 
-def _load_defaults():
-    d = json.loads(_CLASS_SPEC_FILE.read_text(encoding="utf-8"))["defaults"]
-    factor_cfg = json.loads(_SPEC_FILE.read_text(encoding="utf-8"))
-    return d, factor_cfg
+from betalens.factor.config import (  # noqa: E402
+    factor_spec_options,
+    load_yaml_config,
+    run_parameters,
+    section,
+)
+from factor_template_tdx import FactorPipeline, FactorSpec, REF, SMA, clean_inf  # noqa: E402
 
 
-def compute_rsi_fast(close_wide, window=3):
-    """RSI_FAST = SMA(MAX(CLOSE-REF(CLOSE,1),0),3,1) / SMA(|CLOSE-REF(CLOSE,1)|,3,1) * 100"""
+_CONFIG_FILE = _FACTOR_DIR / "factor_RSI_FAST.yaml"
+_REQUIRED_SECTIONS = ("meta", "factor_spec", "weight", "run")
+
+
+def load_config(path: str | Path = _CONFIG_FILE) -> dict:
+    return load_yaml_config(path, required_sections=_REQUIRED_SECTIONS)
+
+
+def compute_rsi_fast(close_wide, window):
     diff = close_wide - REF(close_wide, 1)
     up = SMA(diff.clip(lower=0), window, 1)
     ab = SMA(diff.abs(), window, 1)
     return clean_inf(up / ab * 100)
 
 
-_defaults, _factor_cfg = _load_defaults()
+def build_spec(config: dict, config_path: str | Path = _CONFIG_FILE) -> FactorSpec:
+    options = factor_spec_options(config, config_path)
+    return FactorSpec(
+        name=str(section(config, "meta")["name"]),
+        compute=compute_rsi_fast,
+        **options,
+    )
 
-spec = FactorSpec(
-    name="RSI_FAST",
-    inputs=_factor_cfg["inputs"],
-    compute=compute_rsi_fast,
-    direction=_defaults["direction"],
-    compute_kwargs=_factor_cfg.get("compute_kwargs", {}),
-    use_industry=_defaults["use_industry"],
-    index_code=_defaults["index_code"],
-)
+
+spec = build_spec(load_config())
+
+
+def run_from_config(config_path: str | Path = _CONFIG_FILE):
+    config = load_config(config_path)
+    kwargs = run_parameters(config, config_path)
+    start_date = kwargs.pop("start_date")
+    end_date = kwargs.pop("end_date")
+    Path(kwargs["output_dir"]).mkdir(parents=True, exist_ok=True)
+    return FactorPipeline(build_spec(config, config_path)).run(start_date, end_date, **kwargs)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Run RSI_FAST from its YAML parameter file.")
+    parser.add_argument("--config", default=str(_CONFIG_FILE), help="YAML parameter file")
+    args = parser.parse_args()
+    run_from_config(args.config)
 
 
 if __name__ == "__main__":
-    FactorPipeline(spec).run(
-        start_date=_defaults["start_date"],
-        end_date=_defaults["end_date"],
-        rebal_freq=_defaults["rebal_freq"],
-        n_quantiles=_defaults["n_quantiles"],
-        output_dir=str(Path(__file__).resolve().parent),
-    )
+    main()

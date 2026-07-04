@@ -62,6 +62,8 @@ class FactorSpec:
     long_groups: list | None = None
     short_groups: list | None = None
     weight_mode: str = "freeplay"
+    group_weights: dict[str, Any] = field(default_factory=dict)
+    intra_group_allocation: dict[str, Any] = field(default_factory=dict)
     backtest_metric: str = "收盘价(元)"
 
 

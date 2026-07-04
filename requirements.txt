@@ -23,6 +23,7 @@ xlrd>=2.0.0
 
 # CLI output
 prettytable>=3.0.0
+PyYAML>=6.0
 
 # Documentation (optional)
 mkdocs>=1.4.0

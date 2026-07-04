@@ -142,6 +142,91 @@ def summarize_ic(ic_series: pd.Series) -> dict:
     }
 
 
+def _normalize_factor_long(factor_values: pd.DataFrame) -> pd.DataFrame:
+    rename_map = {
+        '信号日': 'input_ts',
+        'signal_date': 'input_ts',
+        'date': 'input_ts',
+        'datetime': 'input_ts',
+        '股票代码': 'code',
+        '代码': 'code',
+        '因子值': 'factor',
+        'factor_value': 'factor',
+        'value': 'factor',
+    }
+    df = factor_values.rename(columns={
+        col: rename_map.get(str(col), str(col))
+        for col in factor_values.columns
+    }).copy()
+    required = {'input_ts', 'code', 'factor'}
+    if not required.issubset(df.columns):
+        return pd.DataFrame(columns=['input_ts', 'code', 'factor'])
+    df = df[list(required)].copy()
+    df['input_ts'] = pd.to_datetime(df['input_ts'], errors='coerce')
+    df['code'] = df['code'].astype(str)
+    df['factor'] = pd.to_numeric(df['factor'], errors='coerce')
+    return df.dropna(subset=['input_ts', 'code', 'factor']).sort_values('input_ts')
+
+
+def calc_ic_from_factor_values(
+    factor_values: pd.DataFrame,
+    price_data: pd.DataFrame,
+    method: str = 'spearman',
+    min_periods: int = 5,
+) -> pd.Series:
+    """
+    基于因子长表和回测价格宽表计算逐期 IC。
+
+    Args:
+        factor_values: 长表，至少含 input_ts/信号日、code/股票代码、factor/因子值。
+        price_data: 宽表，index=调仓/成交时间，columns=code，值为回测成交价。
+        method: 'spearman'（Rank IC，推荐）| 'pearson'。
+        min_periods: 单期截面最少股票数。
+
+    Returns:
+        Series，index=调仓时间，name='IC'。每期使用该调仓日前最近一期因子信号，
+        收益使用当前价格到下一期价格的持仓期收益。
+    """
+    factor_df = _normalize_factor_long(factor_values)
+    if factor_df.empty or price_data is None or price_data.empty:
+        return pd.Series(dtype=float, name='IC')
+
+    prices = price_data.copy().sort_index()
+    prices = prices[[c for c in prices.columns if str(c) != 'cash']]
+    prices.columns = prices.columns.map(str)
+    prices = prices.apply(pd.to_numeric, errors='coerce')
+    forward_returns = prices.shift(-1).div(prices).sub(1.0)
+    forward_returns = forward_returns.iloc[:-1]
+    if forward_returns.empty:
+        return pd.Series(dtype=float, name='IC')
+
+    factor_df['date_key'] = factor_df['input_ts'].dt.strftime('%Y-%m-%d')
+    ic_values = {}
+    for ts, ret_row in forward_returns.iterrows():
+        ts = pd.Timestamp(ts)
+        date_key = ts.strftime('%Y-%m-%d')
+        day_df = factor_df[factor_df['date_key'] == date_key]
+        if day_df.empty:
+            prior = factor_df[factor_df['input_ts'] <= ts]
+            if prior.empty:
+                ic_values[ts] = np.nan
+                continue
+            latest = prior['input_ts'].max()
+            day_df = prior[prior['input_ts'] == latest]
+
+        factors = day_df.set_index('code')['factor']
+        returns = ret_row.dropna()
+        common_codes = factors.index.intersection(returns.index)
+        if len(common_codes) < min_periods:
+            ic_values[ts] = np.nan
+            continue
+        f = factors.loc[common_codes]
+        r = returns.loc[common_codes]
+        ic_values[ts] = f.rank().corr(r.rank()) if method == 'spearman' else f.corr(r)
+
+    return pd.Series(ic_values, name='IC')
+
+
 def _normal_cdf(x):
     """标准正态 CDF，用于无 scipy 时近似 p 值。"""
     return 0.5 * (1 + np.math.erf(x / np.sqrt(2)))

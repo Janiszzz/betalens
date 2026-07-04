@@ -1,0 +1,18 @@
+# 类级 YAML 只用于发现、展示和脚手架参考；运行时不从这里覆盖具体脚本参数。
+class: example_class
+template_module: factor_template_example
+source: 因子来源说明
+defaults:
+  direction: positive
+  index_code: 000906.SH
+  use_industry: true
+  use_mktcap: false
+  industry_scheme: 申万一级行业
+  backtest_metric: 收盘价(元)
+  start_date: '2024-01-01'
+  end_date: '2024-12-31'
+  rebal_freq: W
+  n_quantiles: 20
+  initial_amount: 100000000
+  include_profiling: true
+  dump_excel: true

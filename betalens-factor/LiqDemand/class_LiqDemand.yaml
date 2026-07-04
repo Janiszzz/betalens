@@ -1,0 +1,21 @@
+class: LiqDemand
+template_module: factor_template_liqdemand
+source: Nathan & Suominen (2026), The Liquidity-Demand Component of the Factor Zoo, SSRN 6909918
+defaults:
+  direction: negative
+  index_code: 000906.SH
+  use_industry: false
+  use_mktcap: false
+  industry_scheme: 申万一级行业
+  backtest_metric: 收盘价(元)
+  start_date: '2024-01-01'
+  end_date: '2025-12-31'
+  rebal_freq: D
+  n_quantiles: 20
+  initial_amount: 100000000
+  warmup_days: 400
+  pretom_only: true
+  pretom_lo: 9
+  pretom_hi: 4
+  include_profiling: true
+  dump_excel: true

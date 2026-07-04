@@ -1,0 +1,19 @@
+mining:
+  factor_module: factor_SAMPLE
+  spec_factory: make_mining_spec
+  gid_factory: mining_gid
+  weight_hook: null
+  output_dir: outputs/sweep_window
+  cache_dir: outputs/sweep_window/_cache
+  span: ['2024-01-01', '2025-12-31']
+  grid:
+    window: [20, 40, 60]
+    n_quantiles: [20]
+  objective: sharpe
+  objective_higher_is_better: true
+  engine: exact
+  workers: 4
+  rebuild_cache: false
+  max_memory_ratio: 0.5
+  max_warmup_days: 400
+  results_filename: sweep_results.csv

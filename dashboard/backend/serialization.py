@@ -11,15 +11,20 @@ import pandas as pd
 PERCENT_METRICS = {
     "策略收益",
     "策略年化收益",
-    "超额收益",
-    "基准收益",
-    "最大回撤",
-    "索提诺比率",
-    "日均超额收益",
-    "超额收益最大回撤",
-    "日胜率",
     "策略波动率",
+    "最大回撤",
+    "日胜率",
+    "IC胜率",
+    "超额收益",
+    "超额年化收益",
+    "超额波动率",
+    "超额最大回撤",
+    "相对基准胜率",
+    "基准收益",
+    "基准年化收益",
     "基准波动率",
+    "阿尔法",
+    "跟踪误差",
 }
 
 
@@ -39,10 +44,31 @@ def _clean_scalar(value: Any) -> Any:
     return value
 
 
-def _label_code(code: str) -> str:
-    if code == "cash":
+def _name_map_for_codes(codes: list[str] | set[str] | tuple[str, ...]) -> dict[str, str]:
+    lookup_codes = [
+        str(code)
+        for code in dict.fromkeys(codes)
+        if str(code) not in ("cash", "现金", "其他")
+    ]
+    if not lookup_codes:
+        return {}
+    try:
+        from betalens.analyst.naming import get_name_map
+
+        return get_name_map(lookup_codes)
+    except Exception:
+        return {}
+
+
+def _label_code(code: str, name_map: dict[str, str] | None = None) -> str:
+    code = str(code)
+    if code in ("cash", "现金"):
         return "现金"
-    return str(code)
+    if code == "其他":
+        return "其他"
+    name_map = name_map if name_map is not None else _name_map_for_codes([code])
+    name = name_map.get(code)
+    return f"{name}({code})" if name else code
 
 
 def _json_records(df: pd.DataFrame | None, max_rows: int | None = None) -> list[dict[str, Any]]:
@@ -121,18 +147,18 @@ def _position_weight_records(
     if "cash" in weights.columns:
         plot_df["现金"] = weights["cash"]
 
+    name_map = _name_map_for_codes([str(code) for code in order])
     records: list[dict[str, Any]] = []
     for dt, row in plot_df.iterrows():
         date = pd.Timestamp(dt).strftime("%Y-%m-%d")
         for code, weight in row.items():
             if pd.isna(weight) or float(weight) <= 0:
                 continue
-            display_name = str(code) if code in ("其他", "现金") else _label_code(str(code))
             records.append(
                 {
                     "date": date,
                     "code": str(code),
-                    "name": display_name,
+                    "name": _label_code(str(code), name_map),
                     "weight": _clean_scalar(weight),
                 }
             )
@@ -278,6 +304,7 @@ def _rebalance_holding_records(
 
     w = weight.copy().sort_index().replace([np.inf, -np.inf], np.nan).fillna(0.0)
     stock_cols = [c for c in w.columns if str(c) != "cash"]
+    name_map = _name_map_for_codes([str(code) for code in stock_cols])
     factor_df = _normalize_factor_values(factor_values)
 
     records: list[dict[str, Any]] = []
@@ -285,18 +312,21 @@ def _rebalance_holding_records(
         ts = pd.Timestamp(dt)
         factor_lookup = _factor_lookup_for_date(factor_df, ts)
         held = row[stock_cols]
-        held = held[held > 0].sort_values(ascending=False)
+        held = held[held != 0]
+        held = held.reindex(held.abs().sort_values(ascending=False).index)
         for rank, (code, weight_value) in enumerate(held.items(), 1):
             code_str = str(code)
             factor = factor_lookup.get(code_str, {})
+            weight_float = float(weight_value)
             records.append(
                 {
                     "date": ts.strftime("%Y-%m-%d"),
                     "datetime": ts.strftime("%Y-%m-%d %H:%M:%S"),
                     "rank": rank,
                     "code": code_str,
-                    "name": _label_code(code_str),
-                    "weight": _clean_scalar(weight_value),
+                    "name": _label_code(code_str, name_map),
+                    "side": "long" if weight_float > 0 else "short",
+                    "weight": _clean_scalar(weight_float),
                     "factorValue": factor.get("factorValue"),
                     "group": factor.get("group"),
                     "signalDate": factor.get("signalDate"),
@@ -319,60 +349,48 @@ def _drawdown_interval(nav: pd.Series) -> str | None:
     return f"{pd.Timestamp(start).strftime('%Y/%m/%d')},{pd.Timestamp(trough).strftime('%Y/%m/%d')}"
 
 
-def _profit_loss_counts(daily_pnl_total: pd.Series | None) -> tuple[int | None, int | None]:
-    if daily_pnl_total is None or daily_pnl_total.empty:
-        return None, None
-    pnl = daily_pnl_total.dropna()
-    return int((pnl > 0).sum()), int((pnl < 0).sum())
-
-
-def _profit_loss_ratio(daily_pnl_total: pd.Series | None) -> float | None:
-    if daily_pnl_total is None or daily_pnl_total.empty:
-        return None
-    pnl = daily_pnl_total.dropna()
-    gains = pnl[pnl > 0]
-    losses = pnl[pnl < 0].abs()
-    if gains.empty or losses.empty or losses.mean() == 0:
-        return None
-    return float(gains.mean() / losses.mean())
-
-
 def build_metrics(analyst: Any, bt: Any) -> list[dict[str, Any]]:
+    del bt
     summary = analyst.an.summary() if analyst is not None else {}
-    nav = getattr(bt, "nav", None)
-    returns = nav.pct_change().dropna() if nav is not None and len(nav) else None
-    daily_pnl_total = getattr(bt, "daily_pnl_total", None)
-    wins, losses = _profit_loss_counts(daily_pnl_total)
-    values = {
-        "策略收益": summary.get("累计收益"),
-        "策略年化收益": summary.get("年化收益"),
-        "超额收益": summary.get("超额收益"),
-        "基准收益": summary.get("基准收益"),
-        "阿尔法": summary.get("Alpha"),
-        "贝塔": summary.get("Beta"),
-        "夏普比率": summary.get("夏普比率"),
-        "胜率": (returns > 0).mean() if returns is not None and len(returns) else None,
-        "盈亏比": _profit_loss_ratio(daily_pnl_total),
-        "最大回撤": summary.get("最大回撤"),
-        "索提诺比率": summary.get("索提诺比率"),
-        "日均超额收益": summary.get("日均超额收益"),
-        "超额收益最大回撤": summary.get("超额收益最大回撤"),
-        "超额收益夏普比率": summary.get("超额收益夏普比率"),
-        "日胜率": (returns > 0).mean() if returns is not None and len(returns) else None,
-        "盈利次数": wins,
-        "亏损次数": losses,
-        "信息比率": summary.get("信息比率"),
-        "策略波动率": summary.get("年化波动率"),
-        "基准波动率": summary.get("基准波动率"),
-        "最大回撤区间": _drawdown_interval(nav),
-    }
+    values = [
+        ("raw", "策略收益", summary.get("累计收益")),
+        ("raw", "策略年化收益", summary.get("年化收益")),
+        ("raw", "策略波动率", summary.get("年化波动率")),
+        ("raw", "最大回撤", summary.get("最大回撤")),
+        ("raw", "夏普比率", summary.get("夏普比率")),
+        ("raw", "索提诺比率", summary.get("索提诺比率")),
+        ("raw", "卡玛比率", summary.get("卡玛比率")),
+        ("raw", "日胜率", summary.get("日胜率")),
+        ("raw", "盈利次数", summary.get("盈利次数")),
+        ("raw", "亏损次数", summary.get("亏损次数")),
+        ("raw", "盈亏比", summary.get("盈亏比")),
+        ("raw", "IC", summary.get("IC均值")),
+        ("raw", "ICIR", summary.get("ICIR")),
+        ("raw", "IC胜率", summary.get("IC胜率")),
+        ("raw", "最大回撤区间", summary.get("最大回撤区间")),
+        ("excess", "基准收益", summary.get("基准收益")),
+        ("excess", "基准年化收益", summary.get("基准年化收益")),
+        ("excess", "基准波动率", summary.get("基准波动率")),
+        ("excess", "超额收益", summary.get("超额收益")),
+        ("excess", "超额年化收益", summary.get("超额年化收益")),
+        ("excess", "超额波动率", summary.get("超额波动率")),
+        ("excess", "超额最大回撤", summary.get("超额最大回撤")),
+        ("excess", "超额夏普比率", summary.get("超额夏普比率")),
+        ("excess", "超额卡玛比率", summary.get("超额卡玛比率")),
+        ("excess", "贝塔", summary.get("Beta")),
+        ("excess", "阿尔法", summary.get("Alpha")),
+        ("excess", "跟踪误差", summary.get("跟踪误差")),
+        ("excess", "信息比率", summary.get("信息比率")),
+        ("excess", "相对基准胜率", summary.get("相对基准胜率")),
+    ]
     return [
         {
             "label": key,
             "value": _clean_scalar(value),
             "format": "percent" if key in PERCENT_METRICS else "number",
+            "group": group,
         }
-        for key, value in values.items()
+        for group, key, value in values
     ]
 
 
@@ -415,6 +433,7 @@ def build_position_table(bt: Any) -> list[dict[str, Any]]:
 
     frames = [x for x in (position, position_value, daily_pnl) if x is not None and not x.empty]
     codes = sorted({str(c) for frame in frames for c in frame.columns})
+    name_map = _name_map_for_codes(codes)
     dates = sorted({pd.Timestamp(idx) for frame in frames for idx in frame.index})
     records: list[dict[str, Any]] = []
     for dt in dates:
@@ -435,7 +454,7 @@ def build_position_table(bt: Any) -> list[dict[str, Any]]:
             records.append(
                 {
                     "date": date_key,
-                    "品种": _label_code(code),
+                    "品种": _label_code(code, name_map),
                     "代码": code,
                     "多空": "现金" if code == "cash" else ("多" if (qty or 0) >= 0 else "空"),
                     "数量": qty,
@@ -464,10 +483,12 @@ def _lookup(df: pd.DataFrame | None, dt: pd.Timestamp, code: str) -> float | Non
 
 def build_downloads(factor_dir: Path, name: str) -> dict[str, dict[str, Any]]:
     candidates = {
+        "config": factor_dir / "run_config.yaml",
         "dump": factor_dir / f"{name}_dump.xlsx",
         "report": factor_dir / f"{name}_report.xlsx",
         "html": factor_dir / f"{name}_report.html",
         "profiling": factor_dir / f"{name}_profiling.xlsx",
+        "profiling_png": factor_dir / f"{name}_profiling.png",
     }
     return {
         kind: {"path": str(path), "exists": path.exists()}

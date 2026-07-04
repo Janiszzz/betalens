@@ -123,6 +123,7 @@ class LiqDemandPipeline(FactorPipeline):
             universe: list | None = None,
             n_quantiles: int = 20,
             initial_amount: float = 1e8,
+            benchmark_code: str | None = None,
             output_dir: str = ".",
             extra_inputs: dict[str, pd.DataFrame] | None = None,
             include_profiling: bool = True,
@@ -222,6 +223,8 @@ class LiqDemandPipeline(FactorPipeline):
         weights = get_single_factor_weight(labeled, {
             'factor_key': sp.name, 'mode': sp.weight_mode,
             'long': long_groups, 'short': short_groups,
+            'group_weights': sp.group_weights,
+            'intra_group_allocation': sp.intra_group_allocation,
         })
         pit_validation = validate_weights_in_pit_universe(weights, pit_universe)
         if verbose and pit_universe is not None and not pit_validation.empty:
@@ -248,7 +251,13 @@ class LiqDemandPipeline(FactorPipeline):
                           amount=initial_amount, time_tolerance=24 * 11)
 
         # 8. 绩效评价
-        analyst = Analyst.from_backtest(bt, name=sp.name)
+        analyst = Analyst.from_backtest(
+            bt,
+            name=sp.name,
+            benchmark_code=benchmark_code,
+            benchmark_metric=sp.backtest_metric,
+            factor_values=factor_values,
+        )
         summary = analyst.report(
             to_excel=f"{output_dir}/{sp.name}_report.xlsx",
             to_html=f"{output_dir}/{sp.name}_report.html",

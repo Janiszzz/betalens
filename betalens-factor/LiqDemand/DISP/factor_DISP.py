@@ -1,68 +1,142 @@
 #%%
-"""DISP —— dispensability（可处置性）因子，复现 SSRN 6909918 公式 (4)
+"""DISP dispensability factor."""
+from __future__ import annotations
 
-公式: δ_{i,m} = − z_m( P_{i,m} / max_{s∈过去252日} P_{i,s} )
-      本脚本算 raw = −( P / rolling(252).max(P) )，截面 zscore 由分组前流程统一处理。
-
-逻辑: P / 52周最高收盘价 ∈ (0,1]，贴近 1=接近高点。取负后，
-      离高点越远（越"可处置"）因子值越高。论文发现这类股票在月末筹现金窗口
-      被优先抛售而跑输 → 方向 negative（做空高分组=可处置股，做多低分组）。
-
-输入: 后复权收盘价（rolling(252).max 需后复权，否则除权除息污染历史最高价）。
-
-回测: 通过 LiqDemandPipeline 叠加 PreTOM 择时 —— 仅在每月 [τ−9, τ−4] 六个
-      交易日持仓，其余空仓（论文核心日历创新）。warmup_days 提前取数预热 rolling(252)。
-
-本脚本设置：
-    股票池   中证800（000906.SH），逐信号日 point-in-time 取成分股，时变
-    中性化   不做（论文用横截面 zscore，由分组前 single_characteristic 处理）
-"""
-import sys
+import argparse
+import dataclasses
 import logging
+import sys
 from pathlib import Path
+from typing import Mapping, Any
 
-import numpy as np  # noqa: F401  供 compute 内使用
-
-# 压制 point-in-time 成分股查询的逐日 INFO 日志
 logging.getLogger("IndexUniverseQuery").setLevel(logging.WARNING)
 
-_CLASS_DIR = Path(__file__).resolve().parent.parent   # LiqDemand/
-sys.path.insert(0, str(_CLASS_DIR))
+_FACTOR_DIR = Path(__file__).resolve().parent
+_CLASS_DIR = _FACTOR_DIR.parent
+_FACTOR_ROOT = _CLASS_DIR.parent
+_REPO_ROOT = _FACTOR_ROOT.parent
+for _path in (_REPO_ROOT, _CLASS_DIR, _FACTOR_DIR):
+    if str(_path) not in sys.path:
+        sys.path.insert(0, str(_path))
+
+from betalens.factor.config import (  # noqa: E402
+    factor_spec_options,
+    load_yaml_config,
+    run_parameters,
+    section,
+)
 from factor_template_liqdemand import (  # noqa: E402
-    FactorSpec, FactorPipeline, LiqDemandPipeline, clean_inf,
+    FactorSpec,
+    LiqDemandPipeline,
+    clean_inf,
+    get_pretom_dates,
 )
 
-# Dashboard 约定读取模块内 FactorPipeline；LiqDemand 类需要使用专用管线。
+
 FactorPipeline = LiqDemandPipeline
+_CONFIG_FILE = _FACTOR_DIR / "factor_DISP.yaml"
+_REQUIRED_SECTIONS = ("meta", "factor_spec", "weight", "run")
 
 
-def compute_disp(close_wide, window=252):
-    """δ_raw = −( P / 过去 window 日最高收盘价 )。
+def load_config(path: str | Path = _CONFIG_FILE) -> dict:
+    return load_yaml_config(path, required_sections=_REQUIRED_SECTIONS)
 
-    min_periods=120：至少半年历史才出值，预热期不足的早期截面自然为 NaN。
-    """
-    ratio = close_wide / close_wide.rolling(window, min_periods=120).max()
+
+def compute_disp(close_wide, window):
+    min_periods = max(20, int(window) // 2)
+    ratio = close_wide / close_wide.rolling(int(window), min_periods=min_periods).max()
     return clean_inf(-ratio)
 
 
-spec = FactorSpec(
-    name="DISP",
-    inputs={"close_wide": "收盘价(元)"},
-    compute=compute_disp,
-    direction="positive",            # 可处置（高因子值）股做空，论文称月末跑输
-    compute_kwargs={"window": 252},  # 52 周 ≈ 252 交易日
-    index_code="000906.SH",          # 中证800，时变成分股
-    backtest_metric="收盘价(元)",
-)
+def build_spec(config: dict, config_path: str | Path = _CONFIG_FILE) -> FactorSpec:
+    options = factor_spec_options(config, config_path)
+    return FactorSpec(
+        name=str(section(config, "meta")["name"]),
+        compute=compute_disp,
+        **options,
+    )
+
+
+spec = build_spec(load_config())
+
+
+def _require_param(params: Mapping[str, Any], key: str) -> Any:
+    if key not in params:
+        raise KeyError(f"mining params missing required key: {key}")
+    return params[key]
+
+
+def make_mining_spec(params):
+    window = int(_require_param(params, "window"))
+    return dataclasses.replace(
+        spec,
+        compute_kwargs={"window": window},
+    )
+
+
+def mining_gid(params):
+    window = int(_require_param(params, "window"))
+    pretom = _require_param(params, "pretom")
+    pretom_only = bool(_require_param(params, "pretom_only"))
+    n_quantiles = int(_require_param(params, "n_quantiles"))
+    timing = "PT" if pretom_only else "DLY"
+    return f"w{window}_p{int(pretom[0])}-{int(pretom[1])}_{timing}_q{n_quantiles}"
+
+
+def mining_warmup_days(params):
+    window = int(_require_param(params, "window"))
+    return int(window * 1.5) + 60
+
+
+def mining_weight_hook(weights, task):
+    params = task["params"]
+    if not bool(_require_param(params, "pretom_only")):
+        return weights
+    pretom = _require_param(params, "pretom")
+    dates = get_pretom_dates(
+        task["win_start"],
+        task["win_end"],
+        lo=int(pretom[0]),
+        hi=int(pretom[1]),
+    )
+    keep = [ts.date() in dates for ts in weights.index]
+    return weights.loc[keep]
+
+
+def mining_valid_report(params, rank, output_dir, start_date, end_date):
+    mining_spec = dataclasses.replace(make_mining_spec(params), name=f"DISP_valid{rank}")
+    pretom = _require_param(params, "pretom")
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
+    LiqDemandPipeline(mining_spec).run(
+        start_date,
+        end_date,
+        warmup_days=mining_warmup_days(params),
+        pretom_only=bool(_require_param(params, "pretom_only")),
+        pretom_lo=int(pretom[0]),
+        pretom_hi=int(pretom[1]),
+        n_quantiles=int(_require_param(params, "n_quantiles")),
+        output_dir=output_dir,
+        include_profiling=False,
+        dump_excel=False,
+        verbose=False,
+    )
+
+
+def run_from_config(config_path: str | Path = _CONFIG_FILE):
+    config = load_config(config_path)
+    kwargs = run_parameters(config, config_path)
+    start_date = kwargs.pop("start_date")
+    end_date = kwargs.pop("end_date")
+    Path(kwargs["output_dir"]).mkdir(parents=True, exist_ok=True)
+    return LiqDemandPipeline(build_spec(config, config_path)).run(start_date, end_date, **kwargs)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Run DISP from its YAML parameter file.")
+    parser.add_argument("--config", default=str(_CONFIG_FILE), help="YAML parameter file")
+    args = parser.parse_args()
+    run_from_config(args.config)
 
 
 if __name__ == "__main__":
-    out = str(Path(__file__).resolve().parent)
-    # PreTOM 择时版（论文核心）：仅月末前 [τ−9, τ−4] 六交易日持仓
-    LiqDemandPipeline(spec).run(
-        "2024-01-01", "2025-12-31",
-        warmup_days=400,      # 预热 rolling(252)：取数提前约 1.1 年
-        pretom_only=False,     # 改 False 即退化为普通日频多空（对照组）
-        n_quantiles=20,
-        output_dir=out,
-    )
+    main()

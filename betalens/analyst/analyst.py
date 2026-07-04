@@ -19,6 +19,61 @@ from . import plotting as P
 from .naming import get_name_map, label
 
 
+def _drawdown_interval(nav: pd.Series) -> str | None:
+    if nav is None or nav.empty:
+        return None
+    nav = nav.sort_index()
+    dd = M._drawdown_series(nav)
+    if dd.empty:
+        return None
+    trough = dd.idxmax()
+    start = nav.loc[:trough].idxmax()
+    return f"{pd.Timestamp(start).strftime('%Y/%m/%d')},{pd.Timestamp(trough).strftime('%Y/%m/%d')}"
+
+
+def _load_benchmark_nav_from_code(
+    benchmark_code: str,
+    start_date,
+    end_date,
+    metric: str,
+    table_names: tuple[str, ...] | list[str] | None = None,
+) -> pd.Series | None:
+    code = str(benchmark_code or '').strip()
+    if not code:
+        return None
+    tables = tuple(table_names or ('daily_index', 'daily_market', 'daily_fund', 'daily_bond'))
+    from betalens.datafeed import Datafeed
+
+    for table_name in tables:
+        db = None
+        try:
+            db = Datafeed(table_name)
+            data = db.query_time_range(
+                codes=[code],
+                start_date=pd.Timestamp(start_date).strftime('%Y-%m-%d'),
+                end_date=pd.Timestamp(end_date).strftime('%Y-%m-%d'),
+                metric=metric,
+            )
+        except Exception:
+            continue
+        finally:
+            if db is not None:
+                db.close()
+        if data is None or data.empty or 'datetime' not in data.columns:
+            continue
+        value_col = 'value' if 'value' in data.columns else metric
+        if value_col not in data.columns:
+            continue
+        prices = data.set_index('datetime')[value_col].sort_index()
+        prices.index = pd.to_datetime(prices.index, errors='coerce').normalize()
+        prices = pd.to_numeric(prices, errors='coerce').dropna()
+        prices = prices.groupby(level=0).last()
+        if prices.empty:
+            continue
+        return prices / prices.iloc[0]
+    return None
+
+
 class PortfolioAnalyzer:
     """
     投资组合分析器。
@@ -37,7 +92,8 @@ class PortfolioAnalyzer:
 
     def __init__(self, nav_series, risk_free_rate=0.0, annualizer=252, window=30,
                  weight=None, daily_position_value=None, daily_pnl=None,
-                 rebalance_log=None, benchmark=None):
+                 rebalance_log=None, benchmark=None, cost_price=None,
+                 factor_values=None):
         self.nav = nav_series.sort_index()
         self.returns = self.nav.pct_change().dropna()
         self.risk_free_rate = risk_free_rate
@@ -48,12 +104,23 @@ class PortfolioAnalyzer:
         self.daily_position_value = daily_position_value
         self.daily_pnl = daily_pnl
         self.rebalance_log = rebalance_log
+        self.cost_price = cost_price
+        self.factor_values = factor_values
 
         self.benchmark = None
         self.bench_returns = None
         if benchmark is not None:
             self.benchmark = benchmark.sort_index().reindex(self.nav.index).ffill()
             self.bench_returns = self.benchmark.pct_change().dropna()
+
+        self.ic_series = None
+        if factor_values is not None and cost_price is not None:
+            try:
+                from betalens.factor.stats import calc_ic_from_factor_values
+
+                self.ic_series = calc_ic_from_factor_values(factor_values, cost_price)
+            except Exception:
+                self.ic_series = None
 
     # ── 兼容旧接口的核心指标（委托 metrics）────────────────────────────────
 
@@ -94,6 +161,7 @@ class PortfolioAnalyzer:
             '夏普比率': M.sharpe_ratio(ret, rf, ann),
             '索提诺比率': M.sortino_ratio(ret, rf, ann),
             '最大回撤': M.max_drawdown(nav),
+            '最大回撤区间': _drawdown_interval(nav),
             '卡玛比率': M.calmar_ratio(nav, ann),
             '溃疡指数': M.ulcer_index(nav),
             'Martin比率': M.martin_ratio(nav, rf, ann),
@@ -105,7 +173,25 @@ class PortfolioAnalyzer:
             'CVaR(95%)': M.conditional_var(ret, 0.05),
             '偏度': M.skewness(ret),
             '峰度': M.kurtosis(ret),
+            '日胜率': (ret > 0).mean() if len(ret) else np.nan,
         }
+        if self.daily_pnl is not None and not self.daily_pnl.empty:
+            daily_pnl_total = self.daily_pnl.sum(axis=1)
+            wins, losses = M.profit_loss_counts(daily_pnl_total)
+            out.update({
+                '盈利次数': wins,
+                '亏损次数': losses,
+                '盈亏比': M.profit_loss_ratio(daily_pnl_total),
+            })
+        if self.ic_series is not None and len(self.ic_series.dropna()):
+            from betalens.factor.stats import summarize_ic
+
+            ic = summarize_ic(self.ic_series)
+            out.update({
+                'IC均值': ic.get('IC均值'),
+                'ICIR': ic.get('ICIR'),
+                'IC胜率': ic.get('胜率(IC>0)'),
+            })
         # 交易 / 持仓类（需 weight）
         if self.weight is not None:
             to = M.turnover(self.weight, ann)
@@ -121,7 +207,18 @@ class PortfolioAnalyzer:
         # 基准相对类
         if self.bench_returns is not None:
             br = self.bench_returns.reindex(ret.index)
+            bench_nav = self.benchmark.dropna() if self.benchmark is not None else pd.Series(dtype=float)
+            excess = M.excess_nav(ret, br)
             out.update({
+                '基准收益': M.total_return(bench_nav) if len(bench_nav) else np.nan,
+                '基准年化收益': M.annualized_return(bench_nav, ann) if len(bench_nav) else np.nan,
+                '基准波动率': M.annualized_volatility(br.dropna(), ann),
+                '超额收益': M.total_return(excess) if len(excess) else np.nan,
+                '超额年化收益': M.annualized_return(excess, ann) if len(excess) else np.nan,
+                '超额波动率': M.annualized_volatility((ret - br).dropna(), ann),
+                '超额最大回撤': M.max_drawdown(excess) if len(excess) else np.nan,
+                '超额夏普比率': M.sharpe_ratio((ret - br).dropna(), rf, ann),
+                '超额卡玛比率': M.calmar_ratio(excess, ann) if len(excess) else np.nan,
                 'Beta': M.beta(ret, br),
                 'Alpha': M.alpha(ret, br, rf, ann),
                 '跟踪误差': M.tracking_error(ret, br, ann),
@@ -134,13 +231,18 @@ class PortfolioAnalyzer:
         """按类别分组的指标 dict（用于分块展示）"""
         s = self.summary()
         groups = {
-            '收益': ['累计收益', '年化收益', '年化波动率', '夏普比率', '索提诺比率'],
-            '回撤': ['最大回撤', '卡玛比率', '溃疡指数', 'Martin比率', '痛苦指数',
+            '收益': ['累计收益', '年化收益', '年化波动率', '夏普比率', '索提诺比率',
+                   '日胜率', '盈利次数', '亏损次数', '盈亏比'],
+            '回撤': ['最大回撤', '最大回撤区间', '卡玛比率', '溃疡指数', 'Martin比率', '痛苦指数',
                      '痛苦比率', '最长回撤期(日)'],
             '风险分布': ['下行偏差', 'VaR(95%)', 'CVaR(95%)', '偏度', '峰度'],
+            '因子有效性': ['IC均值', 'ICIR', 'IC胜率'],
             '交易持仓': ['单边换手率(年化)', '平均单边换手', '平均持仓数',
                          '平均持仓寿命(期)', '权重HHI(均值)', '前5集中度(均值)'],
-            '基准相对': ['Beta', 'Alpha', '跟踪误差', '信息比率', '相对基准胜率'],
+            '基准相对': ['基准收益', '基准年化收益', '基准波动率', '超额收益',
+                     '超额年化收益', '超额波动率', '超额最大回撤', '超额夏普比率',
+                     '超额卡玛比率', 'Beta', 'Alpha', '跟踪误差', '信息比率',
+                     '相对基准胜率'],
         }
         return {g: {k: s[k] for k in keys if k in s}
                 for g, keys in groups.items()}
@@ -166,7 +268,9 @@ def _fmt_pct(v):
 # 这些 key 用百分比展示
 _PCT_KEYS = {'累计收益', '年化收益', '年化波动率', '最大回撤', '痛苦指数',
              '下行偏差', 'VaR(95%)', 'CVaR(95%)', '单边换手率(年化)', '平均单边换手',
-             'Alpha', '跟踪误差', '相对基准胜率', '前5集中度(均值)'}
+             'Alpha', '跟踪误差', '相对基准胜率', '前5集中度(均值)', '日胜率',
+             '基准收益', '基准年化收益', '基准波动率', '超额收益', '超额年化收益',
+             '超额波动率', '超额最大回撤', 'IC胜率'}
 
 
 class ReportExporter:
@@ -282,7 +386,9 @@ class Analyst:
 
     @classmethod
     def from_backtest(cls, bt, benchmark=None, risk_free_rate=0.0,
-                      annualizer=252, window=30, name='组合'):
+                      annualizer=252, window=30, name='组合',
+                      benchmark_code=None, benchmark_metric='收盘价(元)',
+                      benchmark_table_names=None, factor_values=None):
         """
         从回测实例构建。自动抽取 nav / actual_weight / daily_position_value /
         daily_pnl / rebalance_log。
@@ -290,11 +396,22 @@ class Analyst:
         Args:
             bt: BacktestBase 实例（须已完成回测，含 nav 等属性）
             benchmark: 基准 nav Series 或另一个 bt 实例
+            benchmark_code: 基准代码；仅在 benchmark 未传入时按代码查库构造基准净值
+            benchmark_metric: 基准价格字段
+            factor_values: 因子长表；用于结合回测价格计算 IC
             name: 组合名称（用于报告标题）
         """
         bench_nav = None
         if benchmark is not None:
             bench_nav = getattr(benchmark, 'nav', benchmark)
+        elif benchmark_code:
+            bench_nav = _load_benchmark_nav_from_code(
+                benchmark_code,
+                bt.nav.index.min(),
+                bt.nav.index.max(),
+                benchmark_metric,
+                benchmark_table_names,
+            )
 
         weight = getattr(bt, 'actual_weight', None)
         if weight is None:
@@ -310,6 +427,8 @@ class Analyst:
             daily_pnl=getattr(bt, 'daily_pnl', None),
             rebalance_log=getattr(bt, 'rebalance_log', None),
             benchmark=bench_nav,
+            cost_price=getattr(bt, 'cost_price', None),
+            factor_values=factor_values,
         )
         return cls(an, name=name)
 
@@ -573,4 +692,3 @@ if __name__ == "__main__":
 
     # 新门面（无持仓数据时仅算 nav 类指标）
     Analyst(analyzer, name='示例组合').print_report()
-

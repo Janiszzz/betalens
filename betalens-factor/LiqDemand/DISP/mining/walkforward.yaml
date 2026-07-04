@@ -1,0 +1,36 @@
+mining:
+  factor_module: factor_DISP
+  spec_factory: make_mining_spec
+  gid_factory: mining_gid
+  weight_hook: mining_weight_hook
+  valid_report_hook: mining_valid_report
+  warmup_days_factory: mining_warmup_days
+  output_dir: outputs/walkforward
+  cache_dir: outputs/walkforward/_cache
+  scale: medium
+  train: ['2010-01-01', '2019-12-31']
+  test: ['2020-01-01', '2022-12-31']
+  valid: ['2023-01-01', '2025-12-31']
+  grid:
+    window: [120, 180, 252, 378, 504]
+    pretom: [[9, 4], [7, 4]]
+    pretom_only: [true, false]
+    n_quantiles: [10, 20]
+  # Rolling window schemes are generated as window_lengths x steps.
+  # Pairs with step > window_length are ignored.
+  train_schemes:
+    window_lengths: [252, 378, 504]
+    steps: [63, 126]
+  test_schemes:
+    window_lengths: [252, 378, 504]
+    steps: [21, 63, 126]
+  objective: sharpe
+  objective_higher_is_better: true
+  candidate_percentile: [0.5, 0.75]
+  report_top_n: 3
+  engine: vector
+  workers: 12
+  rebuild_cache: false
+  max_memory_ratio: 0.5
+  max_warmup_days: 1200
+  max_windows_per_scheme: null

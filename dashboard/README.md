@@ -73,7 +73,7 @@ FastAPI [backend/main.py]  ── CORS 仅放行 5173
 ```
 api.factors()  →  GET /api/factors  →  discover_factors()
 ```
-`discover_factors()`([factors.py:43](backend/factors.py#L43))扫描 `betalens-factor/<class>/spec_<class>.json`,展开每个因子为 `FactorSummary`,用 `@lru_cache` 缓存。
+`discover_factors()`([factors.py](backend/factors.py))扫描 `betalens-factor/<class>/class_<class>.yaml` 与 `<class>/<name>/factor_<name>.yaml`,展开每个因子为 `FactorSummary`,用 `@lru_cache` 缓存。
 
 **② 看因子详情** — 点卡片进详情页
 ```
@@ -85,7 +85,7 @@ api.factor(cls, name)  →  GET /api/factors/{class}/{name}  →  get_factor_det
 ```
 api.startRun(body)  →  POST /api/runs  →  RunManager.create()  →  线程池 _execute()
 ```
-`_execute()`([runs.py:140](backend/runs.py#L140))合并参数进 `factor_spec`(`dataclasses.replace`),把 stdout 重定向到 `LogBuffer`,调用:
+`_execute()`([runs.py](backend/runs.py))把页面参数写入本次运行的 `outputs/runs/<run_id>/run_config.yaml`,再从这份完整 YAML 构造 `factor_spec` 和 `kwargs`,把 stdout 重定向到 `LogBuffer`,调用:
 ```python
 FactorPipeline(factor_spec).run(start, end,
     rebal_freq=..., n_quantiles=..., initial_amount=...,
@@ -143,8 +143,9 @@ FactorPipeline(factor_spec).run(start, end,
 **加一个因子(零改 dashboard 代码)**
 在 [betalens-factor/](../betalens-factor/) 下:
 ```
-<class>/spec_<class>.json          # 声明 class/source/defaults/factors[]
-<class>/<name>/factor_<name>.py    # 暴露模块级 spec 对象
+<class>/class_<class>.yaml         # 类级展示/脚手架信息
+<class>/<name>/factor_<name>.yaml  # 完整运行参数
+<class>/<name>/factor_<name>.py    # 暴露 spec/build_spec/FactorPipeline
 ```
 脚本须能被 `importlib` 独立加载(顶层别依赖未在 `sys.path` 的相对导入)。新增后调 `GET /api/factors?refresh=true` 或重启后端清 `lru_cache`。
 
@@ -152,9 +153,9 @@ FactorPipeline(factor_spec).run(start, end,
 ```
 ParameterPanel 加输入(App.tsx)
   → RunRequest.parameters 透传(schemas.py)
-  → runs._execute 接住:落在 spec_updates 白名单 或 FactorPipeline.run 的 kwargs
+  → runs._execute 写入本次运行 YAML，再由 build_spec/run_parameters 消费
 ```
-白名单当前为 `direction/index_code/use_industry/use_mktcap/industry_scheme/backtest_metric/compute_kwargs`([runs.py:149](backend/runs.py#L149));`rebal_freq/n_quantiles/initial_amount/include_profiling` 走 `kwargs`([runs.py:180](backend/runs.py#L180))。
+运行时不再做多层覆盖；最终口径以 `run_config.yaml` 为唯一参数源。
 
 **加一个 API 端点**
 ```
