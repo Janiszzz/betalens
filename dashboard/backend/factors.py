@@ -15,22 +15,46 @@ from .schemas import FactorDetail, FactorSummary
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FACTOR_ROOT = REPO_ROOT / "betalens-factor"
 _FACTOR_REQUIRED_SECTIONS = ("meta", "factor_spec", "weight", "run")
+_STRATEGY_TYPES = {"cross_sectional", "timing"}
+
+
+def _strategy_type(meta: dict[str, Any]) -> str:
+    value = str(meta.get("strategy_type") or "cross_sectional").strip()
+    return value if value in _STRATEGY_TYPES else "cross_sectional"
+
+
+def _factor_yaml_paths(factor_dir: Path) -> list[Path]:
+    """Return factor YAMLs in a factor directory, canonical file first."""
+    canonical = factor_dir / f"factor_{factor_dir.name}.yaml"
+    paths: list[Path] = []
+    seen: set[Path] = set()
+    if canonical.exists():
+        paths.append(canonical)
+        seen.add(canonical.resolve())
+    for path in sorted(factor_dir.glob("factor_*.yaml")):
+        resolved = path.resolve()
+        if resolved in seen:
+            continue
+        paths.append(path)
+        seen.add(resolved)
+    return paths
 
 
 def _iter_factor_specs(class_dir: Path) -> list[dict[str, Any]]:
-    """扫描类目录下的因子子文件夹，读取各自 factor_{NAME}.yaml。"""
+    """扫描类目录下的因子子文件夹，读取各自 factor_*.yaml。"""
     factors: list[dict[str, Any]] = []
     for factor_dir in sorted(class_dir.iterdir()):
         if not factor_dir.is_dir() or factor_dir.name.startswith((".", "__")):
             continue
-        factor_spec_path = factor_dir / f"factor_{factor_dir.name}.yaml"
-        if not factor_spec_path.exists():
-            continue
-        try:
-            factor_cfg = load_yaml_config(factor_spec_path, required_sections=_FACTOR_REQUIRED_SECTIONS)
-        except Exception:
-            continue
-        factors.append(factor_cfg)
+        for factor_spec_path in _factor_yaml_paths(factor_dir):
+            script_path = factor_spec_path.with_suffix(".py")
+            if not script_path.exists():
+                continue
+            try:
+                factor_cfg = load_yaml_config(factor_spec_path, required_sections=_FACTOR_REQUIRED_SECTIONS)
+            except Exception:
+                continue
+            factors.append(factor_cfg)
     return factors
 
 
@@ -51,10 +75,6 @@ def _iter_specs() -> list[tuple[str, Path, dict[str, Any]]]:
         spec_data["factors"] = _iter_factor_specs(class_dir)
         specs.append((class_dir.name, class_dir, spec_data))
     return specs
-
-
-def _factor_script(class_dir: Path, factor_name: str) -> Path:
-    return class_dir / factor_name / f"factor_{factor_name}.py"
 
 
 def effective_factor_defaults(spec_data: dict[str, Any], factor_cfg: dict[str, Any]) -> dict[str, Any]:
@@ -94,6 +114,7 @@ def discover_factors() -> tuple[FactorSummary, ...]:
                 FactorSummary(
                     factor_class=cls,
                     name=meta.get("name", ""),
+                    strategy_type=_strategy_type(meta),
                     formula=meta.get("formula", ""),
                     logic=meta.get("logic", ""),
                     source=meta.get("source") or source,
@@ -110,14 +131,19 @@ def get_factor_config(factor_class: str, name: str) -> tuple[Path, dict[str, Any
     if not spec_path.exists():
         raise FileNotFoundError(f"Factor class spec not found: {spec_path}")
     spec_data = load_yaml_config(spec_path)
-    factor_spec_path = class_dir / name / f"factor_{name}.yaml"
-    if not factor_spec_path.exists():
-        raise FileNotFoundError(f"Factor spec not found: {factor_spec_path}")
-    factor_cfg = load_yaml_config(factor_spec_path, required_sections=_FACTOR_REQUIRED_SECTIONS)
-    script = _factor_script(class_dir, name)
-    if not script.exists():
-        raise FileNotFoundError(f"Factor script not found: {script}")
-    return script, spec_data, factor_cfg
+    for factor_dir in sorted(class_dir.iterdir()):
+        if not factor_dir.is_dir() or factor_dir.name.startswith((".", "__")):
+            continue
+        for factor_spec_path in _factor_yaml_paths(factor_dir):
+            factor_cfg = load_yaml_config(factor_spec_path, required_sections=_FACTOR_REQUIRED_SECTIONS)
+            meta = section(factor_cfg, "meta")
+            if str(meta.get("name", factor_dir.name)) != name:
+                continue
+            script = factor_spec_path.with_suffix(".py")
+            if not script.exists():
+                raise FileNotFoundError(f"Factor script not found: {script}")
+            return script, spec_data, factor_cfg
+    raise FileNotFoundError(f"Factor spec not found: class={factor_class}, name={name}")
 
 
 def get_factor_detail(factor_class: str, name: str) -> FactorDetail:
@@ -133,6 +159,7 @@ def get_factor_detail(factor_class: str, name: str) -> FactorDetail:
     return FactorDetail(
         factor_class=factor_class,
         name=meta.get("name", name),
+        strategy_type=_strategy_type(meta),
         formula=meta.get("formula", ""),
         logic=meta.get("logic", ""),
         source=meta.get("source") or spec_data.get("source", ""),
@@ -148,11 +175,11 @@ def get_factor_detail(factor_class: str, name: str) -> FactorDetail:
 def load_factor_module(script: Path):
     class_dir = script.parent.parent
     factor_root = class_dir.parent
-    for path in (REPO_ROOT, factor_root, class_dir):
+    for path in (REPO_ROOT, factor_root, class_dir, script.parent):
         path_str = str(path)
         if path_str not in sys.path:
             sys.path.insert(0, path_str)
-    module_name = f"dashboard_factor_{class_dir.name}_{script.parent.name}"
+    module_name = f"dashboard_factor_{class_dir.name}_{script.parent.name}_{script.stem}"
     spec = importlib.util.spec_from_file_location(module_name, script)
     if spec is None or spec.loader is None:
         raise ImportError(f"Cannot load factor module from {script}")

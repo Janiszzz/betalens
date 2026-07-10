@@ -670,38 +670,57 @@ def _run_one_task(task: dict[str, Any]) -> dict[str, Any]:
             ]
 
         factor_wide = spec.compute(**wides, **getattr(spec, "compute_kwargs", {}))
-        prequery = wide_to_prequery(factor_wide, spec.name, signal_dates)
-        prequery = filter_long_by_pit_universe(prequery, _PIT_UNIVERSE)
-        if prequery.empty:
-            out["error"] = "empty prequery"
-            return out
-
+        weight_mode = getattr(spec, "weight_mode", "freeplay")
         universe = _CACHE_DATA.get("universe") or []
-        prequery = _preprocess_if_needed(prequery, spec, signal_dates, universe, fetch_start, end)
-        if prequery.empty:
-            out["error"] = "empty after preprocessing"
-            return out
 
-        n_quantiles_key = task["n_quantiles_param"]
-        if n_quantiles_key not in params:
-            raise KeyError(f"mining params missing required key: {n_quantiles_key}")
-        n_quantiles = int(params[n_quantiles_key])
-        labeled = single_characteristic(prequery, spec.name, {spec.name: n_quantiles})
-        long_groups, short_groups = _resolve_groups(spec, n_quantiles)
-        weights = get_single_factor_weight(labeled, {
-            "factor_key": spec.name,
-            "mode": getattr(spec, "weight_mode", "freeplay"),
-            "long": long_groups,
-            "short": short_groups,
-        })
-        weights.index = weights.index + pd.Timedelta(minutes=10)
+        if weight_mode == "event":
+            if not task.get("weight_hook"):
+                raise ValueError("event weight_mode requires a mining weight_hook")
+            weights = pd.DataFrame(index=pd.DatetimeIndex(signal_dates) + pd.Timedelta(minutes=10))
+        else:
+            prequery = wide_to_prequery(factor_wide, spec.name, signal_dates)
+            prequery = filter_long_by_pit_universe(prequery, _PIT_UNIVERSE)
+            if prequery.empty:
+                out["error"] = "empty prequery"
+                return out
+
+            prequery = _preprocess_if_needed(prequery, spec, signal_dates, universe, fetch_start, end)
+            if prequery.empty:
+                out["error"] = "empty after preprocessing"
+                return out
+
+            n_quantiles_key = task["n_quantiles_param"]
+            if n_quantiles_key not in params:
+                raise KeyError(f"mining params missing required key: {n_quantiles_key}")
+            n_quantiles = int(params[n_quantiles_key])
+            labeled = single_characteristic(prequery, spec.name, {spec.name: n_quantiles})
+            long_groups, short_groups = _resolve_groups(spec, n_quantiles)
+            weights = get_single_factor_weight(labeled, {
+                "factor_key": spec.name,
+                "mode": weight_mode,
+                "long": long_groups,
+                "short": short_groups,
+            })
+            weights.index = weights.index + pd.Timedelta(minutes=10)
 
         if task.get("weight_hook"):
+            hook_task = dict(task)
+            hook_task["context"] = {
+                "factor_wide": factor_wide,
+                "input_wides": wides,
+                "price_wide": _CACHE_DATA["price"],
+                "signal_dates": signal_dates,
+                "fetch_start": fetch_start,
+                "win_start": start,
+                "win_end": end,
+                "spec": spec,
+                "universe": universe,
+            }
             weights = _call_module_function(
                 task["factor_module"],
                 task["weight_hook"],
                 weights,
-                task,
+                hook_task,
             )
         if weights.empty:
             out["error"] = "empty weights"

@@ -25,6 +25,18 @@ PERCENT_METRICS = {
     "基准波动率",
     "阿尔法",
     "跟踪误差",
+    "交易胜率",
+    "平均单笔收益",
+    "平均盈利",
+    "平均亏损",
+    "最大单笔盈利",
+    "最大单笔亏损",
+    "平均仓位",
+    "最大仓位",
+    "开仓占比",
+    "空仓占比",
+    "累计收益",
+    "年化收益",
 }
 
 
@@ -394,6 +406,550 @@ def build_metrics(analyst: Any, bt: Any) -> list[dict[str, Any]]:
     ]
 
 
+def _empty_timing_payload() -> dict[str, Any]:
+    return {
+        "metrics": [],
+        "charts": {
+            "navPrice": [],
+            "position": [],
+            "drawdown": [],
+            "dailyPnl": [],
+            "tradeReturns": [],
+            "predictionScatter": [],
+            "openForwardReturns": [],
+        },
+        "tables": {
+            "tradeSegments": [],
+            "prediction": [],
+        },
+    }
+
+
+def _metric(group: str, label: str, value: Any) -> dict[str, Any]:
+    return {
+        "label": label,
+        "value": _clean_scalar(value),
+        "format": "percent" if label in PERCENT_METRICS else "number",
+        "group": group,
+    }
+
+
+def _finite_float(value: Any) -> float | None:
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
+        return None
+    return out if math.isfinite(out) else None
+
+
+def _numeric_series(series: Any) -> pd.Series:
+    if series is None:
+        return pd.Series(dtype=float)
+    if not isinstance(series, pd.Series):
+        try:
+            series = pd.Series(series)
+        except Exception:
+            return pd.Series(dtype=float)
+    if series.empty:
+        return pd.Series(dtype=float)
+    out = series.copy()
+    idx = pd.to_datetime(out.index, errors="coerce")
+    mask = ~pd.isna(idx)
+    if not mask.any():
+        return pd.Series(dtype=float)
+    out = pd.to_numeric(out.loc[mask], errors="coerce")
+    out.index = pd.DatetimeIndex(idx[mask]).normalize()
+    out = out.replace([np.inf, -np.inf], np.nan).dropna()
+    if out.empty:
+        return pd.Series(dtype=float)
+    return out.groupby(level=0).last().sort_index().astype(float)
+
+
+def _numeric_frame(df: Any) -> pd.DataFrame:
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+        return pd.DataFrame()
+    out = df.copy()
+    idx = pd.to_datetime(out.index, errors="coerce")
+    mask = ~pd.isna(idx)
+    if not mask.any():
+        return pd.DataFrame()
+    out = out.loc[mask]
+    out.index = pd.DatetimeIndex(idx[mask]).normalize()
+    out = out.apply(lambda col: pd.to_numeric(col, errors="coerce"))
+    out = out.replace([np.inf, -np.inf], np.nan)
+    return out.groupby(level=0).last().sort_index()
+
+
+def _timing_weight_frames(bt: Any) -> tuple[pd.DataFrame, pd.Series]:
+    weight = getattr(bt, "actual_weight", None)
+    if weight is None or getattr(weight, "empty", True):
+        weight = getattr(bt, "weight", None)
+
+    w = _numeric_frame(weight)
+    if w.empty:
+        position_value = _numeric_frame(getattr(bt, "daily_position_value", None))
+        if not position_value.empty:
+            daily_amount = _numeric_series(getattr(bt, "daily_amount", None))
+            if daily_amount.empty:
+                daily_amount = position_value.sum(axis=1)
+            denom = daily_amount.reindex(position_value.index).replace(0, np.nan)
+            w = position_value.div(denom, axis=0)
+
+    if w.empty:
+        return pd.DataFrame(), pd.Series(dtype=float)
+
+    stock_cols = [col for col in w.columns if str(col) not in ("cash", "现金")]
+    stock = w[stock_cols].fillna(0.0) if stock_cols else pd.DataFrame(index=w.index)
+    if "cash" in w.columns:
+        cash = pd.to_numeric(w["cash"], errors="coerce").replace([np.inf, -np.inf], np.nan).fillna(0.0)
+    elif "现金" in w.columns:
+        cash = pd.to_numeric(w["现金"], errors="coerce").replace([np.inf, -np.inf], np.nan).fillna(0.0)
+    else:
+        cash = (1.0 - stock.abs().sum(axis=1)).clip(lower=0.0, upper=1.0)
+    cash.index = stock.index if len(stock.index) == len(cash.index) else cash.index
+    return stock, cash.sort_index().astype(float)
+
+
+def _timing_primary_code(stock_weight: pd.DataFrame) -> str | None:
+    if stock_weight is None or stock_weight.empty or not len(stock_weight.columns):
+        return None
+    peak = stock_weight.abs().max(axis=0).sort_values(ascending=False)
+    if peak.empty or not np.isfinite(float(peak.iloc[0])):
+        return str(stock_weight.columns[0])
+    return str(peak.index[0])
+
+
+def _timing_price_series(bt: Any, primary_code: str | None) -> pd.Series:
+    prices = _numeric_frame(getattr(bt, "cost_price", None))
+    if prices.empty:
+        return pd.Series(dtype=float)
+    if primary_code and primary_code in prices.columns:
+        return _numeric_series(prices[primary_code])
+    stock_cols = [col for col in prices.columns if str(col) not in ("cash", "现金")]
+    if not stock_cols:
+        return pd.Series(dtype=float)
+    return _numeric_series(prices[stock_cols[0]])
+
+
+def _timing_nav_price_records(
+    nav: pd.Series,
+    price: pd.Series,
+    position: pd.Series,
+) -> list[dict[str, Any]]:
+    if nav.empty and price.empty and position.empty:
+        return []
+    index = nav.index.union(price.index).union(position.index).sort_values()
+    records: list[dict[str, Any]] = []
+    for dt in index:
+        records.append(
+            {
+                "date": pd.Timestamp(dt).strftime("%Y-%m-%d"),
+                "nav": _clean_scalar(nav.get(dt)),
+                "price": _clean_scalar(price.get(dt)),
+                "position": _clean_scalar(position.get(dt)),
+            }
+        )
+    return records
+
+
+def _timing_position_records(position: pd.Series, cash: pd.Series) -> list[dict[str, Any]]:
+    if position.empty and cash.empty:
+        return []
+    index = position.index.union(cash.index).sort_values()
+    records: list[dict[str, Any]] = []
+    for dt in index:
+        records.append(
+            {
+                "date": pd.Timestamp(dt).strftime("%Y-%m-%d"),
+                "position": _clean_scalar(position.get(dt)),
+                "cash": _clean_scalar(cash.get(dt)),
+            }
+        )
+    return records
+
+
+def _drawdown_from_nav(nav: pd.Series) -> pd.Series:
+    if nav.empty:
+        return pd.Series(dtype=float)
+    peak = nav.cummax().replace(0, np.nan)
+    return ((peak - nav) / peak).replace([np.inf, -np.inf], np.nan).dropna()
+
+
+def _timing_return_series(nav: pd.Series) -> pd.Series:
+    if nav.empty:
+        return pd.Series(dtype=float)
+    return nav.sort_index().pct_change().replace([np.inf, -np.inf], np.nan).fillna(0.0)
+
+
+def _timing_trade_segments(
+    stock_weight: pd.DataFrame,
+    position: pd.Series,
+    returns: pd.Series,
+    daily_pnl: pd.Series,
+    epsilon: float = 1e-8,
+) -> list[dict[str, Any]]:
+    if position.empty:
+        return []
+    pos = position.sort_index().fillna(0.0)
+    net = stock_weight.sum(axis=1).reindex(pos.index).fillna(0.0) if not stock_weight.empty else pos
+    active = pos.abs() > epsilon
+    dates = list(pos.index)
+    records: list[dict[str, Any]] = []
+    start_i: int | None = None
+    start_side = 0
+
+    def side_of(value: float) -> int:
+        if value > epsilon:
+            return 1
+        if value < -epsilon:
+            return -1
+        return 0
+
+    def close_segment(end_i: int) -> None:
+        nonlocal start_i, start_side
+        if start_i is None or end_i < start_i:
+            start_i = None
+            start_side = 0
+            return
+        seg_index = pd.DatetimeIndex(dates[start_i : end_i + 1])
+        seg_returns = returns.reindex(seg_index).fillna(0.0)
+        trade_return = (1.0 + seg_returns).prod() - 1.0 if len(seg_returns) else np.nan
+        pnl_value = daily_pnl.reindex(seg_index).sum() if not daily_pnl.empty else np.nan
+        seg_pos = pos.reindex(seg_index).fillna(0.0)
+        records.append(
+            {
+                "tradeNo": len(records) + 1,
+                "startDate": pd.Timestamp(seg_index[0]).strftime("%Y-%m-%d"),
+                "endDate": pd.Timestamp(seg_index[-1]).strftime("%Y-%m-%d"),
+                "holdingDays": int(len(seg_index)),
+                "side": "long" if start_side >= 0 else "short",
+                "avgPosition": _clean_scalar(seg_pos.mean()),
+                "maxPosition": _clean_scalar(seg_pos.max()),
+                "return": _clean_scalar(trade_return),
+                "pnl": _clean_scalar(pnl_value),
+                "isWin": bool(pd.notna(trade_return) and trade_return > 0),
+            }
+        )
+        start_i = None
+        start_side = 0
+
+    for i, dt in enumerate(dates):
+        is_active = bool(active.iloc[i])
+        side = side_of(float(net.loc[dt]))
+        if is_active and side == 0:
+            side = start_side or 1
+        if is_active and start_i is None:
+            start_i = i
+            start_side = side
+            continue
+        if not is_active and start_i is not None:
+            close_segment(i - 1)
+            continue
+        if is_active and start_i is not None and side != 0 and start_side != 0 and side != start_side:
+            close_segment(i - 1)
+            start_i = i
+            start_side = side
+
+    if start_i is not None:
+        close_segment(len(dates) - 1)
+    return records
+
+
+def _timing_open_forward_returns(nav: pd.Series, position: pd.Series) -> list[dict[str, Any]]:
+    if nav.empty or position.empty:
+        return []
+    pos = position.reindex(nav.index).ffill().fillna(0.0)
+    active = pos.abs() > 1e-8
+    opens = active & ~active.shift(1, fill_value=False)
+    open_locs = [nav.index.get_loc(dt) for dt in nav.index[opens]]
+    records: list[dict[str, Any]] = []
+    for horizon in range(1, 21):
+        values = []
+        for loc in open_locs:
+            end = loc + horizon
+            if end >= len(nav) or nav.iloc[loc] == 0:
+                continue
+            values.append(nav.iloc[end] / nav.iloc[loc] - 1.0)
+        records.append(
+            {
+                "horizon": horizon,
+                "avgReturn": _clean_scalar(float(np.mean(values)) if values else None),
+                "sampleCount": int(len(values)),
+            }
+        )
+    return records
+
+
+def _timing_trade_metrics(segments: list[dict[str, Any]]) -> dict[str, Any]:
+    returns = pd.Series([row.get("return") for row in segments], dtype="float64").dropna()
+    wins = returns[returns > 0]
+    losses = returns[returns <= 0]
+    avg_loss = losses.mean() if len(losses) else np.nan
+    odds = wins.mean() / abs(avg_loss) if len(wins) and len(losses) and avg_loss != 0 else np.nan
+    holding_days = pd.Series([row.get("holdingDays") for row in segments], dtype="float64").dropna()
+    return {
+        "trade_count": int(len(segments)),
+        "win_rate": float((returns > 0).mean()) if len(returns) else np.nan,
+        "odds": odds,
+        "avg_trade_return": returns.mean() if len(returns) else np.nan,
+        "avg_win": wins.mean() if len(wins) else np.nan,
+        "avg_loss": avg_loss,
+        "max_win": returns.max() if len(returns) else np.nan,
+        "max_loss": returns.min() if len(returns) else np.nan,
+        "avg_holding_days": holding_days.mean() if len(holding_days) else np.nan,
+    }
+
+
+def _timing_performance_metrics(nav: pd.Series, returns: pd.Series) -> dict[str, Any]:
+    if nav.empty:
+        return {
+            "total_return": np.nan,
+            "annualized_return": np.nan,
+            "max_drawdown": np.nan,
+            "sharpe": np.nan,
+            "calmar": np.nan,
+            "daily_win_rate": np.nan,
+        }
+    total_return = nav.iloc[-1] / nav.iloc[0] - 1.0 if nav.iloc[0] else np.nan
+    periods = max(len(nav), 1)
+    annualized_return = (1.0 + total_return) ** (252 / periods) - 1.0 if pd.notna(total_return) and total_return > -1 else np.nan
+    dd = _drawdown_from_nav(nav)
+    max_drawdown = dd.max() if len(dd) else np.nan
+    ret = returns.dropna()
+    ret_for_stats = ret.iloc[1:] if len(ret) > 1 else ret
+    sharpe = (
+        ret_for_stats.mean() / ret_for_stats.std() * math.sqrt(252)
+        if len(ret_for_stats) > 1 and ret_for_stats.std() != 0
+        else np.nan
+    )
+    calmar = annualized_return / max_drawdown if pd.notna(max_drawdown) and max_drawdown != 0 else np.nan
+    daily_win_rate = float((ret_for_stats > 0).mean()) if len(ret_for_stats) else np.nan
+    return {
+        "total_return": total_return,
+        "annualized_return": annualized_return,
+        "max_drawdown": max_drawdown,
+        "sharpe": sharpe,
+        "calmar": calmar,
+        "daily_win_rate": daily_win_rate,
+    }
+
+
+def _timing_factor_series(
+    factor_values: pd.DataFrame | None,
+    primary_code: str | None = None,
+) -> pd.Series:
+    factor_df = _normalize_factor_values(factor_values)
+    if factor_df.empty:
+        return pd.Series(dtype=float)
+    if primary_code and primary_code in set(factor_df["code"].astype(str)):
+        factor_df = factor_df[factor_df["code"].astype(str) == primary_code]
+    elif factor_df["code"].nunique() == 1:
+        pass
+    else:
+        return pd.Series(dtype=float)
+
+    factor_df = factor_df.copy()
+    factor_df["factor_value"] = pd.to_numeric(factor_df["factor_value"], errors="coerce")
+    factor_df = factor_df.dropna(subset=["signal_date", "factor_value"])
+    if factor_df.empty:
+        return pd.Series(dtype=float)
+    factor_df["date"] = factor_df["signal_date"].dt.normalize()
+    series = factor_df.groupby("date")["factor_value"].mean().sort_index()
+    series.index = pd.DatetimeIndex(series.index)
+    return series.astype(float)
+
+
+def _forward_returns_from_nav(nav: pd.Series, horizon: int) -> pd.Series:
+    if nav.empty or horizon <= 0:
+        return pd.Series(dtype=float)
+    daily = nav.copy()
+    daily.index = pd.DatetimeIndex(daily.index).normalize()
+    daily = daily.groupby(level=0).last().sort_index()
+    return (daily.shift(-horizon) / daily - 1.0).replace([np.inf, -np.inf], np.nan).dropna()
+
+
+def _rolling_rank_ic(aligned: pd.DataFrame, window: int) -> pd.Series:
+    if len(aligned) < window:
+        return pd.Series(dtype=float)
+    rows: list[tuple[pd.Timestamp, float]] = []
+    for i in range(window - 1, len(aligned)):
+        sub = aligned.iloc[i - window + 1 : i + 1]
+        corr = sub["factor"].rank().corr(sub["fwdReturn"].rank())
+        if pd.notna(corr):
+            rows.append((aligned.index[i], float(corr)))
+    if not rows:
+        return pd.Series(dtype=float)
+    return pd.Series(dict(rows)).sort_index()
+
+
+def _ols_prediction_stats(aligned: pd.DataFrame) -> dict[str, Any]:
+    if len(aligned) < 3:
+        return {"beta": np.nan, "beta_p": np.nan, "r2": np.nan}
+    x = aligned["factor"].astype(float)
+    y = aligned["fwdReturn"].astype(float)
+    x_centered = x - x.mean()
+    denom = float((x_centered ** 2).sum())
+    if denom <= 0:
+        return {"beta": np.nan, "beta_p": np.nan, "r2": np.nan}
+    beta = float((x_centered * (y - y.mean())).sum() / denom)
+    alpha = float(y.mean() - beta * x.mean())
+    fitted = alpha + beta * x
+    resid = y - fitted
+    ss_res = float((resid ** 2).sum())
+    ss_tot = float(((y - y.mean()) ** 2).sum())
+    r2 = 1.0 - ss_res / ss_tot if ss_tot > 0 else np.nan
+    beta_p = np.nan
+    if len(aligned) > 3:
+        try:
+            from scipy import stats as scipy_stats
+
+            sigma2 = ss_res / (len(aligned) - 2)
+            se_beta = math.sqrt(sigma2 / denom) if denom > 0 else np.nan
+            if se_beta and np.isfinite(se_beta) and se_beta > 0:
+                t_stat = beta / se_beta
+                beta_p = float(2 * scipy_stats.t.sf(abs(t_stat), len(aligned) - 2))
+        except Exception:
+            beta_p = np.nan
+    return {"beta": beta, "beta_p": beta_p, "r2": r2}
+
+
+def _timing_prediction_payload(
+    factor_values: pd.DataFrame | None,
+    nav: pd.Series,
+    primary_code: str | None,
+    main_horizon: int = 5,
+) -> dict[str, Any]:
+    factor = _timing_factor_series(factor_values, primary_code)
+    metric_values = {
+        "ic": np.nan,
+        "icir": np.nan,
+        "ic_win_rate": np.nan,
+        "beta": np.nan,
+        "beta_p": np.nan,
+        "r2": np.nan,
+    }
+    charts = {"predictionScatter": [], "prediction": []}
+    if factor.empty or nav.empty:
+        return {"metrics": metric_values, "charts": charts}
+
+    prediction_rows: list[dict[str, Any]] = []
+    main_aligned = pd.DataFrame()
+    for horizon in (1, 3, 5, 10, 20):
+        fwd = _forward_returns_from_nav(nav, horizon)
+        aligned = pd.DataFrame({"factor": factor, "fwdReturn": fwd}).dropna()
+        if horizon == main_horizon:
+            main_aligned = aligned
+        ic = aligned["factor"].rank().corr(aligned["fwdReturn"].rank()) if len(aligned) >= 3 else np.nan
+        prediction_rows.append(
+            {
+                "horizon": horizon,
+                "sampleCount": int(len(aligned)),
+                "avgForwardReturn": _clean_scalar(aligned["fwdReturn"].mean() if len(aligned) else np.nan),
+                "IC": _clean_scalar(ic),
+            }
+        )
+
+    if not main_aligned.empty and len(main_aligned) >= 3:
+        ic = main_aligned["factor"].rank().corr(main_aligned["fwdReturn"].rank())
+        window = min(60, max(5, len(main_aligned) // 3))
+        rolling_ic = _rolling_rank_ic(main_aligned, window)
+        icir = rolling_ic.mean() / rolling_ic.std() if len(rolling_ic) > 1 and rolling_ic.std() != 0 else np.nan
+        ols = _ols_prediction_stats(main_aligned)
+        metric_values.update(
+            {
+                "ic": ic,
+                "icir": icir,
+                "ic_win_rate": float((rolling_ic > 0).mean()) if len(rolling_ic) else np.nan,
+                "beta": ols["beta"],
+                "beta_p": ols["beta_p"],
+                "r2": ols["r2"],
+            }
+        )
+        charts["predictionScatter"] = [
+            {
+                "date": pd.Timestamp(dt).strftime("%Y-%m-%d"),
+                "factor": _clean_scalar(row["factor"]),
+                "fwdReturn": _clean_scalar(row["fwdReturn"]),
+            }
+            for dt, row in main_aligned.iterrows()
+        ]
+
+    charts["prediction"] = prediction_rows
+    return {"metrics": metric_values, "charts": charts}
+
+
+def build_timing_payload(bt: Any, factor_values: pd.DataFrame | None = None) -> dict[str, Any]:
+    payload = _empty_timing_payload()
+    if bt is None:
+        return payload
+
+    nav = _numeric_series(getattr(bt, "nav", None))
+    returns = _timing_return_series(nav)
+    daily_pnl = _numeric_series(getattr(bt, "daily_pnl_total", None))
+    stock_weight, cash = _timing_weight_frames(bt)
+    position = stock_weight.abs().sum(axis=1).sort_index() if not stock_weight.empty else pd.Series(dtype=float)
+    primary_code = _timing_primary_code(stock_weight)
+    price = _timing_price_series(bt, primary_code)
+    drawdown = _drawdown_from_nav(nav)
+    segments = _timing_trade_segments(stock_weight, position, returns, daily_pnl)
+    trade = _timing_trade_metrics(segments)
+    perf = _timing_performance_metrics(nav, returns)
+    active = position.abs() > 1e-8 if not position.empty else pd.Series(dtype=bool)
+    position_change_count = int((position.diff().abs() > 1e-8).sum()) if not position.empty else 0
+    prediction = _timing_prediction_payload(factor_values, nav, primary_code)
+
+    payload["metrics"] = [
+        _metric("trade", "交易次数", trade["trade_count"]),
+        _metric("trade", "交易胜率", trade["win_rate"]),
+        _metric("trade", "赔率", trade["odds"]),
+        _metric("trade", "平均单笔收益", trade["avg_trade_return"]),
+        _metric("trade", "平均盈利", trade["avg_win"]),
+        _metric("trade", "平均亏损", trade["avg_loss"]),
+        _metric("trade", "最大单笔盈利", trade["max_win"]),
+        _metric("trade", "最大单笔亏损", trade["max_loss"]),
+        _metric("position", "平均仓位", position.mean() if not position.empty else np.nan),
+        _metric("position", "最大仓位", position.max() if not position.empty else np.nan),
+        _metric("position", "开仓占比", float(active.mean()) if len(active) else np.nan),
+        _metric("position", "空仓占比", float((~active).mean()) if len(active) else np.nan),
+        _metric("position", "平均持仓天数", trade["avg_holding_days"]),
+        _metric("position", "仓位变化次数", position_change_count),
+        _metric("return", "累计收益", perf["total_return"]),
+        _metric("return", "年化收益", perf["annualized_return"]),
+        _metric("return", "最大回撤", perf["max_drawdown"]),
+        _metric("return", "Sharpe", perf["sharpe"]),
+        _metric("return", "Calmar", perf["calmar"]),
+        _metric("return", "日胜率", perf["daily_win_rate"]),
+        _metric("prediction", "主预测周期 IC", prediction["metrics"]["ic"]),
+        _metric("prediction", "ICIR", prediction["metrics"]["icir"]),
+        _metric("prediction", "IC胜率", prediction["metrics"]["ic_win_rate"]),
+        _metric("prediction", "Beta", prediction["metrics"]["beta"]),
+        _metric("prediction", "Beta-P 值", prediction["metrics"]["beta_p"]),
+        _metric("prediction", "R²", prediction["metrics"]["r2"]),
+    ]
+    payload["charts"] = {
+        "navPrice": _timing_nav_price_records(nav, price, position),
+        "position": _timing_position_records(position, cash),
+        "drawdown": _series_points(drawdown, "drawdown"),
+        "dailyPnl": _series_points(daily_pnl, "pnl"),
+        "tradeReturns": [
+            {
+                "tradeNo": row["tradeNo"],
+                "startDate": row["startDate"],
+                "endDate": row["endDate"],
+                "return": row["return"],
+            }
+            for row in segments
+        ],
+        "predictionScatter": prediction["charts"]["predictionScatter"],
+        "openForwardReturns": _timing_open_forward_returns(nav, position),
+    }
+    payload["tables"] = {
+        "tradeSegments": segments,
+        "prediction": prediction["charts"]["prediction"],
+    }
+    return payload
+
+
 def build_chart_data(bt: Any, factor_values: pd.DataFrame | None = None) -> dict[str, Any]:
     nav = getattr(bt, "nav", None)
     daily_pnl_total = getattr(bt, "daily_pnl_total", None)
@@ -515,6 +1071,7 @@ def build_result_payload(
             "compute_kwargs": run.compute_kwargs,
         },
         "metrics": build_metrics(run.analyst, run.backtest),
+        "timing": build_timing_payload(run.backtest, factor_values),
         "charts": {
             **build_chart_data(run.backtest, factor_values),
             "profiling": profiling,

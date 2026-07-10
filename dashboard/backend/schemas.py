@@ -6,11 +6,13 @@ from pydantic import BaseModel, Field
 
 
 RunStatus = Literal["queued", "running", "completed", "failed"]
+StrategyType = Literal["cross_sectional", "timing"]
 
 
 class FactorSummary(BaseModel):
     factor_class: str
     name: str
+    strategy_type: StrategyType = "cross_sectional"
     formula: str = ""
     logic: str = ""
     source: str = ""

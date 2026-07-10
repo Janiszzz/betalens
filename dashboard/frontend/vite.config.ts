@@ -5,7 +5,12 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const repoRoot = resolve(__dirname, '../..');
-const backendUrl = 'http://127.0.0.1:8000';
+const backendHost = process.env.DASHBOARD_BACKEND_HOST || '127.0.0.1';
+const backendPort = process.env.DASHBOARD_BACKEND_PORT || '8000';
+const backendUrl = process.env.DASHBOARD_BACKEND_URL || `http://${backendHost}:${backendPort}`;
+const backendEndpoint = new URL(backendUrl);
+const backendSpawnHost = backendEndpoint.hostname || backendHost;
+const backendSpawnPort = backendEndpoint.port || backendPort;
 
 const sleep = (ms: number) => new Promise((resolveSleep) => setTimeout(resolveSleep, ms));
 
@@ -34,7 +39,7 @@ function dashboardBackendPlugin() {
       const python = existsSync(venvPython) ? venvPython : 'python';
       child = spawn(
         python,
-        ['-m', 'uvicorn', 'dashboard.backend.main:app', '--host', '127.0.0.1', '--port', '8000'],
+        ['-m', 'uvicorn', 'dashboard.backend.main:app', '--host', backendSpawnHost, '--port', backendSpawnPort],
         { cwd: repoRoot, stdio: 'inherit', windowsHide: true }
       );
       await waitForBackend();

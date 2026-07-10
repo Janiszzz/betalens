@@ -32,6 +32,7 @@ import type {
   Metric,
   RunResult,
   RunState,
+  StrategyType,
   TableMeta,
   TablePage
 } from './types';
@@ -58,6 +59,11 @@ const STATUS_LABELS: Record<string, string> = {
 const WEIGHT_MODE_LABELS: Record<string, string> = {
   freeplay: '自由分组',
   'classic-long-short': '经典多空'
+};
+
+const STRATEGY_LABELS: Record<StrategyType, string> = {
+  cross_sectional: '截面因子',
+  timing: '择时策略'
 };
 
 const EXCESS_METRIC_LABELS = new Set([
@@ -129,6 +135,12 @@ const asNumber = (value: unknown, fallback: number) => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
+const asNullableNumber = (value: unknown) => {
+  if (value === undefined || value === null || value === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
 const formatGroupList = (value: unknown) => {
   if (Array.isArray(value)) return value.join(',');
   if (value === undefined || value === null) return '';
@@ -146,6 +158,37 @@ const formatEventDateLabel = (value: unknown) => {
   if (!text) return '';
   const dateOnly = text.match(/^\d{4}-\d{2}-\d{2}/)?.[0];
   return dateOnly || text;
+};
+
+type PlotRangeBreak = { bounds?: [string, string]; values?: string[] };
+
+const tradingDayRangebreaks = (records: Array<Record<string, unknown>>): PlotRangeBreak[] => {
+  const dates = Array.from(
+    new Set(
+      records
+        .map((row) => formatEventDateLabel(row.date))
+        .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date))
+    )
+  ).sort();
+  if (dates.length < 2) return [{ bounds: ['sat', 'mon'] }];
+
+  const present = new Set(dates);
+  const missingWeekdays: string[] = [];
+  const current = new Date(`${dates[0]}T00:00:00Z`);
+  const end = new Date(`${dates[dates.length - 1]}T00:00:00Z`);
+  while (current <= end) {
+    const text = current.toISOString().slice(0, 10);
+    const weekday = current.getUTCDay();
+    if (weekday !== 0 && weekday !== 6 && !present.has(text)) {
+      missingWeekdays.push(text);
+    }
+    current.setUTCDate(current.getUTCDate() + 1);
+  }
+
+  return [
+    { bounds: ['sat', 'mon'] },
+    ...(missingWeekdays.length ? [{ values: missingWeekdays }] : []),
+  ];
 };
 
 const buildRunParams = (defaults: Record<string, unknown>) => ({
@@ -172,6 +215,7 @@ const buildRunParams = (defaults: Record<string, unknown>) => ({
 
 function App() {
   const [page, setPage] = useState<Page>('home');
+  const [directoryMode, setDirectoryMode] = useState<StrategyType>('cross_sectional');
   const [factors, setFactors] = useState<FactorSummary[]>([]);
   const [selected, setSelected] = useState<FactorSummary | null>(null);
   const [detail, setDetail] = useState<FactorDetail | null>(null);
@@ -179,13 +223,14 @@ function App() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api.factors()
+    api.factors(true)
       .then(setFactors)
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
   }, []);
 
   const openFactor = async (factor: FactorSummary) => {
+    setDirectoryMode(factor.strategy_type || 'cross_sectional');
     setSelected(factor);
     setDetail(null);
     setPage('detail');
@@ -198,20 +243,36 @@ function App() {
     }
   };
 
+  const showDirectory = (strategyType: StrategyType) => {
+    setDirectoryMode(strategyType);
+    setPage('home');
+  };
+  const activeStrategy = page === 'detail' ? (detail || selected)?.strategy_type || directoryMode : directoryMode;
+
   return (
     <div className="app-shell">
       <header className="top-strip">
-        <button className="ghost-button" onClick={() => setPage('home')} title="主页">
+        <button className="ghost-button" onClick={() => showDirectory(directoryMode)} title="主页">
           <Home size={17} />
         </button>
         <div>
           <div className="brand">betalens Dashboard</div>
-          <div className="brand-sub">量化多因子回测控制台</div>
+          <div className="brand-sub">因子与择时回测控制台</div>
         </div>
         <nav className="top-tabs" aria-label="页面切换">
-          <button className={`top-tab ${page === 'home' || page === 'detail' ? 'active' : ''}`} onClick={() => setPage('home')}>
+          <button
+            className={`top-tab ${page !== 'eventstudy' && activeStrategy === 'cross_sectional' ? 'active' : ''}`}
+            onClick={() => showDirectory('cross_sectional')}
+          >
             <BarChart3 size={15} />
-            因子回测
+            截面因子
+          </button>
+          <button
+            className={`top-tab ${page !== 'eventstudy' && activeStrategy === 'timing' ? 'active' : ''}`}
+            onClick={() => showDirectory('timing')}
+          >
+            <TrendingUp size={15} />
+            择时策略
           </button>
           <button className={`top-tab ${page === 'eventstudy' ? 'active' : ''}`} onClick={() => setPage('eventstudy')}>
             <CalendarClock size={15} />
@@ -221,13 +282,13 @@ function App() {
       </header>
       {error && <div className="global-error">{error}</div>}
       {page === 'home' && (
-        <HomePage factors={factors} loading={loading} onOpen={openFactor} />
+        <HomePage factors={factors} loading={loading} strategyType={directoryMode} onOpen={openFactor} />
       )}
       {page === 'detail' && (
         <FactorPage factor={selected} detail={detail} onBack={() => setPage('home')} />
       )}
       {page === 'eventstudy' && (
-        <EventStudyPage onBack={() => setPage('home')} />
+        <EventStudyPage onBack={() => showDirectory(directoryMode)} />
       )}
     </div>
   );
@@ -236,26 +297,39 @@ function App() {
 function HomePage({
   factors,
   loading,
+  strategyType,
   onOpen
 }: {
   factors: FactorSummary[];
   loading: boolean;
+  strategyType: StrategyType;
   onOpen: (factor: FactorSummary) => void;
 }) {
   const [query, setQuery] = useState('');
   const [factorClass, setFactorClass] = useState('全部');
-  const classes = useMemo(() => ['全部', ...Array.from(new Set(factors.map((f) => f.factor_class)))], [factors]);
-  const filtered = factors.filter((factor) => {
+  const scopedFactors = useMemo(
+    () => factors.filter((factor) => (factor.strategy_type || 'cross_sectional') === strategyType),
+    [factors, strategyType]
+  );
+  const classes = useMemo(() => ['全部', ...Array.from(new Set(scopedFactors.map((f) => f.factor_class)))], [scopedFactors]);
+  useEffect(() => {
+    if (!classes.includes(factorClass)) setFactorClass('全部');
+  }, [classes, factorClass]);
+  const filtered = scopedFactors.filter((factor) => {
     const text = `${factor.factor_class} ${factor.name} ${factor.formula} ${factor.logic}`.toLowerCase();
     return (factorClass === '全部' || factor.factor_class === factorClass) && text.includes(query.toLowerCase());
   });
+  const title = STRATEGY_LABELS[strategyType];
+  const subtitle = strategyType === 'timing'
+    ? '展示标记为 timing 的单标的择时策略，结果区聚焦胜率赔率、仓位暴露与预测收益能力。'
+    : '展示默认 cross_sectional 截面因子，沿用现有分组回测和因子诊断。';
 
   return (
     <main className="home-page">
       <section className="home-toolbar">
         <div>
-          <h1>因子回测</h1>
-          <p>从 `betalens-factor` 自动发现因子，按文件夹目录组织展示。</p>
+          <h1>{title}</h1>
+          <p>{subtitle}</p>
         </div>
         <div className="home-filters">
           <div className="search-box">
@@ -272,10 +346,10 @@ function HomePage({
       {loading ? (
         <div className="empty-state">
           <Loader2 className="spin" size={22} />
-          正在扫描因子...
+          正在扫描策略...
         </div>
       ) : (
-        <FactorDirectory factors={filtered} allFactors={factors} onOpen={onOpen} />
+        <FactorDirectory factors={filtered} allFactors={scopedFactors} onOpen={onOpen} />
       )}
     </main>
   );
@@ -344,7 +418,12 @@ function FactorDirectory({
                   <button className="factor-card" key={`${factor.factor_class}/${factor.name}`} onClick={() => onOpen(factor)}>
                     <div className="card-title-row">
                       <span className="class-pill">{factor.factor_class}</span>
-                      <span className="freq-pill">{FREQ_LABELS[asString(factor.defaults.rebal_freq)] || asString(factor.defaults.rebal_freq, 'D')}</span>
+                      <span className="pill-row">
+                        <span className={`strategy-pill ${factor.strategy_type || 'cross_sectional'}`}>
+                          {STRATEGY_LABELS[factor.strategy_type || 'cross_sectional']}
+                        </span>
+                        <span className="freq-pill">{FREQ_LABELS[asString(factor.defaults.rebal_freq)] || asString(factor.defaults.rebal_freq, 'D')}</span>
+                      </span>
                     </div>
                     <h2>{factor.name}</h2>
                     <p className="formula">{factor.formula || '未提供公式'}</p>
@@ -375,6 +454,7 @@ function FactorPage({
   onBack: () => void;
 }) {
   const source = detail || factor;
+  const isTiming = (source?.strategy_type || 'cross_sectional') === 'timing';
   const [params, setParams] = useState<Record<string, unknown>>({});
   const [computeKwargs, setComputeKwargs] = useState<Record<string, unknown>>({});
   const [runId, setRunId] = useState<string | null>(null);
@@ -446,6 +526,8 @@ function FactorPage({
     if (!source) return;
     setError(null);
     if (
+      !isTiming
+      &&
       asString(params.weight_mode, 'freeplay') === 'freeplay'
       && !hasGroupList(params.long_groups)
       && !hasGroupList(params.short_groups)
@@ -500,7 +582,7 @@ function FactorPage({
           <button className="ghost-button" onClick={onBack}>返回</button>
           <div>
             <h1>{source.factor_class}/{source.name}</h1>
-            <p>{source.source}</p>
+            <p>{STRATEGY_LABELS[source.strategy_type || 'cross_sectional']} · {source.source}</p>
           </div>
         </div>
         <div className="run-actions">
@@ -521,7 +603,7 @@ function FactorPage({
         <strong>{asString(params.start_date)} 到 {asString(params.end_date)}</strong>
         <span>￥{Number(params.initial_amount || 0).toLocaleString()}</span>
         <span>{FREQ_LABELS[asString(params.rebal_freq)] || asString(params.rebal_freq)}</span>
-        <span>分组：{WEIGHT_MODE_LABELS[asString(params.weight_mode)] || asString(params.weight_mode, 'freeplay')}</span>
+        <span>{isTiming ? '策略' : '分组'}：{isTiming ? '单标的择时' : WEIGHT_MODE_LABELS[asString(params.weight_mode)] || asString(params.weight_mode, 'freeplay')}</span>
         {asString(params.benchmark_code) ? <span>基准：{asString(params.benchmark_code)}</span> : null}
         <span>状态：{state ? STATUS_LABELS[state.status] : '未运行'}</span>
         {state?.elapsed_seconds ? <span>耗时 {state.elapsed_seconds.toFixed(1)}s</span> : null}
@@ -532,16 +614,24 @@ function FactorPage({
 
       <div className="detail-layout">
         <aside className="side-nav">
-          <NavButton icon={<CircleDollarSign size={18} />} active={activeTab === 'overview'} onClick={() => setActiveTab('overview')}>收益概述</NavButton>
+          <NavButton icon={<CircleDollarSign size={18} />} active={activeTab === 'overview'} onClick={() => setActiveTab('overview')}>
+            {isTiming ? '择时概览' : '收益概述'}
+          </NavButton>
           <NavButton icon={<ClipboardList size={18} />} active={activeTab === 'trades'} onClick={() => setActiveTab('trades')}>交易详情</NavButton>
           <NavButton icon={<BarChart3 size={18} />} active={activeTab === 'positions'} onClick={() => setActiveTab('positions')}>每日持仓&收益</NavButton>
           <NavButton icon={<TerminalSquare size={18} />} active={activeTab === 'logs'} onClick={() => setActiveTab('logs')}>日志输出</NavButton>
           <div className="nav-divider" />
-          <ParameterPanel params={params} computeKwargs={computeKwargs} onParam={updateParam} onCompute={updateCompute} />
+          <ParameterPanel
+            params={params}
+            computeKwargs={computeKwargs}
+            isTiming={isTiming}
+            onParam={updateParam}
+            onCompute={updateCompute}
+          />
         </aside>
 
         <section className="content-panel">
-          {activeTab === 'overview' && <Overview result={result} state={state} />}
+          {activeTab === 'overview' && (isTiming ? <TimingOverview result={result} state={state} /> : <Overview result={result} state={state} />)}
           {activeTab === 'trades' && <Trades runId={runId} result={result} />}
           {activeTab === 'positions' && <Positions runId={runId} result={result} />}
           {activeTab === 'logs' && <Logs logs={logs} state={state} />}
@@ -564,11 +654,13 @@ function NavButton({ icon, active, onClick, children }: { icon: React.ReactNode;
 function ParameterPanel({
   params,
   computeKwargs,
+  isTiming,
   onParam,
   onCompute
 }: {
   params: Record<string, unknown>;
   computeKwargs: Record<string, unknown>;
+  isTiming: boolean;
   onParam: (key: string, value: unknown) => void;
   onCompute: (key: string, value: unknown) => void;
 }) {
@@ -587,42 +679,50 @@ function ParameterPanel({
           <option value="QE">季末</option>
         </select>
       </label>
-      <LabeledInput label="分组数" type="number" value={asString(params.n_quantiles)} onChange={(v) => onParam('n_quantiles', Number(v))} />
-      <h3><ListFilter size={16} />分组模式</h3>
-      <label className="field">
-        模式
-        <select value={asString(params.weight_mode, 'freeplay')} onChange={(event) => onParam('weight_mode', event.target.value)}>
-          <option value="freeplay">自由分组</option>
-          <option value="classic-long-short">经典多空</option>
-        </select>
-      </label>
-      {asString(params.weight_mode, 'freeplay') === 'freeplay' ? (
+      {!isTiming ? (
         <>
-          <LabeledInput
-            label="做多分组"
-            value={formatGroupList(params.long_groups)}
-            placeholder="留空=无做多，如 19"
-            onChange={(v) => onParam('long_groups', v)}
-          />
-          <LabeledInput
-            label="做空分组"
-            value={formatGroupList(params.short_groups)}
-            placeholder="留空=无做空，如 0,1"
-            onChange={(v) => onParam('short_groups', v)}
-          />
+          <LabeledInput label="分组数" type="number" value={asString(params.n_quantiles)} onChange={(v) => onParam('n_quantiles', Number(v))} />
+          <h3><ListFilter size={16} />分组模式</h3>
+          <label className="field">
+            模式
+            <select value={asString(params.weight_mode, 'freeplay')} onChange={(event) => onParam('weight_mode', event.target.value)}>
+              <option value="freeplay">自由分组</option>
+              <option value="classic-long-short">经典多空</option>
+            </select>
+          </label>
+          {asString(params.weight_mode, 'freeplay') === 'freeplay' ? (
+            <>
+              <LabeledInput
+                label="做多分组"
+                value={formatGroupList(params.long_groups)}
+                placeholder="留空=无做多，如 19"
+                onChange={(v) => onParam('long_groups', v)}
+              />
+              <LabeledInput
+                label="做空分组"
+                value={formatGroupList(params.short_groups)}
+                placeholder="留空=无做空，如 0,1"
+                onChange={(v) => onParam('short_groups', v)}
+              />
+            </>
+          ) : null}
+          <LabeledInput label="指数代码" value={asString(params.index_code)} onChange={(v) => onParam('index_code', v)} />
         </>
       ) : null}
-      <LabeledInput label="指数代码" value={asString(params.index_code)} onChange={(v) => onParam('index_code', v)} />
       <LabeledInput label="基准代码" value={asString(params.benchmark_code)} onChange={(v) => onParam('benchmark_code', v)} />
       <LabeledInput label="交易价格" value={asString(params.backtest_metric)} onChange={(v) => onParam('backtest_metric', v)} />
       {'warmup_days' in params ? <LabeledInput label="预热天数" type="number" value={asString(params.warmup_days)} onChange={(v) => onParam('warmup_days', Number(v))} /> : null}
       {'pretom_only' in params ? <label className="field inline"><input type="checkbox" checked={Boolean(params.pretom_only)} onChange={(event) => onParam('pretom_only', event.target.checked)} />PreTOM择时</label> : null}
       {'pretom_lo' in params ? <LabeledInput label="PreTOM起点" type="number" value={asString(params.pretom_lo)} onChange={(v) => onParam('pretom_lo', Number(v))} /> : null}
       {'pretom_hi' in params ? <LabeledInput label="PreTOM终点" type="number" value={asString(params.pretom_hi)} onChange={(v) => onParam('pretom_hi', Number(v))} /> : null}
-      <label className="field inline"><input type="checkbox" checked={Boolean(params.use_industry)} onChange={(event) => onParam('use_industry', event.target.checked)} />行业中性化</label>
-      <label className="field inline"><input type="checkbox" checked={Boolean(params.use_mktcap)} onChange={(event) => onParam('use_mktcap', event.target.checked)} />市值中性化</label>
-      <label className="field inline"><input type="checkbox" checked={Boolean(params.include_profiling)} onChange={(event) => onParam('include_profiling', event.target.checked)} />Profiling</label>
-      {Object.keys(computeKwargs).length ? <h3><ListFilter size={16} />算子参数</h3> : null}
+      {!isTiming ? (
+        <>
+          <label className="field inline"><input type="checkbox" checked={Boolean(params.use_industry)} onChange={(event) => onParam('use_industry', event.target.checked)} />行业中性化</label>
+          <label className="field inline"><input type="checkbox" checked={Boolean(params.use_mktcap)} onChange={(event) => onParam('use_mktcap', event.target.checked)} />市值中性化</label>
+          <label className="field inline"><input type="checkbox" checked={Boolean(params.include_profiling)} onChange={(event) => onParam('include_profiling', event.target.checked)} />Profiling</label>
+        </>
+      ) : null}
+      {Object.keys(computeKwargs).length ? <h3><ListFilter size={16} />{isTiming ? '择时参数' : '算子参数'}</h3> : null}
       {Object.entries(computeKwargs).map(([key, value]) => (
         <LabeledInput key={key} label={key} type={typeof value === 'number' ? 'number' : 'text'} value={asString(value)} onChange={(v) => onCompute(key, typeof value === 'number' ? Number(v) : v)} />
       ))}
@@ -1022,6 +1122,8 @@ function MetricsBlock({ title, metrics }: { title: string; metrics: Metric[] }) 
   );
 }
 
+const timingMetrics = (metrics: Metric[], group: string) => metrics.filter((metric) => metric.group === group);
+
 function Overview({ result, state }: { result: RunResult | null; state: RunState | null }) {
   if (!result) return <Waiting state={state} />;
   const nav = result.charts.nav;
@@ -1063,6 +1165,300 @@ function Overview({ result, state }: { result: RunResult | null; state: RunState
       <Downloads result={result} />
     </div>
   );
+}
+
+function TimingOverview({ result, state }: { result: RunResult | null; state: RunState | null }) {
+  if (!result) return <Waiting state={state} />;
+  const timing = result.timing;
+  const metrics = timing?.metrics || [];
+  const navPrice = timing?.charts?.navPrice || [];
+  const position = timing?.charts?.position || [];
+  const drawdown = timing?.charts?.drawdown || [];
+  const dailyPnl = timing?.charts?.dailyPnl || [];
+  const tradeReturns = timing?.charts?.tradeReturns || [];
+  const predictionScatter = timing?.charts?.predictionScatter || [];
+  const openForwardReturns = timing?.charts?.openForwardReturns || [];
+  const tradeRows = formatTimingTradeRows(timing?.tables?.tradeSegments || []);
+  const predictionRows = formatTimingPredictionRows(timing?.tables?.prediction || []);
+  const navPriceLayout = baseLayout('净值 / 标的价格 / 仓位', 390, true);
+  const hasAnyChart = Boolean(
+    navPrice.length
+    || position.length
+    || drawdown.length
+    || dailyPnl.length
+    || tradeReturns.length
+    || predictionScatter.length
+    || openForwardReturns.length
+  );
+
+  return (
+    <div className="view-stack">
+      <div className="section-title">择时策略概览</div>
+      <div className="metric-columns timing-metric-columns">
+        <MetricsBlock title="交易胜率赔率" metrics={timingMetrics(metrics, 'trade')} />
+        <MetricsBlock title="仓位暴露" metrics={timingMetrics(metrics, 'position')} />
+        <MetricsBlock title="收益风险" metrics={timingMetrics(metrics, 'return')} />
+        <MetricsBlock title="预测收益能力" metrics={timingMetrics(metrics, 'prediction')} />
+      </div>
+
+      {navPrice.length ? (
+        <div className="chart-card">
+          <Suspense fallback={<div className="chart-loading"><Loader2 className="spin" size={18} />加载图表...</div>}>
+            <PlotView
+              data={[
+                {
+                  x: navPrice.map((row) => row.date),
+                  y: navPrice.map((row) => asNullableNumber(row.nav)),
+                  type: 'scatter',
+                  mode: 'lines',
+                  name: '策略净值',
+                  line: { color: '#2d66a8', width: 2 },
+                  hovertemplate: '净值 %{y:.4f}<extra></extra>'
+                },
+                {
+                  x: navPrice.map((row) => row.date),
+                  y: navPrice.map((row) => asNullableNumber(row.price)),
+                  type: 'scatter',
+                  mode: 'lines',
+                  name: '标的价格',
+                  yaxis: 'y2',
+                  line: { color: '#6a9f42', width: 1.8 },
+                  hovertemplate: '价格 %{y:.3f}<extra></extra>'
+                },
+                {
+                  x: navPrice.map((row) => row.date),
+                  y: navPrice.map((row) => asNullableNumber(row.position)),
+                  type: 'bar',
+                  name: '仓位',
+                  yaxis: 'y3',
+                  marker: { color: 'rgba(233, 65, 65, 0.18)' },
+                  hovertemplate: '仓位 %{y:.1%}<extra></extra>'
+                }
+              ]}
+              layout={{
+                ...navPriceLayout,
+                xaxis: {
+                  ...navPriceLayout.xaxis,
+                  rangebreaks: tradingDayRangebreaks(navPrice),
+                },
+                yaxis: { gridcolor: '#d8dde3', zerolinecolor: '#87909a', title: { text: '净值' } },
+                yaxis2: { overlaying: 'y', side: 'right', showgrid: false, zeroline: false, title: { text: '价格' } },
+                yaxis3: { overlaying: 'y', side: 'right', anchor: 'free', position: 0.96, range: [0, 1], tickformat: '.0%', showgrid: false, zeroline: false },
+                bargap: 0
+              }}
+              config={{ displayModeBar: false, responsive: true }}
+            />
+          </Suspense>
+        </div>
+      ) : null}
+
+      {position.length ? (
+        <div className="chart-card">
+          <Suspense fallback={<div className="chart-loading"><Loader2 className="spin" size={18} />加载图表...</div>}>
+            <PlotView
+              data={[
+                {
+                  x: position.map((row) => row.date),
+                  y: position.map((row) => asNullableNumber(row.position)),
+                  type: 'scatter',
+                  mode: 'lines',
+                  fill: 'tozeroy',
+                  name: '股票仓位',
+                  line: { color: '#e94141', width: 2 },
+                  hovertemplate: '仓位 %{y:.2%}<extra></extra>'
+                },
+                {
+                  x: position.map((row) => row.date),
+                  y: position.map((row) => asNullableNumber(row.cash)),
+                  type: 'scatter',
+                  mode: 'lines',
+                  name: '现金仓位',
+                  line: { color: '#87909a', width: 1.6, dash: 'dot' },
+                  hovertemplate: '现金 %{y:.2%}<extra></extra>'
+                }
+              ]}
+              layout={{
+                ...baseLayout('仓位时间序列', 280, true),
+                yaxis: { gridcolor: '#d8dde3', zerolinecolor: '#87909a', tickformat: '.0%', range: [0, 1] }
+              }}
+              config={{ displayModeBar: false, responsive: true }}
+            />
+          </Suspense>
+        </div>
+      ) : null}
+
+      {(dailyPnl.length || drawdown.length) ? (
+        <div className="chart-card">
+          <Suspense fallback={<div className="chart-loading"><Loader2 className="spin" size={18} />加载图表...</div>}>
+            <PlotView
+              data={[
+                {
+                  x: dailyPnl.map((row) => row.date),
+                  y: dailyPnl.map((row) => asNullableNumber(row.pnl)),
+                  type: 'bar',
+                  name: '每日盈亏',
+                  marker: { color: dailyPnl.map((row) => asNumber(row.pnl, 0) >= 0 ? '#6a9f42' : '#8061a8') },
+                  hovertemplate: '盈亏 %{y:.2f}<extra></extra>'
+                },
+                {
+                  x: drawdown.map((row) => row.date),
+                  y: drawdown.map((row) => asNullableNumber(row.drawdown)),
+                  type: 'scatter',
+                  mode: 'lines',
+                  name: '回撤',
+                  yaxis: 'y2',
+                  line: { color: '#b94a48', width: 1.8 },
+                  hovertemplate: '回撤 %{y:.2%}<extra></extra>'
+                }
+              ]}
+              layout={{
+                ...baseLayout('每日盈亏 / 回撤', 300, false),
+                yaxis2: { overlaying: 'y', side: 'right', tickformat: '.0%', showgrid: false, zeroline: false }
+              }}
+              config={{ displayModeBar: false, responsive: true }}
+            />
+          </Suspense>
+        </div>
+      ) : null}
+
+      {predictionScatter.length ? (
+        <div className="chart-card">
+          <Suspense fallback={<div className="chart-loading"><Loader2 className="spin" size={18} />加载图表...</div>}>
+            <PlotView
+              data={[
+                {
+                  x: predictionScatter.map((row) => asNullableNumber(row.factor)),
+                  y: predictionScatter.map((row) => asNullableNumber(row.fwdReturn)),
+                  text: predictionScatter.map((row) => asString(row.date)),
+                  type: 'scatter',
+                  mode: 'markers',
+                  name: '信号样本',
+                  marker: { color: '#2d66a8', size: 8, opacity: 0.72 },
+                  hovertemplate: '%{text}<br>因子 %{x:.4f}<br>未来收益 %{y:.2%}<extra></extra>'
+                }
+              ]}
+              layout={{
+                ...baseLayout('因子值与未来收益散点', 320, false),
+                xaxis: { gridcolor: '#d8dde3', title: { text: '因子值' } },
+                yaxis: { gridcolor: '#d8dde3', zerolinecolor: '#87909a', tickformat: '.1%', title: { text: '未来收益' } }
+              }}
+              config={{ displayModeBar: false, responsive: true }}
+            />
+          </Suspense>
+        </div>
+      ) : null}
+
+      {openForwardReturns.length ? (
+        <div className="chart-card">
+          <Suspense fallback={<div className="chart-loading"><Loader2 className="spin" size={18} />加载图表...</div>}>
+            <PlotView
+              data={[
+                {
+                  x: openForwardReturns.map((row) => row.horizon),
+                  y: openForwardReturns.map((row) => asNullableNumber(row.avgReturn)),
+                  type: 'scatter',
+                  mode: 'lines+markers',
+                  name: '平均收益',
+                  line: { color: '#2d66a8', width: 2 },
+                  hovertemplate: 'N=%{x}<br>平均收益 %{y:.2%}<extra></extra>'
+                },
+                {
+                  x: openForwardReturns.map((row) => row.horizon),
+                  y: openForwardReturns.map((row) => asNullableNumber(row.sampleCount)),
+                  type: 'bar',
+                  name: '样本数',
+                  yaxis: 'y2',
+                  marker: { color: 'rgba(135, 144, 154, 0.35)' },
+                  hovertemplate: '样本 %{y}<extra></extra>'
+                }
+              ]}
+              layout={{
+                ...baseLayout('开仓后 N 日平均收益', 300, false),
+                xaxis: { gridcolor: '#d8dde3', title: { text: '开仓后交易日' } },
+                yaxis: { gridcolor: '#d8dde3', zerolinecolor: '#87909a', tickformat: '.1%' },
+                yaxis2: { overlaying: 'y', side: 'right', showgrid: false, zeroline: false, title: { text: '样本数' } }
+              }}
+              config={{ displayModeBar: false, responsive: true }}
+            />
+          </Suspense>
+        </div>
+      ) : null}
+
+      {tradeReturns.length ? (
+        <div className="chart-card">
+          <Suspense fallback={<div className="chart-loading"><Loader2 className="spin" size={18} />加载图表...</div>}>
+            <PlotView
+              data={[
+                {
+                  x: tradeReturns.map((row) => row.tradeNo),
+                  y: tradeReturns.map((row) => asNullableNumber(row.return)),
+                  type: 'bar',
+                  name: '单笔收益',
+                  marker: { color: tradeReturns.map((row) => asNumber(row.return, 0) >= 0 ? '#6a9f42' : '#b94a48') },
+                  customdata: tradeReturns.map((row) => `${row.startDate || ''} 至 ${row.endDate || ''}`),
+                  hovertemplate: '交易 %{x}<br>%{customdata}<br>收益 %{y:.2%}<extra></extra>'
+                }
+              ]}
+              layout={{
+                ...baseLayout('交易盈亏分布', 280, false),
+                xaxis: { gridcolor: '#d8dde3', title: { text: '交易序号' } },
+                yaxis: { gridcolor: '#d8dde3', zerolinecolor: '#87909a', tickformat: '.1%' }
+              }}
+              config={{ displayModeBar: false, responsive: true }}
+            />
+          </Suspense>
+        </div>
+      ) : null}
+
+      {!hasAnyChart ? <div className="table-empty">本次结果没有可展示的择时图表数据</div> : null}
+
+      <div className="table-page">
+        <div className="section-title"><Table2 size={18} />交易段统计</div>
+        <SimpleTable rows={tradeRows} maxHeight={320} />
+      </div>
+      <div className="table-page">
+        <div className="section-title"><TrendingUp size={18} />预测周期评估</div>
+        <SimpleTable rows={predictionRows} maxHeight={260} />
+      </div>
+      <DiagnosticsPanel result={result} />
+      <Downloads result={result} />
+    </div>
+  );
+}
+
+function formatOptionalPercent(value: unknown) {
+  const num = asNullableNumber(value);
+  return num === null ? '-' : formatPercent(num);
+}
+
+function formatOptionalNumber(value: unknown) {
+  const num = asNullableNumber(value);
+  if (num === null) return '-';
+  return Math.abs(num) >= 100 ? num.toFixed(2) : num.toFixed(4);
+}
+
+function formatTimingTradeRows(rows: Array<Record<string, unknown>>) {
+  return rows.map((row) => ({
+    序号: row.tradeNo,
+    开仓日: row.startDate,
+    平仓日: row.endDate,
+    持仓天数: row.holdingDays,
+    方向: row.side === 'short' ? '空' : '多',
+    平均仓位: formatOptionalPercent(row.avgPosition),
+    最大仓位: formatOptionalPercent(row.maxPosition),
+    单笔收益: formatOptionalPercent(row.return),
+    盈亏: formatOptionalNumber(row.pnl),
+    是否盈利: row.isWin ? '是' : '否'
+  }));
+}
+
+function formatTimingPredictionRows(rows: Array<Record<string, unknown>>) {
+  return rows.map((row) => ({
+    预测周期: `${row.horizon ?? '-'} 日`,
+    样本数: row.sampleCount,
+    平均未来收益: formatOptionalPercent(row.avgForwardReturn),
+    IC: formatOptionalNumber(row.IC)
+  }));
 }
 
 function DiagnosticsPanel({ result }: { result: RunResult }) {

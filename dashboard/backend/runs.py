@@ -307,9 +307,11 @@ class RunManager:
     @staticmethod
     def _build_run_config(factor_cfg: dict[str, Any], run: DashboardRun, output_dir: Path) -> dict[str, Any]:
         config = copy.deepcopy(factor_cfg)
+        meta = section(config, "meta")
         factor_spec = section(config, "factor_spec")
         weight = section(config, "weight")
         run_section = section(config, "run")
+        strategy_type = str(meta.get("strategy_type") or "cross_sectional").strip()
 
         for key in (
             "direction",
@@ -342,7 +344,7 @@ class RunManager:
             short_groups = _normalize_group_list(weight.get("short_groups"))
             weight["long_groups"] = long_groups
             weight["short_groups"] = short_groups
-            if not long_groups and not short_groups:
+            if strategy_type != "timing" and not long_groups and not short_groups:
                 raise ValueError("freeplay 模式必须至少设置 long_groups 或 short_groups")
 
         for key in (

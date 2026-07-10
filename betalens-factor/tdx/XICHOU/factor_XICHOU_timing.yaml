@@ -1,0 +1,88 @@
+meta:
+  # 因子类别目录名；Dashboard 用它归类到 betalens-factor/tdx。
+  class: tdx
+  # Dashboard 中显示和运行时输出文件名前缀。
+  name: XICHOU_timing
+  # 策略类型；timing 会进入“择时策略”页面，缺省则按 cross_sectional 处理。
+  strategy_type: timing
+  source: 通达信(TDX)指标公式：侯神吸筹能量
+  formula: 侯神吸筹能量择时
+  logic: 基于 XICHOU 连续触发区间，按历史触发持续天数与触发后创新高等待天数动态生成单标的仓位。
+factor_spec:
+  # 算子输入字段，key 必须匹配 factor_XICHOU_timing.py 中 compute_xichou_timing 的入参。
+  inputs:
+    # XICHOU 原公式使用最低价序列计算吸筹能量。
+    low_wide: 最低价(元)
+    # 用于统计触发区间结束后等待多少交易日再创新高。
+    high_wide: 最高价(元)
+  compute_kwargs:
+    # TDX SMA 平滑窗口；越小越敏感。
+    sma_n: 2
+    # TDX EMA 平滑窗口；越小信号衰减越快。
+    ema_n: 5
+    # 创 N 日新低判断窗口；低价进入 N 日低点时才累积能量。
+    llv_n: 10
+    # 单标的代码；择时策略优先使用这里的股票，留空时可用 run.universe。
+    stock_code: 300750.SZ
+    # 触发阈值；direction=positive 且 trigger_operator=auto 时表示因子值 > 该阈值。
+    trigger_threshold: 0.1
+    # 触发方向：auto 按 direction 自动选择，或显式 gt/lt。
+    trigger_operator: auto
+    # 每次生成仓位时向前参考的历史触发事件数量上限。
+    history_window: 5
+    # 开仓等待天数分位数；历史触发持续天数达到该分位后才开始给仓位。
+    duration_quantile: 0.8
+    # 平仓等待天数分位数；基于历史触发后创新高等待天数估计持仓延续期。
+    exit_wait_quantile: 0.5
+    # 至少积累多少个历史触发事件后才启用动态仓位，避免冷启动过拟合。
+    min_history_events: 3
+    # 缺少有效创新高等待样本时使用的默认持仓延续天数。
+    default_exit_wait_days: 5
+    # 单标的最大目标仓位；1.0 表示最高满仓。
+    max_weight: 1.0
+  # 因子方向；positive 表示因子越高越看多，auto 触发方向也会据此选择 gt。
+  direction: positive
+  # 行情数据表名。
+  table_name: daily_market
+  # 截面股票池索引。择时策略通常用 stock_code，因此这里保持 null。
+  index_code: null
+  # 择时策略不做截面行业中性化。
+  use_industry: false
+  # 择时策略不做截面市值中性化。
+  use_mktcap: false
+  # 仅在 use_industry=true 时生效。
+  industry_scheme: 申万一级行业
+  # 回测成交/估值价格字段。
+  backtest_metric: 收盘价(元)
+weight:
+  # timing 因子在脚本内直接生成目标仓位；这里保留 freeplay 仅为兼容 Dashboard 配置结构。
+  mode: freeplay
+  # timing 不使用截面做多分组。
+  long_groups: null
+  # timing 不使用截面做空分组。
+  short_groups: null
+  # timing 不使用分组权重。
+  group_weights: {}
+  # timing 不使用组内分配。
+  intra_group_allocation: {}
+run:
+  # 回测开始日期。
+  start_date: '2025-01-01'
+  # 回测结束日期。
+  end_date: '2025-12-31'
+  # 调仓频率；D 表示每日根据上一交易日信号更新目标仓位。
+  rebal_freq: D
+  # 兼容通用 pipeline 的字段；timing 脚本会忽略截面分组数。
+  n_quantiles: 10
+  # 初始资金。
+  initial_amount: 100000000
+  # 绩效报告对比基准，可留空。
+  benchmark_code: 000906.SH
+  # timing 页面不依赖截面 factor profiling，默认关闭。
+  include_profiling: false
+  # CLI 运行时是否同步写 BacktestBase dump；Dashboard 会强制改为 false 并异步生成。
+  dump_excel: true
+  # 预热天数；用于提前取数，保证 XICHOU 滚动窗口和历史触发统计有足够样本。
+  warmup_days: 400
+  # 手工 CLI 运行输出目录；Dashboard 运行时会覆盖到 outputs/runs/<run_id>。
+  output_dir: outputs/runs/manual

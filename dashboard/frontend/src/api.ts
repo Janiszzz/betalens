@@ -34,7 +34,7 @@ const json = async <T>(url: string, init?: RequestInit, retries = 6): Promise<T>
 };
 
 export const api = {
-  factors: () => json<FactorSummary[]>('/api/factors'),
+  factors: (refresh = false) => json<FactorSummary[]>(`/api/factors${refresh ? '?refresh=true' : ''}`),
   eventFiles: () => json<EventFilesResponse>('/api/eventstudy/files'),
   runEventStudy: (body: Record<string, unknown>) =>
     json<EventStudyResult>('/api/eventstudy/run', { method: 'POST', body: JSON.stringify(body) }),

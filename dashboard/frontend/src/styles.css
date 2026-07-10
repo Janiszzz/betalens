@@ -268,6 +268,7 @@ input {
 
 .class-pill,
 .freq-pill,
+.strategy-pill,
 .python-pill {
   display: inline-flex;
   align-items: center;
@@ -276,6 +277,24 @@ input {
   padding: 3px 8px;
   font-size: 12px;
   border-radius: 4px;
+}
+
+.pill-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.strategy-pill.cross_sectional {
+  background: #eef3f8;
+  color: #314259;
+}
+
+.strategy-pill.timing {
+  background: #fff1e8;
+  color: #9b4d18;
 }
 
 .factor-card h2 {
@@ -421,6 +440,13 @@ input {
   width: 100%;
 }
 
+.field.inline input[type="checkbox"] {
+  width: 18px;
+  min-width: 18px;
+  min-height: 18px;
+  padding: 0;
+}
+
 .inline-input {
   display: inline-flex;
   align-items: center;
@@ -464,6 +490,10 @@ input {
   display: grid;
   grid-template-columns: 1fr;
   gap: 16px;
+}
+
+.timing-metric-columns {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .metric-block {

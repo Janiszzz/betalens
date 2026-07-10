@@ -136,6 +136,7 @@ CLI 与 GUI
 .. code-block:: powershell
 
    python -m pip install -e ".[db,gui]"
+   .\betalens-db-manager\run.bat
 
 迁移提示
 --------

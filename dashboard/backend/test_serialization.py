@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 
 from . import serialization as serialization_module
-from .serialization import build_chart_data, build_position_table, read_table_page, write_table_parquet
+from .serialization import build_chart_data, build_position_table, build_timing_payload, read_table_page, write_table_parquet
 
 
 class TablePagingTests(unittest.TestCase):
@@ -157,6 +157,141 @@ class TablePagingTests(unittest.TestCase):
 
         self.assertEqual([row["代码"] for row in rows], ["000002.SZ"])
         self.assertEqual(rows[0]["数量"], 100.0)
+
+    def test_timing_payload_summarizes_trades_and_position(self) -> None:
+        class FakeBacktest:
+            idx = pd.to_datetime(
+                [
+                    "2024-01-01",
+                    "2024-01-02",
+                    "2024-01-03",
+                    "2024-01-04",
+                    "2024-01-05",
+                    "2024-01-06",
+                    "2024-01-07",
+                ]
+            )
+            nav = pd.Series([1.00, 1.02, 1.04, 1.03, 1.00, 0.98, 0.99], index=idx)
+            actual_weight = pd.DataFrame(
+                {
+                    "000001.SZ": [0.0, 0.8, 0.8, 0.0, 0.5, 0.5, 0.0],
+                    "cash": [1.0, 0.2, 0.2, 1.0, 0.5, 0.5, 1.0],
+                },
+                index=idx,
+            )
+            daily_pnl_total = pd.Series([0.0, 20.0, 20.0, -10.0, -30.0, -20.0, 10.0], index=idx)
+            daily_amount = pd.Series([100.0, 102.0, 104.0, 103.0, 100.0, 98.0, 99.0], index=idx)
+            cost_price = pd.DataFrame({"000001.SZ": [10.0, 10.2, 10.4, 10.3, 10.0, 9.8, 9.9]}, index=idx)
+
+        payload = build_timing_payload(FakeBacktest())
+        metrics = {row["label"]: row["value"] for row in payload["metrics"]}
+
+        self.assertEqual(metrics["交易次数"], 2)
+        self.assertAlmostEqual(metrics["交易胜率"], 0.5)
+        self.assertAlmostEqual(metrics["平均仓位"], 2.6 / 7)
+        self.assertAlmostEqual(metrics["开仓占比"], 4 / 7)
+        self.assertGreater(metrics["赔率"], 0)
+        self.assertEqual(len(payload["tables"]["tradeSegments"]), 2)
+        self.assertEqual(payload["tables"]["tradeSegments"][0]["startDate"], "2024-01-02")
+        self.assertEqual(payload["tables"]["tradeSegments"][0]["endDate"], "2024-01-03")
+        self.assertTrue(payload["charts"]["navPrice"])
+        self.assertTrue(payload["charts"]["position"])
+        self.assertTrue(payload["charts"]["tradeReturns"])
+
+    def test_timing_payload_consumes_factor_values_with_timing_fields(self) -> None:
+        class FakeBacktest:
+            idx = pd.to_datetime(
+                [
+                    "2024-01-01",
+                    "2024-01-02",
+                    "2024-01-03",
+                    "2024-01-04",
+                    "2024-01-05",
+                    "2024-01-06",
+                    "2024-01-07",
+                    "2024-01-08",
+                ]
+            )
+            nav = pd.Series([1.00, 1.02, 1.04, 1.03, 1.00, 0.98, 0.99, 1.01], index=idx)
+            actual_weight = pd.DataFrame(
+                {
+                    "000001.SZ": [0.0, 0.8, 0.8, 0.0, 0.5, 0.5, 0.0, 1.0],
+                    "cash": [1.0, 0.2, 0.2, 1.0, 0.5, 0.5, 1.0, 0.0],
+                },
+                index=idx,
+            )
+            daily_pnl_total = pd.Series([0.0, 20.0, 20.0, -10.0, -30.0, -20.0, 10.0, 25.0], index=idx)
+            daily_amount = pd.Series([100.0, 102.0, 104.0, 103.0, 100.0, 98.0, 99.0, 101.0], index=idx)
+            cost_price = pd.DataFrame({"000001.SZ": [10.0, 10.2, 10.4, 10.3, 10.0, 9.8, 9.9, 10.1]}, index=idx)
+
+        factor_values = pd.DataFrame(
+            {
+                "信号日": pd.to_datetime(
+                    [
+                        "2024-01-01 00:10:00",
+                        "2024-01-02 00:10:00",
+                        "2024-01-03 00:10:00",
+                        "2024-01-04 00:10:00",
+                        "2024-01-05 00:10:00",
+                        "2024-01-06 00:10:00",
+                        "2024-01-07 00:10:00",
+                        "2024-01-08 00:10:00",
+                    ]
+                ),
+                "股票代码": ["000001.SZ"] * 8,
+                "因子值": [0.1, 0.5, 0.2, 0.7, 0.3, 0.1, 0.6, 0.4],
+                "滚动均值": [0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40],
+                "滚动标准差": [0.01, 0.02, 0.03, 0.03, 0.04, 0.04, 0.05, 0.05],
+                "历史阈值": [0.06, 0.12, 0.18, 0.23, 0.29, 0.34, 0.40, 0.45],
+                "分组": [0, 1, 0, 1, 0, 0, 1, 0],
+                "是否触发": [False, True, False, True, False, False, True, False],
+                "目标仓位": [0.0, 0.8, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0],
+            }
+        )
+
+        payload = build_timing_payload(FakeBacktest(), factor_values)
+        metrics = {row["label"]: row["value"] for row in payload["metrics"]}
+
+        self.assertTrue(payload["charts"]["predictionScatter"])
+        self.assertTrue(payload["tables"]["prediction"])
+        self.assertIsNotNone(metrics["主预测周期 IC"])
+        self.assertIsNotNone(metrics["Beta"])
+
+    def test_timing_payload_aligns_intraday_indexes_to_daily_records(self) -> None:
+        class FakeBacktest:
+            nav_idx = pd.to_datetime(["2024-01-01 00:00", "2024-01-02 00:00", "2024-01-03 00:00"])
+            weight_idx = pd.to_datetime(["2024-01-01 00:10", "2024-01-02 00:10", "2024-01-03 00:10"])
+            price_idx = pd.to_datetime(["2024-01-01 15:00", "2024-01-02 15:00", "2024-01-03 15:00"])
+            nav = pd.Series([1.00, 1.01, 1.02], index=nav_idx)
+            actual_weight = pd.DataFrame(
+                {"000001.SZ": [0.0, 0.8, 0.8], "cash": [1.0, 0.2, 0.2]},
+                index=weight_idx,
+            )
+            daily_pnl_total = pd.Series([0.0, 1.0, 1.0], index=nav_idx)
+            daily_amount = pd.Series([100.0, 101.0, 102.0], index=nav_idx)
+            cost_price = pd.DataFrame({"000001.SZ": [10.0, 10.1, 10.2]}, index=price_idx)
+
+        records = build_timing_payload(FakeBacktest())["charts"]["navPrice"]
+
+        self.assertEqual([row["date"] for row in records], ["2024-01-01", "2024-01-02", "2024-01-03"])
+        self.assertEqual([row["nav"] for row in records], [1.0, 1.01, 1.02])
+        self.assertEqual([row["price"] for row in records], [10.0, 10.1, 10.2])
+        self.assertEqual([row["position"] for row in records], [0.0, 0.8, 0.8])
+
+    def test_timing_prediction_falls_back_without_factor_values(self) -> None:
+        class FakeBacktest:
+            idx = pd.to_datetime(["2024-01-01", "2024-01-02", "2024-01-03"])
+            nav = pd.Series([1.0, 1.01, 1.02], index=idx)
+            actual_weight = pd.DataFrame({"000001.SZ": [0.0, 1.0, 0.0], "cash": [1.0, 0.0, 1.0]}, index=idx)
+            daily_pnl_total = pd.Series([0.0, 1.0, 1.0], index=idx)
+            daily_amount = pd.Series([100.0, 101.0, 102.0], index=idx)
+            cost_price = pd.DataFrame({"000001.SZ": [10.0, 10.1, 10.2]}, index=idx)
+
+        payload = build_timing_payload(FakeBacktest(), pd.DataFrame())
+
+        self.assertEqual(payload["charts"]["predictionScatter"], [])
+        self.assertEqual(payload["tables"]["prediction"], [])
+        self.assertIn("tradeSegments", payload["tables"])
 
 
 if __name__ == "__main__":

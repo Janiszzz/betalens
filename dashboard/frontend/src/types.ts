@@ -1,6 +1,9 @@
+export type StrategyType = 'cross_sectional' | 'timing';
+
 export type FactorSummary = {
   factor_class: string;
   name: string;
+  strategy_type: StrategyType;
   formula: string;
   logic: string;
   source: string;
@@ -33,7 +36,24 @@ export type Metric = {
   label: string;
   value: number | string | null;
   format: 'number' | 'percent';
-  group?: 'raw' | 'excess';
+  group?: string;
+};
+
+export type TimingPayload = {
+  metrics: Metric[];
+  charts: {
+    navPrice: Array<Record<string, number | string | null>>;
+    position: Array<Record<string, number | string | null>>;
+    drawdown: Array<Record<string, number | string | null>>;
+    dailyPnl: Array<Record<string, number | string | null>>;
+    tradeReturns: Array<Record<string, number | string | null>>;
+    predictionScatter: Array<Record<string, number | string | null>>;
+    openForwardReturns: Array<Record<string, number | string | null>>;
+  };
+  tables: {
+    tradeSegments: Array<Record<string, unknown>>;
+    prediction: Array<Record<string, unknown>>;
+  };
 };
 
 export type RunResult = {
@@ -45,6 +65,7 @@ export type RunResult = {
     compute_kwargs: Record<string, unknown>;
   };
   metrics: Metric[];
+  timing: TimingPayload;
   charts: {
     nav: Array<Record<string, number | string>>;
     drawdown: Array<Record<string, number | string>>;
