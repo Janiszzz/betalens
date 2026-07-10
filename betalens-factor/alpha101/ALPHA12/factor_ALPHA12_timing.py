@@ -7,7 +7,6 @@ import sys
 from pathlib import Path
 from typing import Any, Mapping
 
-import numpy as np
 import pandas as pd
 
 _FACTOR_DIR = Path(__file__).resolve().parent
@@ -19,6 +18,7 @@ for _path in (_REPO_ROOT, _FACTOR_ROOT, _CLASS_DIR, _FACTOR_DIR):
         sys.path.insert(0, str(_path))
 
 from betalens.factor.config import factor_spec_options, load_yaml_config, run_parameters, section  # noqa: E402
+from betalens.factor.signal import infer_signal_warmup, rolling_z_weight  # noqa: E402
 from factor_template import FactorSpec, RunResult, infer_warmup_days  # noqa: E402
 from factor_ALPHA12 import compute_alpha12  # noqa: E402
 
@@ -166,42 +166,22 @@ def _build_timing_outputs(
     if stock_code not in factor_wide.columns:
         raise ValueError(f"missing factor input for stock_code={stock_code}")
 
-    threshold_window = int(_param(params, "threshold_window", 120))
-    if threshold_window <= 1:
-        raise ValueError("threshold_window must be greater than 1")
-    threshold_sigma = float(_param(params, "threshold_sigma", 1.0))
-    max_weight = float(_param(params, "max_weight", 1.0))
-    if not np.isfinite(max_weight):
-        max_weight = 1.0
-    max_weight = min(max(max_weight, 0.0), 1.0)
-
     factor_series = _daily_series(factor_wide[stock_code]).reindex(signal_index)
     if factor_series.dropna().empty:
         raise ValueError(f"empty factor data for {stock_code}")
 
-    rolling_mean, rolling_std, threshold = _rolling_threshold(factor_series, threshold_window, threshold_sigma)
-    triggered = (factor_series > threshold).fillna(False).astype(bool)
-    target_weight = -triggered.astype(float) * max_weight
-
-    weights = pd.DataFrame({stock_code: target_weight}, index=signal_index)
-    weights["cash"] = 1.0 - weights[stock_code]
-    weights.index = weights.index + pd.Timedelta(minutes=10)
-
-    factor_values = pd.DataFrame(
-        {
-            "信号日": signal_index,
-            "股票代码": stock_code,
-            "因子值": factor_series.to_numpy(dtype=float, copy=False),
-            "滚动均值": rolling_mean.to_numpy(dtype=float, copy=False),
-            "滚动标准差": rolling_std.to_numpy(dtype=float, copy=False),
-            "历史阈值": threshold.to_numpy(dtype=float, copy=False),
-            "分组": triggered.astype(int).to_numpy(copy=False),
-            "是否触发": triggered.to_numpy(copy=False),
-            "目标仓位": target_weight.to_numpy(dtype=float, copy=False),
-        },
-        columns=_FACTOR_VALUE_COLUMNS,
+    result = rolling_z_weight(
+        factor_wide=factor_wide,
+        signal_dates=signal_dates,
+        codes=codes,
+        params=params,
+        side="short",
     )
-    return weights.fillna(0.0), factor_values
+    factor_values = result.factor_values.copy()
+    for col in _FACTOR_VALUE_COLUMNS:
+        if col not in factor_values.columns:
+            factor_values[col] = pd.NA
+    return result.weights, factor_values[_FACTOR_VALUE_COLUMNS]
 
 
 def _write_timing_artifacts(output_dir: Path, name: str, weights: pd.DataFrame, factor_values: pd.DataFrame) -> None:
@@ -237,7 +217,10 @@ class FactorPipeline:
         params = dict(sp.compute_kwargs or {})
         codes = _resolve_codes(params, universe)
         threshold_window = int(_param(params, "threshold_window", 120))
-        inferred_warmup = infer_warmup_days(params, minimum=threshold_window)
+        inferred_warmup = max(
+            infer_warmup_days(params, minimum=threshold_window),
+            infer_signal_warmup(params, minimum=threshold_window),
+        )
         warmup = int(warmup_days if warmup_days is not None else max(inferred_warmup, threshold_window))
         fetch_start = (pd.Timestamp(start_date) - pd.Timedelta(days=warmup)).strftime("%Y-%m-%d")
         fetch_end = (pd.Timestamp(end_date) + pd.Timedelta(days=1)).strftime("%Y-%m-%d")

@@ -153,6 +153,10 @@ const hasGroupList = (value: unknown) => {
   return String(value).trim().length > 0;
 };
 
+const isJsonLike = (value: unknown) => value !== null && typeof value === 'object';
+
+const prettyJson = (value: unknown) => JSON.stringify(value ?? {}, null, 2);
+
 const formatEventDateLabel = (value: unknown) => {
   const text = asString(value);
   if (!text) return '';
@@ -724,9 +728,54 @@ function ParameterPanel({
       ) : null}
       {Object.keys(computeKwargs).length ? <h3><ListFilter size={16} />{isTiming ? '择时参数' : '算子参数'}</h3> : null}
       {Object.entries(computeKwargs).map(([key, value]) => (
-        <LabeledInput key={key} label={key} type={typeof value === 'number' ? 'number' : 'text'} value={asString(value)} onChange={(v) => onCompute(key, typeof value === 'number' ? Number(v) : v)} />
+        isJsonLike(value) ? (
+          <JsonInput key={key} label={key} value={value} onChange={(next) => onCompute(key, next)} />
+        ) : (
+          <LabeledInput key={key} label={key} type={typeof value === 'number' ? 'number' : 'text'} value={asString(value)} onChange={(v) => onCompute(key, typeof value === 'number' ? Number(v) : v)} />
+        )
       ))}
     </div>
+  );
+}
+
+function JsonInput({
+  label,
+  value,
+  onChange
+}: {
+  label: string;
+  value: unknown;
+  onChange: (value: unknown) => void;
+}) {
+  const [draft, setDraft] = useState(prettyJson(value));
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDraft(prettyJson(value));
+    setError(null);
+  }, [value]);
+
+  const commit = () => {
+    try {
+      onChange(JSON.parse(draft));
+      setError(null);
+    } catch {
+      setError('JSON格式错误，修正后会写入运行配置。');
+    }
+  };
+
+  return (
+    <label className="field">
+      {label}
+      <textarea
+        value={draft}
+        rows={Math.min(10, Math.max(3, draft.split('\n').length))}
+        spellCheck={false}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={commit}
+      />
+      {error ? <span className="field-help">{error}</span> : null}
+    </label>
   );
 }
 

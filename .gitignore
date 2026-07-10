@@ -52,8 +52,5 @@ config.json
 
 #版权问题
 *XICHOU*
-!betalens-factor/tdx/XICHOU/
-!betalens-factor/tdx/XICHOU/factor_XICHOU_timing.py
-!betalens-factor/tdx/XICHOU/factor_XICHOU_timing.yaml
-betalens-factor/tdx/XICHOU/outputs/
-betalens-factor/tdx/XICHOU/tools/outputs/
+betalens-factor/tdx/XICHOU/**
+

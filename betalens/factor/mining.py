@@ -327,6 +327,10 @@ def _date_max(*spans: tuple[str, str]) -> str:
 
 
 def _call_module_function(module_name: str, function_name: str, *args, **kwargs):
+    if "." in function_name:
+        target_module, target_function = function_name.rsplit(".", 1)
+        module = importlib.import_module(target_module)
+        return getattr(module, target_function)(*args, **kwargs)
     module = importlib.import_module(module_name)
     return getattr(module, function_name)(*args, **kwargs)
 
@@ -393,7 +397,11 @@ def gen_rolling_windows(
 
 def infer_warmup_days_from_params(params: Mapping[str, Any], minimum: int = 30) -> int:
     candidates = []
+    scan_items = list(params.items())
     for key, value in params.items():
+        if isinstance(value, Mapping):
+            scan_items.extend((f"{key}.{sub_key}", sub_value) for sub_key, sub_value in value.items())
+    for key, value in scan_items:
         key_l = str(key).lower()
         if key_l not in {"n"} and not any(
             token in key_l for token in ("window", "lookback", "period", "span", "lag")
@@ -403,6 +411,12 @@ def infer_warmup_days_from_params(params: Mapping[str, Any], minimum: int = 30) 
             continue
         if isinstance(value, (int, float)) and np.isfinite(value) and value > 1:
             candidates.append(int(value))
+    try:
+        from betalens.factor.signal import infer_signal_warmup
+
+        candidates.append(infer_signal_warmup(params, minimum=minimum))
+    except Exception:
+        pass
     if not candidates:
         return int(minimum)
     return max(int(minimum), int(max(candidates) * 2 + 30))
@@ -673,9 +687,9 @@ def _run_one_task(task: dict[str, Any]) -> dict[str, Any]:
         weight_mode = getattr(spec, "weight_mode", "freeplay")
         universe = _CACHE_DATA.get("universe") or []
 
-        if weight_mode == "event":
+        if weight_mode in ("event", "timing"):
             if not task.get("weight_hook"):
-                raise ValueError("event weight_mode requires a mining weight_hook")
+                raise ValueError(f"{weight_mode} weight_mode requires a mining weight_hook")
             weights = pd.DataFrame(index=pd.DatetimeIndex(signal_dates) + pd.Timedelta(minutes=10))
         else:
             prequery = wide_to_prequery(factor_wide, spec.name, signal_dates)

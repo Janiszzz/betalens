@@ -25,6 +25,7 @@ from betalens.factor.config import (  # noqa: E402
     run_parameters,
     section,
 )
+from betalens.factor.signal import event_history_weight, infer_signal_warmup  # noqa: E402
 from factor_template import RunResult, infer_warmup_days  # noqa: E402
 from factor_template_tdx import FactorSpec  # noqa: E402
 from factor_XICHOU import compute_xichou  # noqa: E402
@@ -345,34 +346,16 @@ def _build_weights(
     direction: str,
     params: Mapping[str, Any],
 ) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
-    signal_index = pd.DatetimeIndex(signal_dates)
-    operator = _resolve_trigger_operator(direction, str(_param(params, "trigger_operator", "auto")))
-    threshold = float(_param(params, "trigger_threshold", 0.1))
-
-    weights = pd.DataFrame(0.0, index=signal_index, columns=codes)
-    events_by_code: dict[str, pd.DataFrame] = {}
-    for code in codes:
-        if code not in factor_wide.columns:
-            events_by_code[code] = pd.DataFrame()
-            continue
-        high = high_wide[code] if code in high_wide.columns else pd.Series(index=factor_wide.index, dtype=float)
-        events = _event_table_for_code(
-            factor=factor_wide[code],
-            high=high,
-            threshold=threshold,
-            operator=operator,
-        )
-        events_by_code[code] = events
-        target = _dynamic_event_weight_for_code(factor_wide[code], events, params)
-        weights[code] = target.reindex(signal_index).fillna(0.0).astype(float)
-
-    stock_sum = weights.clip(lower=0.0).sum(axis=1)
-    scale = pd.Series(1.0, index=weights.index)
-    scale.loc[stock_sum > 1.0] = 1.0 / stock_sum.loc[stock_sum > 1.0]
-    weights = weights.mul(scale, axis=0)
-    weights["cash"] = (1.0 - weights.sum(axis=1)).clip(lower=0.0, upper=1.0)
-    weights.index = weights.index + pd.Timedelta(minutes=10)
-    return weights.fillna(0.0), events_by_code
+    result = event_history_weight(
+        factor_wide=factor_wide,
+        high_wide=high_wide,
+        signal_dates=signal_dates,
+        codes=codes,
+        direction=direction,
+        params=params,
+        side="long",
+    )
+    return result.weights, result.events
 
 
 def _build_factor_values(
@@ -473,7 +456,7 @@ class FactorPipeline:
         codes = _resolve_codes(params, universe)
         formula_params = _formula_kwargs(params)
         inferred_warmup = infer_warmup_days(formula_params, minimum=90)
-        history_warmup = int(_param(params, "history_window", 10)) * 30 + 60
+        history_warmup = infer_signal_warmup(params, minimum=90)
         warmup = int(warmup_days if warmup_days is not None else max(inferred_warmup, history_warmup))
         fetch_start = (pd.Timestamp(start_date) - pd.Timedelta(days=warmup)).strftime("%Y-%m-%d")
         fetch_end = (pd.Timestamp(end_date) + pd.Timedelta(days=1)).strftime("%Y-%m-%d")

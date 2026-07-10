@@ -121,6 +121,28 @@ class FactorYamlDashboardTests(unittest.TestCase):
         self.assertIsNone(config["weight"]["long_groups"])
         self.assertIsNone(config["weight"]["short_groups"])
 
+    def test_run_config_preserves_nested_compute_kwargs(self) -> None:
+        _script, _class_cfg, factor_cfg = get_factor_config("alpha101", "ALPHA12_timing")
+        nested = {
+            "stock_code": "000001.SZ",
+            "signal_weight": {
+                "method": "rolling_z",
+                "window": 120,
+                "sigma": 1.0,
+                "side": "short",
+            },
+        }
+        request = RunRequest(
+            factor_class="alpha101",
+            name="ALPHA12_timing",
+            compute_kwargs=nested,
+        )
+        run = DashboardRun(request)
+        with tempfile.TemporaryDirectory() as tmp:
+            config = RunManager._build_run_config(factor_cfg, run, Path(tmp) / "run")
+
+        self.assertEqual(config["factor_spec"]["compute_kwargs"], nested)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -436,8 +436,22 @@ input {
 }
 
 .field input,
-.field select {
+.field select,
+.field textarea {
   width: 100%;
+}
+
+.field textarea {
+  min-height: 78px;
+  resize: vertical;
+  font-family: "JetBrains Mono", "Consolas", monospace;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.field-help {
+  color: #b42318;
+  font-size: 12px;
 }
 
 .field.inline input[type="checkbox"] {
