@@ -21,7 +21,7 @@ DEFAULT_CONFIG = {
     "database": {
         "dbname": "datafeed",
         "user": "postgres",
-        "password": "111111",
+        "password": "",
         "host": "localhost",
         "port": "5432"
     },
@@ -29,142 +29,6 @@ DEFAULT_CONFIG = {
         "log_dir": "./logs",
         "log_level": "INFO",
         "log_format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    },
-    "excel": {
-        "encodings": [
-            "utf-8",
-            "utf-8-sig",
-            "gb18030",
-            "gbk",
-            "gb2312",
-            "latin1",
-            "cp936",
-            "big5"
-        ],
-        "time_alignment": {
-            "open_time": "09:30:01",
-            "other_time": "15:00:01",
-            "open_metric_names": [
-                "开盘价",
-                "开盘价(元)",
-                "前收盘价",
-            ]
-        }
-    },
-    "wind": {
-        "asset_fields": {
-            "stock": {
-                "fields": [
-                    "open",
-                    "high",
-                    "low",
-                    "close",
-                    "volume",
-                    "amt",
-                    "turn"
-                ],
-                "field_names": [
-                    "开盘价(元)",
-                    "最高价(元)",
-                    "最低价(元)",
-                    "收盘价(元)",
-                    "成交量(股)",
-                    "成交额(元)",
-                    "换手率(%)"
-                ]
-            },
-            "index": {
-                "fields": [
-                    "open",
-                    "high",
-                    "low",
-                    "close",
-                    "volume",
-                    "amt"
-                ],
-                "field_names": [
-                    "开盘价",
-                    "最高价",
-                    "最低价",
-                    "收盘价",
-                    "成交量",
-                    "成交额"
-                ]
-            },
-            "fund": {
-                "fields": [
-                    "open",
-                    "high",
-                    "low",
-                    "close",
-                    "volume",
-                    "amt"
-                ],
-                "field_names": [
-                    "开盘价(元)",
-                    "最高价(元)",
-                    "最低价(元)",
-                    "收盘价(元)",
-                    "成交量(份)",
-                    "成交额(元)"
-                ]
-            },
-            "bond": {
-                "fields": [
-                    "open",
-                    "high",
-                    "low",
-                    "close",
-                    "volume",
-                    "amt"
-                ],
-                "field_names": [
-                    "开盘价(元)",
-                    "最高价(元)",
-                    "最低价(元)",
-                    "收盘价(元)",
-                    "成交量(手)",
-                    "成交额(元)"
-                ]
-            }
-        }
-    },
-    "ede": {
-        "date_extraction": {
-            "pattern": r"(\d{8})",
-            "default_time": "15:30:00"
-        },
-        "column_names": {
-            "code_columns": [
-                "证券代码",
-                "code",
-                "windcode",
-                "代码",
-                "Code",
-                "WindCode"
-            ],
-            "name_columns": [
-                "证券简称",
-                "name",
-                "sec_name",
-                "简称",
-                "名称",
-                "Name",
-                "SecName"
-            ]
-        },
-        "data_cleaning": {
-            "keywords_to_remove": [
-                "数据来源",
-                "Wind",
-                "来源:",
-                "注:",
-                "说明:",
-                "Source:",
-                "Note:",
-                "Remark:"
-            ]
-        }
     }
 }
 
@@ -181,9 +45,22 @@ class ConfigManager:
         """
         # 确定配置文件路径
         if config_file is None:
-            # 默认使用当前模块目录下的config.json
-            module_dir = Path(__file__).parent
-            config_file = module_dir / "config.json"
+            configured = os.environ.get("BETALENS_CONFIG")
+            module_file = Path(__file__).parent / "config.json"
+            local_file = Path(__file__).parent / "config.local.json"
+            user_root = Path(os.environ.get("APPDATA", Path.home() / ".config"))
+            user_file = user_root / "betalens" / "config.json"
+            if configured:
+                config_file = Path(configured).expanduser()
+            elif user_file.exists():
+                config_file = user_file
+            elif local_file.exists():
+                config_file = local_file
+            elif module_file.exists():
+                # Legacy local config remains readable but is no longer tracked.
+                config_file = module_file
+            else:
+                config_file = user_file
         
         self.config_file = Path(config_file)
         self._config = None
@@ -311,7 +188,7 @@ class ConfigManager:
         获取配置节
         
         Args:
-            section: 配置节名称，如 'database', 'excel'
+            section: 配置节名称，如 'database', 'logging'
             
         Returns:
             配置节字典
@@ -386,25 +263,21 @@ def reset_config() -> None:
 # 便捷访问函数
 def get_database_config() -> Dict[str, str]:
     """获取数据库配置"""
-    return get_config().get_section('database')
+    config = dict(get_config().get_section('database'))
+    env_names = {
+        "dbname": "BETALENS_DB_NAME",
+        "user": "BETALENS_DB_USER",
+        "password": "BETALENS_DB_PASSWORD",
+        "host": "BETALENS_DB_HOST",
+        "port": "BETALENS_DB_PORT",
+    }
+    for key, env_name in env_names.items():
+        if env_name in os.environ:
+            config[key] = os.environ[env_name]
+    return config
 
 
 def get_logging_config() -> Dict[str, str]:
     """获取日志配置"""
     return get_config().get_section('logging')
-
-
-def get_excel_config() -> Dict[str, Any]:
-    """获取Excel配置"""
-    return get_config().get_section('excel')
-
-
-def get_wind_config() -> Dict[str, Any]:
-    """获取Wind配置"""
-    return get_config().get_section('wind')
-
-
-def get_ede_config() -> Dict[str, Any]:
-    """获取EDE配置"""
-    return get_config().get_section('ede')
 

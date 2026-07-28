@@ -1,6 +1,7 @@
-include betalens/README.md
-include betalens/LICENSE
 recursive-include betalens *.py
+recursive-include betalens_db_manager *.py *.yaml
+recursive-include betalens_db_manager/migrations *.sql
+recursive-include betalens_db_manager/assets *.ico
 exclude betalens/tests/*
 exclude betalens/gitworks/*
 prune betalens/tests

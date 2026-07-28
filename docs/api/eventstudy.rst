@@ -10,7 +10,7 @@ EventStudy
 
    :param datafeed: :class:`betalens.datafeed.Datafeed` 实例，用于查询价格数据
 
-   .. py:method:: analyze(events, code, window_before=5, window_after=5, metric='收盘价(元)', periods=None, mode='flexible', holding_periods=None, holding_start_offset=0, market_close_hour=15, benchmark_code=None)
+   .. py:method:: analyze(events, code, window_before=5, window_after=5, metric='收盘价(元)', periods=None, mode='flexible', holding_periods=None, holding_start_offset=0, market_close_hour=15, benchmark_code=None, multi_asset_mode='aggregate')
 
       分析事件前后的收益率表现。
 
@@ -25,6 +25,7 @@ EventStudy
       :param holding_start_offset: 持有起点偏移天数（0=Day 0, -3=提前3天）
       :param market_close_hour: 市场收盘时间（小时），默认 15
       :param benchmark_code: 基准代码，提供时计算超额收益 = 标的收益 - 基准收益
+      :param multi_asset_mode: 多标的处理方式；``'aggregate'`` 保持等权聚合，``'compare'`` 同时返回逐标的比较结果
       :return: 结果字典，包含以下键：
 
          - ``daily_stats`` (pd.DataFrame): 每日收益统计，index=day，列含 mean, std, positive_prob, odds, t_stat, count
@@ -34,11 +35,14 @@ EventStudy
          - ``cumulative_returns_matrix`` (pd.DataFrame): 累积收益矩阵，行=相对天数，列=事件编号
          - ``stock_returns_dict`` (dict, 多标的模式): {代码: 收益矩阵}
          - ``valid_codes`` (list, 多标的模式): 有效代码列表
+         - ``skipped_codes`` (list, 多标的模式): 无有效窗口的代码及原因
+         - ``comparison`` (dict, compare 模式): 稳定事件映射和 ``by_code`` 逐标的统计、收益矩阵、累计矩阵、覆盖率
          - ``period_stats`` (pd.DataFrame, 仅单标的+periods): 分段统计
 
       .. note::
 
          Day 0 成本价规则：事件在 15:00 前 → 当天收盘价；15:00 后 → 次日收盘价。
+         compare 模式至少需要两个代码；多标的共性结果先在同一事件/相对日内对可用标的等权平均，再使用既有累计算法。
 
    .. py:method:: plot_bar(daily_stats, title='事件前后平均收益率', figsize=(12, 6), save_path=None)
 

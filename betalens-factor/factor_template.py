@@ -181,7 +181,7 @@ def build_pit_universe(signal_dates, index_code, table_name="index_universe"):
     try:
         for d in signal_dates:
             date_str = pd.Timestamp(d).strftime('%Y-%m-%d')
-            codes = get_index_universe(data.cursor, index_code, date_str)
+            codes = data.get_index_universe(index_code, date_str)
             pit[d] = set(codes)
     finally:
         data.close()

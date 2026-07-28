@@ -145,6 +145,37 @@ fixed 模式
    # result['stock_returns_dict'] — 每个股票的收益矩阵
    # result['valid_codes'] — 成功获取数据的代码列表
 
+多标的比较模式
+--------------
+
+``multi_asset_mode='compare'`` 在保留顶层等权共性结果的同时，返回每个标的跨事件的统计和矩阵。事件文件无需增加标的列，同一份事件序列会应用于所有代码：
+
+.. code-block:: python
+
+   result = es.analyze(
+       events=events,
+       code=['000905.SH', '000300.SH', '000852.SH'],
+       window_before=20,
+       window_after=20,
+       benchmark_code='000985.CSI',
+       multi_asset_mode='compare'
+   )
+
+   common_stats = result['cumulative_stats']
+   by_code = result['comparison']['by_code']
+   hs300_stats = by_code['000300.SH']['cumulative_stats']
+
+比较模式的口径如下：
+
+- 顶层 ``daily_stats``、``cumulative_stats`` 和矩阵仍代表共性结果。
+- 共性先在相同 ``event_id`` 和相对日上对可用标的等权平均，再沿用 flexible/fixed 累计算法。
+- ``comparison['by_code']`` 提供每个代码的事件数、覆盖率、日度/累计统计和事件矩阵。
+- 每个输入事件都有稳定 ``event_id``；某标的缺少某次事件行情时保留空值，不会让后续事件错位。
+- 提供 ``benchmark_code`` 时，每个标的先计算相对同一基准的超额收益，再进行聚合与比较。
+- 单个事件可以正常比较；由于样本数为 1，标准差和 t 统计为缺失值。
+
+Dashboard 的“多标的处理”参数可选择“等权聚合”或“个性比较”。比较结果包括逐标的汇总表、跨事件平均累计曲线，以及单次事件下钻曲线；事件级图表最多展示前 30 个事件。
+
 可视化
 ------
 

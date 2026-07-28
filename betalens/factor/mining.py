@@ -466,14 +466,14 @@ def wide_to_prequery(wide_df: pd.DataFrame, metric_name: str, signal_dates) -> p
 
 
 def build_pit_universe(signal_dates, index_code: str, table_name: str = "index_universe"):
-    from betalens.datafeed import Datafeed, get_index_universe
+    from betalens.datafeed import Datafeed
 
     data = Datafeed(table_name)
     pit = {}
     try:
         for d in signal_dates:
             date_str = pd.Timestamp(d).strftime("%Y-%m-%d")
-            pit[d] = set(get_index_universe(data.cursor, index_code, date_str))
+            pit[d] = set(data.get_index_universe(index_code, date_str))
     finally:
         data.close()
     return pit

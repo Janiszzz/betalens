@@ -4,7 +4,7 @@
 环境要求
 --------
 
-* Python 3.10 及以上用于开发和文档构建；包配置声明兼容 Python 3.8+。
+* Python 3.10 及以上。
 * PostgreSQL 13+，用于 ``datafeed`` 查询与本地数据库管理工具。
 * 可选依赖：``plotly`` 用于交互图，``fastapi``/``uvicorn``/``pyarrow`` 用于 Dashboard，``PySide6`` 用于数据库管理 GUI，WindPy 用于 Wind 数据源。
 
@@ -43,13 +43,16 @@
 数据库与配置
 ------------
 
-``betalens/datafeed/config.example.json`` 是配置模板。复制为本地配置后修改数据库连接：
+``betalens/datafeed/config.example.json`` 是配置模板。仓库内本地开发可复制为已忽略的
+``config.local.json`` 后修改数据库连接：
 
 .. code-block:: powershell
 
-   Copy-Item betalens\datafeed\config.example.json betalens\datafeed\config.json
+   Copy-Item betalens\datafeed\config.example.json betalens\datafeed\config.local.json
 
-配置优先级为：运行时参数 > ``config.json`` > 代码内置默认值。
+配置优先级为：运行时参数 > ``BETALENS_DB_*`` 环境变量 > ``BETALENS_CONFIG`` 指定文件
+> ``%APPDATA%\betalens\config.json`` > ``betalens/datafeed/config.local.json``
+> 旧 ``config.json`` > 内置默认值。
 
 .. code-block:: json
 
@@ -100,7 +103,7 @@
 常见问题
 --------
 
-* **数据库连接失败**：检查 ``betalens/datafeed/config.json``，确认 PostgreSQL 服务、库名、用户名和密码。
+* **数据库连接失败**：检查当前生效的用户配置或 ``betalens/datafeed/config.local.json``，确认 PostgreSQL 服务、库名、用户名和密码。
 * **psycopg2 编译失败**：本地开发优先安装 ``psycopg2-binary`` 或 ``.[db]`` 可选依赖。
 * **缺少 WindPy**：WindPy 是可选数据源；不抓取 Wind 数据时不影响核心回测。
 * **文档构建提示缺 sphinx**：执行 ``python -m pip install -r docs\requirements.txt``。

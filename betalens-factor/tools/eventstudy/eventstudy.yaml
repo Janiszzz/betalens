@@ -5,6 +5,7 @@ eventstudy:
   metric: 收盘价
   table_name: daily_market
   mode: flexible
+  multi_asset_mode: aggregate
   window_before: 20
   window_after: 20
   holding_start_offset: 0

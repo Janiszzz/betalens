@@ -6,7 +6,7 @@ betalens API 使用:
 """
 import pandas as pd
 import numpy as np
-from typing import Optional, List, Union, Dict
+from typing import Optional, List, Union, Dict, Literal
 from datetime import timedelta
 import matplotlib.pyplot as plt
 import matplotlib
@@ -104,6 +104,14 @@ def _aggregate_window_returns(
     return df
 
 
+def _stats_frame(returns_df: pd.DataFrame) -> pd.DataFrame:
+    """Compute the standard event-study statistics for each relative day."""
+    stats = {day: _compute_stats(returns_df.loc[day]) for day in returns_df.index}
+    result = pd.DataFrame(stats).T
+    result.index.name = 'day'
+    return result
+
+
 def _compute_stats(returns: pd.Series) -> dict:
     """计算收益率统计量: 均值、标准差、上涨概率、胜率、t统计量、样本数"""
     if returns.empty or returns.isna().all():
@@ -179,12 +187,14 @@ class EventStudy:
         metric: str,
         window_before: int,
         window_after: int,
-        market_close_hour: int
-    ) -> pd.DataFrame:
+        market_close_hour: int,
+        benchmark_returns: Optional[pd.Series] = None,
+        benchmark_prices: Optional[pd.Series] = None
+    ) -> tuple[pd.DataFrame, Optional[str]]:
         """获取单个股票在所有事件窗口的收益率矩阵
 
         Returns:
-            DataFrame: 行为相对天数，列为事件编号，值为收益率
+            (DataFrame, error): 行为相对天数，列为稳定事件编号，值为收益率
         """
         try:
             data = self.datafeed.query_time_range(
@@ -195,26 +205,57 @@ class EventStudy:
             )
 
             if data.empty:
-                return pd.DataFrame()
+                return pd.DataFrame(), 'no data'
 
             prices = data.set_index('datetime')['value'].sort_index()
             prices = prices.astype(float)
             returns = _calc_returns(prices)
 
-            all_window_returns = []
-            for ed in event_dates:
+            event_windows = {}
+            for event_id, ed in enumerate(event_dates):
                 wr = _get_window_returns(returns, prices, ed, window_before, window_after, market_close_hour)
-                if wr is not None and not wr.empty:
-                    all_window_returns.append(wr)
-                else:
-                    # 如果这个事件没有数据，添加空Series保持对齐
-                    all_window_returns.append(None)
+                if wr is None or wr.empty:
+                    continue
+                if benchmark_returns is not None and benchmark_prices is not None:
+                    benchmark_wr = _get_window_returns(
+                        benchmark_returns,
+                        benchmark_prices,
+                        ed,
+                        window_before,
+                        window_after,
+                        market_close_hour,
+                    )
+                    if benchmark_wr is None or benchmark_wr.empty:
+                        continue
+                    wr = wr.subtract(benchmark_wr, fill_value=np.nan).dropna()
+                    if wr.empty:
+                        continue
+                event_windows[event_id] = wr
 
-            return _aggregate_window_returns([r for r in all_window_returns if r is not None])
+            if not event_windows:
+                return pd.DataFrame(), 'no matching events'
+            result = pd.DataFrame(event_windows).sort_index()
+            # Keep columns tied to the input event order.  A target can be
+            # missing one event window without shifting every later event.
+            result = result.reindex(columns=range(len(event_dates)))
+            result.columns.name = 'event_id'
+            return result, None
 
-        except Exception:
-            # 如果获取数据失败，返回空DataFrame
-            return pd.DataFrame()
+        except Exception as exc:
+            return pd.DataFrame(), str(exc)
+
+    def _calc_cumulative(
+        self,
+        returns_df: pd.DataFrame,
+        mode: str,
+        holding_periods: Optional[dict],
+        holding_start_offset: int,
+    ) -> pd.DataFrame:
+        if mode == 'flexible':
+            return self._calc_cumulative_flexible(returns_df, holding_start_offset)
+        if mode == 'fixed':
+            return self._calc_cumulative_fixed(returns_df, holding_periods, holding_start_offset)
+        raise ValueError(f"不支持的模式: {mode}")
 
     def _calc_cumulative_flexible(self, returns_df: pd.DataFrame, holding_start_offset: int = 0) -> pd.DataFrame:
         """模式一：累积收益率序列
@@ -249,7 +290,7 @@ class EventStudy:
                 period_returns = returns_df.iloc[holding_start_loc:day_loc + 1]
             else:
                 period_returns = returns_df.iloc[day_loc:holding_start_loc + 1]
-            result_dict[day] = period_returns.add(1).prod(axis=0) - 1
+            result_dict[day] = period_returns.add(1).prod(axis=0, min_count=1) - 1
 
         return pd.DataFrame(result_dict).T
 
@@ -323,7 +364,7 @@ class EventStudy:
                     end_loc = returns_df.index.get_loc(target_day)
                     if isinstance(end_loc, int):
                         period_returns = returns_df.iloc[holding_start_loc:end_loc+1]
-                        cum_ret = period_returns.add(1).prod(axis=0) - 1
+                        cum_ret = period_returns.add(1).prod(axis=0, min_count=1) - 1
                         result_dict[target_day] = cum_ret
             else:
                 # 反向持有：从target_day正向累积到持有起点
@@ -331,7 +372,7 @@ class EventStudy:
                     period_start_loc = returns_df.index.get_loc(target_day)
                     if isinstance(period_start_loc, int):
                         period_returns = returns_df.iloc[period_start_loc:holding_start_loc+1]
-                        cum_ret = period_returns.add(1).prod(axis=0) - 1
+                        cum_ret = period_returns.add(1).prod(axis=0, min_count=1) - 1
                         result_dict[target_day] = cum_ret
 
         if not result_dict:
@@ -351,7 +392,8 @@ class EventStudy:
         holding_periods: Optional[dict] = None,
         holding_start_offset: int = 0,
         market_close_hour: int = 15,
-        benchmark_code: Optional[str] = None
+        benchmark_code: Optional[str] = None,
+        multi_asset_mode: Literal['aggregate', 'compare'] = 'aggregate'
     ) -> dict:
         """
         分析事件前后的收益率表现
@@ -369,6 +411,7 @@ class EventStudy:
             holding_start_offset: 持有起点偏移天数，0表示从Day 0开始，n表示从Day n开始
             market_close_hour: 市场收盘时间（小时），默认15点
             benchmark_code: 可选的业绩比较基准代码，如提供则计算超额收益=持有标的收益-基准收益
+            multi_asset_mode: 多标的处理模式，aggregate=等权平均，compare=同时返回逐标的比较
 
         Returns:
             包含 daily_stats, cumulative_stats, event_count, returns_matrix 的字典
@@ -382,6 +425,8 @@ class EventStudy:
         event_dates = _get_event_dates(events)
         if event_dates.empty:
             return {'error': 'no events'}
+        if multi_asset_mode not in {'aggregate', 'compare'}:
+            raise ValueError(f"不支持的多标的模式: {multi_asset_mode}")
         valid_event_dates = event_dates
 
         start = (event_dates.min() - timedelta(days=window_before * 5)).strftime('%Y-%m-%d')
@@ -389,62 +434,56 @@ class EventStudy:
 
         # 判断是单标的还是多标的模式
         is_multi_stock = isinstance(code, list)
+        if multi_asset_mode == 'compare' and (not is_multi_stock or len(code) < 2):
+            raise ValueError("compare 模式至少需要两个标的代码")
+
+        benchmark_returns = None
+        benchmark_prices = None
+        if benchmark_code:
+            benchmark_data = self.datafeed.query_time_range(
+                codes=[benchmark_code],
+                start_date=start,
+                end_date=end,
+                metric=metric,
+            )
+            if benchmark_data.empty:
+                return {'error': 'no benchmark data'}
+            benchmark_prices = benchmark_data.set_index('datetime')['value'].sort_index().astype(float)
+            benchmark_returns = _calc_returns(benchmark_prices)
 
         if is_multi_stock:
             # 多标的模式：分别获取每个股票数据并计算平均
             stock_returns_dict = {}
             valid_codes = []
+            skipped_codes = []
 
             print(f"多标的模式：正在获取 {len(code)} 只股票的数据...")
             for stock_code in code:
-                returns_df = self._get_stock_window_returns(
+                stock_returns, error = self._get_stock_window_returns(
                     stock_code, event_dates, start, end, metric,
-                    window_before, window_after, market_close_hour
+                    window_before, window_after, market_close_hour,
+                    benchmark_returns, benchmark_prices,
                 )
-                if not returns_df.empty:
-                    stock_returns_dict[stock_code] = returns_df
+                if not stock_returns.empty:
+                    stock_returns_dict[stock_code] = stock_returns
                     valid_codes.append(stock_code)
+                else:
+                    skipped_codes.append({'code': stock_code, 'reason': error or 'no valid data'})
 
             if not stock_returns_dict:
                 return {'error': 'no valid stock data'}
 
             print(f"成功获取 {len(valid_codes)} 只股票的数据")
 
-            # 计算所有股票在每个时间点的平均收益率
-            # 使用所有股票数据的并集索引
-            all_indices = set()
-            all_columns = set()
-            for df in stock_returns_dict.values():
-                all_indices.update(df.index)
-                all_columns.update(df.columns)
-
-            all_indices = sorted(all_indices)
-            all_columns = sorted(all_columns)
-
-            # 创建平均收益率矩阵
-            avg_returns_list = []
-            for idx in all_indices:
-                for col in all_columns:
-                    values = []
-                    for df in stock_returns_dict.values():
-                        if idx in df.index and col in df.columns:
-                            val = df.loc[idx, col]
-                            if not pd.isna(val):
-                                values.append(val)
-                    if values:
-                        avg_returns_list.append({
-                            'day': idx,
-                            'event': col,
-                            'return': np.mean(values)
-                        })
-
-            # 构建平均收益率DataFrame
-            if not avg_returns_list:
+            # 每个相对日和原始事件 ID 上对可用标的等权平均。
+            stacked = pd.concat(stock_returns_dict, names=['code', 'day'])
+            returns_df = stacked.groupby(level='day').mean().sort_index()
+            returns_df = returns_df.dropna(axis=1, how='all')
+            if returns_df.empty:
                 return {'error': 'no valid average returns'}
-
-            avg_df = pd.DataFrame(avg_returns_list)
-            returns_df = avg_df.pivot(index='day', columns='event', values='return')
-            returns_df = returns_df.sort_index()
+            # Multi-asset matrices retain original event ids, so their date
+            # lookup must retain the full input event sequence as well.
+            valid_event_dates = event_dates
 
         else:
             # 单标的模式：原有逻辑
@@ -463,21 +502,6 @@ class EventStudy:
             prices = data.set_index('datetime')['value'].sort_index()
             prices = prices.astype(float)  # 转换Decimal为float
             returns = _calc_returns(prices)
-
-            # 如果提供了基准代码，获取基准收益率
-            benchmark_returns = None
-            benchmark_prices = None
-            if benchmark_code:
-                benchmark_data = self.datafeed.query_time_range(
-                    codes=[benchmark_code],
-                    start_date=start,
-                    end_date=end,
-                    metric=metric
-                )
-                if not benchmark_data.empty:
-                    benchmark_prices = benchmark_data.set_index('datetime')['value'].sort_index()
-                    benchmark_prices = benchmark_prices.astype(float)
-                    benchmark_returns = _calc_returns(benchmark_prices)
 
             all_window_returns = []
             valid_event_dates = []
@@ -502,27 +526,11 @@ class EventStudy:
 
             returns_df = _aggregate_window_returns(all_window_returns)
         
-        day_stats = {}
-        for day in returns_df.index:
-            day_stats[day] = _compute_stats(returns_df.loc[day])
-        overall_stats = pd.DataFrame(day_stats).T
-        overall_stats.index.name = 'day'
-
-        # 计算累积收益
-        if mode == 'flexible':
-            # 模式一：以持有起点为分界点的双向累积
-            cum_returns = self._calc_cumulative_flexible(returns_df, holding_start_offset)
-        elif mode == 'fixed':
-            # 模式二：固定持有期收益
-            cum_returns = self._calc_cumulative_fixed(returns_df, holding_periods, holding_start_offset)
-        else:
-            raise ValueError(f"不支持的模式: {mode}")
-
-        cum_stats = {}
-        for day in cum_returns.index:
-            cum_stats[day] = _compute_stats(cum_returns.loc[day])
-        cumulative_stats = pd.DataFrame(cum_stats).T
-        cumulative_stats.index.name = 'day'
+        overall_stats = _stats_frame(returns_df)
+        cum_returns = self._calc_cumulative(
+            returns_df, mode, holding_periods, holding_start_offset
+        )
+        cumulative_stats = _stats_frame(cum_returns)
         
         result = {
             'daily_stats': overall_stats,
@@ -537,6 +545,40 @@ class EventStudy:
         if is_multi_stock:
             result['stock_returns_dict'] = stock_returns_dict
             result['valid_codes'] = valid_codes
+            result['skipped_codes'] = skipped_codes
+
+            if multi_asset_mode == 'compare':
+                by_code = {}
+                total_events = len(event_dates)
+                for stock_code, stock_returns in stock_returns_dict.items():
+                    stock_cumulative = self._calc_cumulative(
+                        stock_returns, mode, holding_periods, holding_start_offset
+                    )
+                    event_ids = [
+                        int(event_id)
+                        for event_id in stock_returns.columns
+                        if stock_returns[event_id].notna().any()
+                    ]
+                    by_code[stock_code] = {
+                        'event_count': len(event_ids),
+                        'coverage': len(event_ids) / total_events if total_events else 0.0,
+                        'event_ids': event_ids,
+                        'event_dates': pd.DatetimeIndex([event_dates[event_id] for event_id in event_ids]),
+                        'daily_stats': _stats_frame(stock_returns),
+                        'cumulative_stats': _stats_frame(stock_cumulative),
+                        'returns_matrix': stock_returns,
+                        'cumulative_returns_matrix': stock_cumulative,
+                    }
+                result['comparison'] = {
+                    'mode': 'compare',
+                    'events': [
+                        {'event_id': event_id, 'event_date': event_date}
+                        for event_id, event_date in enumerate(event_dates)
+                    ],
+                    'valid_codes': valid_codes,
+                    'skipped_codes': skipped_codes,
+                    'by_code': by_code,
+                }
 
         if periods is not None and not is_multi_stock:
             # 多标的模式下暂不支持periods分析

@@ -26,7 +26,10 @@
 import logging
 from typing import Optional, List
 
+import pandas as pd
+
 from .query import query_nearest_before
+from .query import _normalized_schema_available
 
 
 DEFAULT_TABLE = 'index_universe'
@@ -76,6 +79,28 @@ def get_index_universe_date(
     if not date:
         raise ValueError("date不能为空")
 
+    if (
+        table_name == DEFAULT_TABLE
+        and metric == DEFAULT_METRIC
+        and _normalized_schema_available(cursor)
+    ):
+        cursor.execute(
+            """
+            SELECT s.effective_at
+            FROM betalens.index_snapshot s
+            JOIN betalens.entity_dim e ON e.entity_id = s.index_entity_id
+            WHERE e.code = %s AND s.effective_at <= %s::timestamp
+            ORDER BY s.effective_at DESC
+            LIMIT 1
+            """,
+            (index_code, date),
+        )
+        row = cursor.fetchone()
+        if not row:
+            return None
+        value = row.get("effective_at") if isinstance(row, dict) else row[0]
+        return pd.Timestamp(value)
+
     df = query_nearest_before(
         cursor,
         table_name=table_name,
@@ -91,7 +116,6 @@ def get_index_universe_date(
     # query_nearest_before 用 LEFT JOIN，无匹配时 datetime 为 NaT/None
     if eff_dt is None or (hasattr(eff_dt, '__class__') and str(eff_dt) == 'NaT'):
         return None
-    import pandas as pd
     if pd.isna(eff_dt):
         return None
     return eff_dt
@@ -124,6 +148,35 @@ def get_index_universe(
     """
     if logger is None:
         logger = _get_default_logger()
+    if not index_code:
+        raise ValueError("index_code不能为空")
+    if not date:
+        raise ValueError("date不能为空")
+
+    if (
+        table_name == DEFAULT_TABLE
+        and metric == DEFAULT_METRIC
+        and _normalized_schema_available(cursor)
+    ):
+        cursor.execute(
+            """
+            SELECT member.code
+            FROM betalens.index_snapshot s
+            JOIN betalens.entity_dim idx ON idx.entity_id = s.index_entity_id
+            JOIN betalens.index_constituent c ON c.snapshot_id = s.snapshot_id
+            JOIN betalens.entity_dim member ON member.entity_id = c.constituent_entity_id
+            WHERE idx.code = %s AND s.effective_at = (
+                SELECT MAX(s2.effective_at)
+                FROM betalens.index_snapshot s2
+                WHERE s2.index_entity_id = s.index_entity_id
+                  AND s2.effective_at <= %s::timestamp
+            )
+            ORDER BY COALESCE(c.ordinal, 2147483647), member.code
+            """,
+            (index_code, date),
+        )
+        rows = cursor.fetchall()
+        return [row.get("code") if isinstance(row, dict) else row[0] for row in rows]
 
     eff_dt = get_index_universe_date(
         cursor, index_code, date,

@@ -16,6 +16,7 @@ __pycache__/
 #构建产物
 build/
 dist/
+docs/_build/
 dashboard/frontend/dist/
 dashboard/frontend/node_modules/
 dashboard/frontend/tsconfig.tsbuildinfo
@@ -39,6 +40,7 @@ env/
 
 #数据库配置
 config.json
+config.local.json
 
 #临时文件
 *.tmp

@@ -45,6 +45,7 @@ class EventStudyRequest(BaseModel):
     metric: str | None = None
     table_name: str | None = None
     mode: str | None = None
+    multi_asset_mode: Literal["aggregate", "compare"] | None = None
     window_before: int | None = None
     window_after: int | None = None
     holding_start_offset: int | None = None

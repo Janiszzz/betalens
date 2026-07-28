@@ -1,0 +1,36 @@
+{
+  "status": "failed",
+  "database": "betalens_codex_schema9_20260719a",
+  "started_at": "2026-07-19 22:24:50",
+  "created_database": false,
+  "target_version": 5,
+  "applied_migrations": [],
+  "created_partitions": [],
+  "expected_partition_years": [],
+  "precommit_verification": null,
+  "objects": {
+    "base_tables": [
+      "schema_migration",
+      "dataset_coverage",
+      "entity_dim",
+      "entity_name_history",
+      "metric_dim",
+      "metric_alias",
+      "industry_scheme_dim",
+      "industry_dim",
+      "market_daily_fact",
+      "observation_fact",
+      "industry_membership",
+      "index_snapshot",
+      "index_constituent",
+      "trade_status_event"
+    ],
+    "compatibility_views": []
+  },
+  "legacy_tables_preserved": [],
+  "warnings": [],
+  "report_path": ".pytest_tmp\\schema9_downgrade.json",
+  "log_path": ".pytest_tmp\\schema9_downgrade.log",
+  "error": "不支持 schema 降级: 当前版本 9，请求版本 5",
+  "finished_at": "2026-07-19 22:24:50"
+}

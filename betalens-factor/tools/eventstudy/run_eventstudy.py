@@ -77,6 +77,20 @@ def read_events(path: Path) -> pd.Series:
     return events
 
 
+def _sheet_name(prefix: str, code: str, used: set[str]) -> str:
+    """Create a unique Excel-safe sheet name for per-code comparison output."""
+    cleaned = "".join("_" if char in '[]:*?/\\\\' else char for char in code)
+    base = f"{prefix}_{cleaned}"[:31]
+    candidate = base
+    suffix = 1
+    while candidate in used:
+        ending = f"_{suffix}"
+        candidate = f"{base[:31 - len(ending)]}{ending}"
+        suffix += 1
+    used.add(candidate)
+    return candidate
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run event study from YAML.")
     parser.add_argument("--config", default=str(PARAMS_FILE), help="YAML parameter file")
@@ -90,6 +104,7 @@ def main() -> int:
     metric = str(params["metric"])
     table_name = str(params["table_name"])
     mode = str(params["mode"])
+    multi_asset_mode = str(params.get("multi_asset_mode", "aggregate"))
     window_before = int(params["window_before"])
     window_after = int(params["window_after"])
     holding_start_offset = int(params["holding_start_offset"])
@@ -104,6 +119,7 @@ def main() -> int:
     print(f"  - 价格指标: {metric}")
     print(f"  - 数据表: {table_name}")
     print(f"  - 模式: {mode}")
+    print(f"  - 多标的处理: {multi_asset_mode}")
     print(f"  - 窗口: -{window_before} / +{window_after}")
 
     datafeed = Datafeed(table_name)
@@ -120,6 +136,7 @@ def main() -> int:
             holding_periods=build_holding_periods(params),
             holding_start_offset=holding_start_offset,
             market_close_hour=market_close_hour,
+            multi_asset_mode=multi_asset_mode,
         )
     finally:
         datafeed.close()
@@ -143,6 +160,26 @@ def main() -> int:
             daily_stats.to_excel(writer, sheet_name="daily_stats")
             cumulative_stats.to_excel(writer, sheet_name="cumulative_stats")
             result["returns_matrix"].to_excel(writer, sheet_name="returns_matrix")
+            comparison = result.get("comparison")
+            if comparison:
+                summaries = []
+                used_sheets = {"daily_stats", "cumulative_stats", "returns_matrix"}
+                for code, item in comparison["by_code"].items():
+                    daily = item["daily_stats"]
+                    cumulative = item["cumulative_stats"]
+                    summaries.append(
+                        {
+                            "code": code,
+                            "event_count": item["event_count"],
+                            "coverage": item["coverage"],
+                            "day0_mean": daily.loc[0, "mean"] if 0 in daily.index else None,
+                            "final_mean": cumulative.iloc[-1]["mean"] if not cumulative.empty else None,
+                        }
+                    )
+                    daily.to_excel(writer, sheet_name=_sheet_name("daily", code, used_sheets))
+                    cumulative.to_excel(writer, sheet_name=_sheet_name("cum", code, used_sheets))
+                pd.DataFrame(summaries).to_excel(writer, sheet_name="comparison_summary", index=False)
+                pd.DataFrame(comparison["events"]).to_excel(writer, sheet_name="comparison_events", index=False)
         print(f"\n[OK] 详细结果已保存到: {output_file}")
 
     return 0

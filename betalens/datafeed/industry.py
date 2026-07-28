@@ -18,7 +18,6 @@
 --------
     query_industry        : 正查——某公司在某日所属行业
     get_industry_members  : 反查——某日某行业的成分股
-    build_industry_records: 入库辅助——把 (code,name,生效日,行业) 整理成长格式
 """
 
 import itertools
@@ -26,6 +25,8 @@ import logging
 from typing import Optional, List, Tuple, Union
 
 import pandas as pd
+
+from .query import _normalized_schema_available
 
 
 DEFAULT_TABLE = 'industry'
@@ -121,6 +122,11 @@ def query_industry(
     if not dates:
         raise ValueError("dates不能为空")
 
+    if table_name == DEFAULT_TABLE and _normalized_schema_available(cursor):
+        return _query_industry_normalized(
+            cursor, codes, dates, scheme, exact=exact, logger=logger
+        )
+
     pairs = list(itertools.product(codes, dates))
     value_ph = ', '.join(['(%s, %s::TIMESTAMP)'] * len(pairs))
     metric_clause, metric_param = _scheme_clause(scheme, exact, col='t.metric')
@@ -198,6 +204,11 @@ def get_industry_members(
     if logger is None:
         logger = _get_default_logger()
 
+    if table_name == DEFAULT_TABLE and _normalized_schema_available(cursor):
+        return _get_industry_members_normalized(
+            cursor, industry, date, scheme, by=by, exact=exact, logger=logger
+        )
+
     use_value = (by == 'value') or isinstance(industry, (int, float))
 
     if use_value:
@@ -238,58 +249,137 @@ def get_industry_members(
     return df
 
 
-def build_industry_records(
-    df: pd.DataFrame,
-    scheme: str = '申万一级行业',
-    code_col: str = 'code',
-    name_col: str = 'name',
-    date_col: str = 'effective_dt',
-    ind_name_col: str = 'ind_name',
-    ind_code_col: Optional[str] = 'ind_code',
+def _query_industry_normalized(
+    cursor,
+    codes: List[str],
+    dates: List[str],
+    scheme: str,
+    exact: bool,
+    logger: logging.Logger,
 ) -> pd.DataFrame:
-    """
-    入库辅助：把行业归属明细整理成可直接 incremental_insert 的长格式
+    date_values = [pd.Timestamp(value).to_pydatetime() for value in dates]
+    scheme_condition = (
+        "sch.scheme_name = %s" if exact else "sch.scheme_name LIKE %s ESCAPE '\\'"
+    )
+    scheme_value = (
+        scheme
+        if exact
+        else scheme.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+    )
+    cursor.execute(
+        f"""
+        WITH input_data AS (
+            SELECT c.code, d.query_date,
+                   (c.code_ord - 1) * cardinality(%s::timestamp[]) + d.date_ord AS input_ord
+            FROM unnest(%s::text[]) WITH ORDINALITY AS c(code, code_ord)
+            CROSS JOIN unnest(%s::timestamp[]) WITH ORDINALITY AS d(query_date, date_ord)
+        ), resolved AS (
+            SELECT i.*, e.entity_id, e.current_name
+            FROM input_data i
+            LEFT JOIN betalens.entity_dim e ON e.code = i.code
+        )
+        SELECT r.code, r.query_date, hit.valid_from AS effective_dt,
+               CASE WHEN hit.industry_id IS NULL THEN NULL ELSE hit.sec_name END AS sec_name,
+               hit.industry_value, hit.remark
+        FROM resolved r
+        LEFT JOIN LATERAL (
+            SELECT im.valid_from, ind.industry_id,
+                    COALESCE((
+                        SELECT h.name
+                        FROM betalens.entity_name_history h
+                        WHERE h.entity_id = im.entity_id
+                          AND h.valid_from <= im.valid_from
+                          AND (h.valid_to IS NULL OR h.valid_to > im.valid_from)
+                        ORDER BY h.valid_from DESC
+                        LIMIT 1
+                    ), r.current_name) AS sec_name,
+                    NULLIF(regexp_replace(ind.industry_code, '[^0-9]', '', 'g'), '')::double precision
+                       AS industry_value,
+                   jsonb_build_object(
+                       'ind_name', ind.industry_name,
+                       'ind_code', ind.industry_code,
+                       'scheme', sch.scheme_name
+                   ) || COALESCE(im.remark, '{{}}'::jsonb) AS remark
+            FROM betalens.industry_membership im
+            JOIN betalens.industry_dim ind ON ind.industry_id = im.industry_id
+            JOIN betalens.industry_scheme_dim sch ON sch.scheme_id = ind.scheme_id
+            WHERE im.entity_id = r.entity_id
+              AND {scheme_condition}
+              AND im.valid_from <= r.query_date
+              AND (im.valid_to IS NULL OR im.valid_to > r.query_date)
+            ORDER BY im.valid_from DESC
+            LIMIT 1
+        ) hit ON TRUE
+        ORDER BY r.input_ord
+        """,
+        (date_values, list(codes), date_values, scheme_value),
+    )
+    frame = pd.DataFrame(cursor.fetchall())
+    frame = _explode_remark(frame)
+    logger.info("query_industry(normalized): %s代码 × %s日期", len(codes), len(dates))
+    return frame
 
-    输入每行 = 一条归属事件 (证券, 生效日, 行业)。输出列：
-        datetime, code, name, metric(=scheme), value(=行业代码数值), remark(dict)
 
-    Args:
-        df: 明细 DataFrame
-        scheme: 分类体系，写入 metric
-        code_col/name_col/date_col: 证券代码/名称/生效日 列名
-        ind_name_col: 行业名列名
-        ind_code_col: 行业代码列名（如 '801780.SI'）；为 None 则不填 value
-
-    Returns:
-        长格式 DataFrame（datetime, code, name, metric, value, remark）
-    """
-    import re
-
-    out = pd.DataFrame()
-    out['datetime'] = pd.to_datetime(df[date_col])
-    out['code'] = df[code_col].astype(str)
-    out['name'] = df[name_col].astype(str)
-    out['metric'] = scheme
-
-    def _to_num(c):
-        if c is None or (isinstance(c, float) and pd.isna(c)):
-            return None
-        m = re.search(r'\d+', str(c))
-        return int(m.group()) if m else None
-
-    if ind_code_col and ind_code_col in df.columns:
-        out['value'] = df[ind_code_col].apply(_to_num)
-        ind_codes = df[ind_code_col]
-    else:
-        out['value'] = None
-        ind_codes = pd.Series([None] * len(df), index=df.index)
-
-    out['remark'] = [
-        {
-            'ind_name': (None if pd.isna(n) else str(n)),
-            'ind_code': (None if pd.isna(c) else str(c)),
-            'scheme': scheme,
-        }
-        for n, c in zip(df[ind_name_col], ind_codes)
-    ]
-    return out
+def _get_industry_members_normalized(
+    cursor,
+    industry: Union[str, int, float],
+    date: str,
+    scheme: str,
+    by: str,
+    exact: bool,
+    logger: logging.Logger,
+) -> pd.DataFrame:
+    use_value = by == "value" or isinstance(industry, (int, float))
+    scheme_condition = (
+        "sch.scheme_name = %s" if exact else "sch.scheme_name LIKE %s ESCAPE '\\'"
+    )
+    scheme_value = (
+        scheme
+        if exact
+        else scheme.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+    )
+    match_sql = (
+        "industry_value = %s" if use_value else "(remark->>'ind_name') = %s"
+    )
+    cursor.execute(
+        f"""
+        WITH candidates AS (
+            SELECT e.entity_id, e.code,
+                   COALESCE((
+                       SELECT h.name
+                       FROM betalens.entity_name_history h
+                       WHERE h.entity_id = e.entity_id
+                         AND h.valid_from <= im.valid_from
+                         AND (h.valid_to IS NULL OR h.valid_to > im.valid_from)
+                       ORDER BY h.valid_from DESC
+                       LIMIT 1
+                   ), e.current_name) AS sec_name,
+                   im.valid_from,
+                   NULLIF(regexp_replace(ind.industry_code, '[^0-9]', '', 'g'), '')::double precision
+                       AS industry_value,
+                   jsonb_build_object(
+                       'ind_name', ind.industry_name,
+                       'ind_code', ind.industry_code,
+                       'scheme', sch.scheme_name
+                   ) || COALESCE(im.remark, '{{}}'::jsonb) AS remark,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY e.entity_id ORDER BY im.valid_from DESC
+                   ) AS rn
+            FROM betalens.industry_membership im
+            JOIN betalens.entity_dim e ON e.entity_id = im.entity_id
+            JOIN betalens.industry_dim ind ON ind.industry_id = im.industry_id
+            JOIN betalens.industry_scheme_dim sch ON sch.scheme_id = ind.scheme_id
+            WHERE {scheme_condition}
+              AND im.valid_from <= %s::timestamp
+              AND (im.valid_to IS NULL OR im.valid_to > %s::timestamp)
+        )
+        SELECT code, sec_name, industry_value, remark
+        FROM candidates
+        WHERE rn = 1 AND {match_sql}
+        ORDER BY code
+        """,
+        (scheme_value, date, date, industry),
+    )
+    frame = _explode_remark(pd.DataFrame(cursor.fetchall()))
+    logger.info("get_industry_members(normalized): %s members", len(frame))
+    return frame

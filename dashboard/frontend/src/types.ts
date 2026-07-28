@@ -128,6 +128,26 @@ export type EventFilesResponse = {
   files: EventFile[];
 };
 
+export type EventStudyComparison = {
+  mode: 'compare';
+  events: Array<{
+    eventId: number;
+    eventDate: string | null;
+  }>;
+  validCodes: string[];
+  skippedCodes: Array<{
+    code: string;
+    reason: string;
+  }>;
+  totalEventCount: number;
+  displayedEventCount: number;
+  truncated: boolean;
+  summaryByCode: Array<Record<string, number | string | null>>;
+  dailyByCode: Array<Record<string, number | string | null>>;
+  cumulativeByCode: Array<Record<string, number | string | null>>;
+  eventCumulativeByCode: Array<Record<string, number | string | null>>;
+};
+
 export type EventStudyResult = {
   eventFile: {
     id: string;
@@ -147,4 +167,5 @@ export type EventStudyResult = {
     cumulativeStats: Array<Record<string, unknown>>;
     events: Array<Record<string, unknown>>;
   };
+  comparison?: EventStudyComparison;
 };

@@ -18,6 +18,7 @@ from .factors import FACTOR_ROOT, REPO_ROOT
 EVENT_ROOT = FACTOR_ROOT / "tools" / "eventstudy"
 EVENT_OUTPUT_ROOT = Path(tempfile.gettempdir()) / "betalens_dashboard_eventstudy"
 EVENT_PARAMS_FILE = EVENT_ROOT / "eventstudy.yaml"
+MAX_COMPARISON_EVENTS = 30
 
 
 def load_eventstudy_params() -> dict[str, Any]:
@@ -258,6 +259,87 @@ def _event_rows(path: Path) -> list[dict[str, Any]]:
     return [{str(k): _clean_scalar(v) for k, v in row.items()} for row in out.to_dict("records")]
 
 
+def _comparison_payload(raw: dict[str, Any], window_after: int) -> dict[str, Any] | None:
+    comparison = raw.get("comparison")
+    if not comparison:
+        return None
+
+    events = comparison.get("events", [])
+    displayed_events = events[:MAX_COMPARISON_EVENTS]
+    displayed_ids = {int(event["event_id"]) for event in displayed_events}
+    event_by_id = {
+        int(event["event_id"]): _clean_scalar(event.get("event_date"))
+        for event in events
+    }
+    summary_by_code: list[dict[str, Any]] = []
+    daily_by_code: list[dict[str, Any]] = []
+    cumulative_by_code: list[dict[str, Any]] = []
+    event_cumulative_by_code: list[dict[str, Any]] = []
+
+    for code, item in comparison.get("by_code", {}).items():
+        daily = _records(item.get("daily_stats"), "day")
+        cumulative = _records(item.get("cumulative_stats"), "day")
+        day0 = _key_metric(daily, 0)
+        final = _key_metric(cumulative, window_after)
+        summary_by_code.append(
+            {
+                "code": str(code),
+                "eventCount": int(item.get("event_count", 0)),
+                "coverage": _clean_scalar(item.get("coverage")),
+                "day0Mean": day0.get("mean") if day0 else None,
+                "day0TStat": day0.get("t_stat") if day0 else None,
+                "day0PositiveProb": day0.get("positive_prob") if day0 else None,
+                "finalDay": final.get("day") if final else None,
+                "finalMean": final.get("mean") if final else None,
+                "finalTStat": final.get("t_stat") if final else None,
+                "finalPositiveProb": final.get("positive_prob") if final else None,
+            }
+        )
+        daily_by_code.extend({"code": str(code), **row} for row in daily)
+        cumulative_by_code.extend({"code": str(code), **row} for row in cumulative)
+
+        cumulative_matrix = item.get("cumulative_returns_matrix")
+        if cumulative_matrix is None or cumulative_matrix.empty:
+            continue
+        for day, series in cumulative_matrix.iterrows():
+            for event_id, value in series.items():
+                normalized_event_id = int(event_id)
+                if normalized_event_id not in displayed_ids:
+                    continue
+                event_cumulative_by_code.append(
+                    {
+                        "code": str(code),
+                        "eventId": normalized_event_id,
+                        "eventDate": event_by_id.get(normalized_event_id),
+                        "day": _clean_scalar(day),
+                        "cumulativeReturn": _clean_scalar(value),
+                    }
+                )
+
+    return {
+        "mode": "compare",
+        "events": [
+            {
+                "eventId": int(event["event_id"]),
+                "eventDate": _clean_scalar(event.get("event_date")),
+            }
+            for event in displayed_events
+        ],
+        "validCodes": [str(code) for code in comparison.get("valid_codes", [])],
+        "skippedCodes": [
+            {str(key): _clean_scalar(value) for key, value in item.items()}
+            for item in comparison.get("skipped_codes", [])
+        ],
+        "totalEventCount": len(events),
+        "displayedEventCount": len(displayed_events),
+        "truncated": len(events) > len(displayed_events),
+        "summaryByCode": summary_by_code,
+        "dailyByCode": daily_by_code,
+        "cumulativeByCode": cumulative_by_code,
+        "eventCumulativeByCode": event_cumulative_by_code,
+    }
+
+
 def run_event_study(params: dict[str, Any]) -> dict[str, Any]:
     defaults = load_eventstudy_params()
     merged = {**defaults, **{k: v for k, v in params.items() if v not in (None, "")}}
@@ -273,6 +355,9 @@ def run_event_study(params: dict[str, Any]) -> dict[str, Any]:
     metric = str(merged.get("metric"))
     table_name = str(merged.get("table_name") or merged.get("tableName"))
     mode = str(merged.get("mode"))
+    multi_asset_mode = str(
+        _param_value(merged, "multi_asset_mode", "multiAssetMode", "aggregate")
+    )
     window_before = int(_param_value(merged, "window_before", "windowBefore", merged["window_before"]))
     window_after = int(_param_value(merged, "window_after", "windowAfter", merged["window_after"]))
     holding_start_offset = int(_param_value(merged, "holding_start_offset", "holdingStartOffset", merged["holding_start_offset"]))
@@ -292,6 +377,7 @@ def run_event_study(params: dict[str, Any]) -> dict[str, Any]:
             holding_periods=_build_holding_periods(merged),
             holding_start_offset=holding_start_offset,
             market_close_hour=market_close_hour,
+            multi_asset_mode=multi_asset_mode,
         )
     finally:
         datafeed.close()
@@ -316,6 +402,7 @@ def run_event_study(params: dict[str, Any]) -> dict[str, Any]:
             "metric": metric,
             "tableName": table_name,
             "mode": mode,
+            "multiAssetMode": multi_asset_mode,
             "windowBefore": window_before,
             "windowAfter": window_after,
             "holdingStartOffset": holding_start_offset,
@@ -347,4 +434,7 @@ def run_event_study(params: dict[str, Any]) -> dict[str, Any]:
             "events": _event_rows(path),
         },
     }
+    comparison = _comparison_payload(raw, window_after)
+    if comparison is not None:
+        result["comparison"] = comparison
     return result

@@ -5,15 +5,13 @@ from __future__ import annotations
 from pathlib import Path
 
 
-ALLOWED_TABLES = (
-    "daily_market",
-    "fundamentals",
-    "macro",
-    "factors",
-    "industry",
-    "index_universe",
-    "trade_status",
-)
+from .registry import LOGICAL_TABLES, WRITABLE_TABLES
+
+
+# Backwards-compatible name used by the existing CLI/GUI.  It now describes
+# logical datasets, not physical PostgreSQL tables.
+ALLOWED_TABLES = LOGICAL_TABLES
+ALLOWED_WRITE_TABLES = WRITABLE_TABLES
 
 DEFAULT_LIMIT = 500
 MAX_PREVIEW_ROWS = 100
@@ -32,8 +30,12 @@ UPSERT = "upsert"
 IMPORT_MODES = (INSERT_ONLY, UPSERT)
 
 IMPORT_TYPES = (
-    "ede",
+    "auto",
+    "standard_long",
+    "wind_wide",
     "wind_long",
+    "ede",
+    "industry",
     "index_universe",
     "trade_status",
 )

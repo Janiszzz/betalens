@@ -688,6 +688,8 @@ class BacktestBase(object):
                 f"查询参数: codes={len(weight_codes)}个, ranges={len(ranges)}个\n"
                 f"修复建议: 检查数据库连接和查询参数"
             ) from e
+        finally:
+            db.close()
 
         # === 验证查询结果 ===
         expected_columns = ['code', 'input_ts', 'datetime', params['metric']]
@@ -1039,6 +1041,8 @@ class BacktestBase(object):
                 f"查询参数: codes={len(query_codes)}个, start={start_date_str}, end={end_date_str}\n"
                 f"修复建议: 检查数据库连接和查询参数"
             ) from e
+        finally:
+            db.close()
         
         # === 验证查询结果 ===
         expected_columns = ['code', 'datetime', 'value']

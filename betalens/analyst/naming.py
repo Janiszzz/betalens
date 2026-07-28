@@ -58,15 +58,9 @@ def get_name_map(codes, tables=None) -> dict:
         try:
             db = Datafeed(table)
             try:
-                placeholders = ','.join(['%s'] * len(remaining))
-                sql = (
-                    f"SELECT DISTINCT ON (code) code, name FROM {table} "
-                    f"WHERE code IN ({placeholders}) AND name IS NOT NULL "
-                    f"ORDER BY code, datetime DESC"
-                )
-                db.cursor.execute(sql, remaining)
-                for row in db.cursor.fetchall():
-                    code, name = row['code'], row['name']
+                rows = db.query_names(remaining)
+                for row in rows.to_dict("records"):
+                    code, name = row["code"], row["name"]
                     if name:
                         result[code] = name
                         _NAME_CACHE[code] = name

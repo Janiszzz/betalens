@@ -435,12 +435,10 @@ def query_industry_panel(
             if not codes:
                 continue
             date_str = pd.Timestamp(ts).strftime('%Y-%m-%d')
-            res = query_industry(
-                cursor=data.cursor,
+            res = data.query_industry(
                 codes=codes,
                 dates=date_str,
                 scheme=scheme,
-                table_name=industry_table,
             )
             if res is None or res.empty:
                 continue

@@ -1,0 +1,40 @@
+meta:
+  class: alpha101
+  name: ALPHA12_timing
+  strategy_type: timing
+  source: WorldQuant 101 Formulaic Alphas (Kakushadze 2016)
+  formula: alpha12 timing
+  logic: 基于 raw ALPHA12 的 120 日滚动均值 + 1σ 历史阈值，信号突破阈值则满仓做空，否则空仓。
+factor_spec:
+  inputs:
+    close_wide: 收盘价(元)
+    volume_wide: 成交量(股)
+  compute_kwargs:
+    stock_code: 300750.SZ
+    threshold_window: 120
+    threshold_sigma: 1
+    max_weight: 1
+  direction: positive
+  table_name: daily_market
+  index_code: ''
+  use_industry: false
+  use_mktcap: false
+  industry_scheme: 申万一级行业
+  backtest_metric: 收盘价(元)
+weight:
+  mode: freeplay
+  long_groups: null
+  short_groups: null
+  group_weights: {}
+  intra_group_allocation: {}
+run:
+  start_date: '2025-01-01'
+  end_date: '2025-12-31'
+  rebal_freq: D
+  n_quantiles: 10
+  initial_amount: 100000000
+  benchmark_code: 000906.SH
+  include_profiling: false
+  dump_excel: false
+  warmup_days: null
+  output_dir: C:\Users\Janis\OneDrive\betalens\betalens-factor\alpha101\ALPHA12\outputs\runs\c3aae6716c0d4eb4b6ec60704ad68513

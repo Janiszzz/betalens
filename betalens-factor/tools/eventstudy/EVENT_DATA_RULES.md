@@ -129,6 +129,7 @@ events = df[df["event"] == 1]
 - `metric`: 价格指标，默认 `收盘价(元)`。
 - `table_name`: 数据表，默认 `daily_market`。
 - `mode`: `flexible` 或 `fixed`。
+- `multi_asset_mode`: `aggregate`（默认等权聚合）或 `compare`（逐标的比较）。
 - `window_before`: 事件前窗口。
 - `window_after`: 事件后窗口。
 - `holding_start_offset`: 持有起点偏移。
@@ -141,6 +142,9 @@ events = df[df["event"] == 1]
 - 事件文件中的日期范围必须落在数据库有行情数据的范围内。
 - 标的代码必须在 `table_name` 对应数据表中存在。
 - 指标名必须与数据库一致。当前常用值是 `收盘价(元)`，不是 `收盘价`。
+- `compare` 至少需要两个标的代码；事件文件仍只描述事件时点，不需要增加标的列。
+- 多标的传入基准时，每个标的先计算超额收益，再生成共性和个性统计。
+- 某标的缺少事件窗口时按原始事件 ID 保留空值，并在结果中显示有效事件覆盖率。
 
 ## 输出结果
 
@@ -159,6 +163,8 @@ events = df[df["event"] == 1]
 - 三维事件收益矩阵
 - 日度统计表
 - 累积统计表
+- compare 模式下的逐标的事件覆盖率、Day 0/窗口末端统计和跨事件平均累计曲线
+- compare 模式下可选择单个事件查看各标的累计收益曲线
 
 底层 `EventStudy.analyze()` 返回：
 
@@ -168,6 +174,7 @@ events = df[df["event"] == 1]
 - `cumulative_returns_matrix`
 - `event_count`
 - 多标的模式额外返回 `valid_codes` 和 `stock_returns_dict`
+- compare 模式额外返回 `comparison`，包含稳定事件映射、跳过代码和逐标的完整统计/矩阵
 
 ## 质量检查清单
 

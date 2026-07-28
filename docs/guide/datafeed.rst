@@ -1,22 +1,27 @@
 数据模块
 ========
 
-``betalens.datafeed`` 是研究运行时的数据访问层，负责连接 PostgreSQL、查询时间序列、读取交易日、处理行业和指数成分，并保留部分文件入库薄封装。批量入库、schema 检查和 GUI 管理由 ``betalens_db_manager`` 承担，详见 :doc:`db-manager`。
+``betalens.datafeed`` 是研究运行时的只读数据访问层，负责连接 PostgreSQL、查询时间序列、读取交易日、处理行业和指数成分。建库、迁移、文件解析、批量写入和 GUI 管理由 ``betalens_db_manager`` 承担，详见 :doc:`db-manager`。
 
 配置
 ----
 
-配置模板位于 ``betalens/datafeed/config.example.json``。复制为 ``config.json`` 后修改数据库信息：
+配置模板位于 ``betalens/datafeed/config.example.json``。仓库内本地开发可复制为已忽略的
+``config.local.json`` 后修改数据库信息：
 
 .. code-block:: powershell
 
-   Copy-Item betalens\datafeed\config.example.json betalens\datafeed\config.json
+   Copy-Item betalens\datafeed\config.example.json betalens\datafeed\config.local.json
 
 配置优先级：
 
 1. 运行时传入的 ``db_config``。
-2. ``betalens/datafeed/config.json``。
-3. 内置默认值。
+2. ``BETALENS_DB_*`` 环境变量。
+3. ``BETALENS_CONFIG`` 指定的配置文件。
+4. 用户配置 ``%APPDATA%\betalens\config.json``。
+5. 仓库本地配置 ``betalens/datafeed/config.local.json``。
+6. 旧的 ``betalens/datafeed/config.json``。
+7. 内置默认值。
 
 .. code-block:: python
 
@@ -147,7 +152,7 @@ Datafeed 查询
 文件与 Wind 入库
 ----------------
 
-运行时代码仍提供 ``Datafeed.insert_ede_file``、``insert_csv_file``、``ingest_wind_daily_market`` 等兼容方法，但会提示迁移到 ``betalens_db_manager``。新工作流优先使用数据库管理工具统一执行预览、校验、冲突检查、导入记录和 GUI。
+``Datafeed`` 不提供文件解析或写入方法。Excel/CSV、EDE 和 Wind 适配器位于 ``betalens_db_manager.adapters``，文件任务由数据库管理器统一执行预览、校验、冲突检查和写入。
 
 .. code-block:: python
 
@@ -156,5 +161,15 @@ Datafeed 查询
    runner = ImportJobRunner()
    preview = runner.preview("data.xlsx", import_type="ede")
    record = runner.run("data.xlsx", import_type="ede", table="daily_market")
+
+在线 Wind 数据先转换为标准六列长表，再交给写入器：
+
+.. code-block:: python
+
+   from betalens_db_manager import DatabaseWriter
+   from betalens_db_manager.adapters import fetch_daily_market
+
+   frame = fetch_daily_market(["000001.SZ"], "2024-01-01", "2024-01-31")
+   result = DatabaseWriter().write("daily_market", frame, mode="upsert")
 
 更多 API 细节请参阅 :doc:`../api/datafeed`，数据库管理流程见 :doc:`db-manager`。

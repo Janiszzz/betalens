@@ -1,45 +1,67 @@
-"""Persistent local import records."""
+"""Compatibility wrapper for database-manager job persistence."""
 
 from __future__ import annotations
 
-import json
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from .constants import IMPORT_RECORDS_FILE, JOB_LOG_DIR
-from .utils import ensure_parent, to_json_line
+from .constants import IMPORT_RECORDS_FILE, JOB_LOG_DIR, MANAGER_LOG_ROOT
+from .job_store import JobStore
 
 
 class ImportRecordStore:
-    def __init__(self, records_file: Path = IMPORT_RECORDS_FILE, job_log_dir: Path = JOB_LOG_DIR):
-        self.records_file = records_file
-        self.job_log_dir = job_log_dir
-        ensure_parent(self.records_file)
+    """Retain the old append/read API on top of the shared SQLite JobStore."""
+
+    def __init__(
+        self,
+        records_file: Path = IMPORT_RECORDS_FILE,
+        job_log_dir: Path = JOB_LOG_DIR,
+        *,
+        job_store: JobStore | None = None,
+    ):
+        self.records_file = Path(records_file)
+        self.job_log_dir = Path(job_log_dir)
+        if job_store is None:
+            default_records = Path(IMPORT_RECORDS_FILE)
+            sqlite_path = (
+                MANAGER_LOG_ROOT / "jobs.sqlite3"
+                if self.records_file == default_records
+                else self.records_file.with_suffix(".sqlite3")
+            )
+            job_store = JobStore(sqlite_path, self.job_log_dir)
+        self.job_store = job_store
         self.job_log_dir.mkdir(parents=True, exist_ok=True)
+        self._migrate_json_lines()
 
     def job_log_path(self, job_id: str) -> Path:
-        return self.job_log_dir / f"{job_id}.log"
+        return self.job_store.job_log_path(job_id)
 
     def append(self, record: dict[str, Any]) -> None:
-        payload = dict(record)
-        payload.setdefault("recorded_at", datetime.now().isoformat(sep=" ", timespec="seconds"))
-        ensure_parent(self.records_file)
-        with self.records_file.open("a", encoding="utf-8") as fh:
-            fh.write(to_json_line(payload))
+        self.job_store.append_record(record)
 
     def read_all(self) -> list[dict[str, Any]]:
+        return self.job_store.read_legacy_records()
+
+    def _migrate_json_lines(self) -> None:
+        """Import pre-redesign JSONL records once; upserts make this idempotent."""
+
         if not self.records_file.exists():
-            return []
-        rows: list[dict[str, Any]] = []
-        with self.records_file.open("r", encoding="utf-8") as fh:
-            for line in fh:
-                line = line.strip()
-                if not line:
+            return
+        import json
+
+        with self.records_file.open("r", encoding="utf-8") as handle:
+            for line_number, line in enumerate(handle, start=1):
+                raw = line.strip()
+                if not raw:
                     continue
                 try:
-                    rows.append(json.loads(line))
+                    payload = json.loads(raw)
                 except json.JSONDecodeError:
-                    rows.append({"status": "corrupt", "raw": line})
-        return rows
+                    payload = {
+                        "job_id": f"corrupt-jsonl-{line_number}",
+                        "status": "corrupt",
+                        "raw": raw,
+                    }
+                if isinstance(payload, dict):
+                    self.job_store.append_record(payload)
 

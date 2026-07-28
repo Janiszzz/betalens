@@ -1,13 +1,13 @@
 # Datafeed 配置管理
 
-`betalens.datafeed` 使用外置 JSON 配置管理数据库、日志、Excel、Wind 和 EDE 解析参数。运行时查询层仍通过 `Datafeed` 访问数据；批量入库和 GUI 管理优先使用 `betalens_db_manager`。
+`betalens.datafeed` 使用外置 JSON 配置管理只读数据库连接和日志。Excel、EDE、Wind 解析及所有写入能力归 `betalens_db_manager`。
 
 ## 快速开始
 
 复制模板并修改本地数据库连接：
 
 ```powershell
-Copy-Item betalens\datafeed\config.example.json betalens\datafeed\config.json
+Copy-Item betalens\datafeed\config.example.json betalens\datafeed\config.local.json
 ```
 
 ```python
@@ -26,15 +26,21 @@ df.close()
 ## 配置文件
 
 - `config.example.json`：模板文件，建议提交。
-- `config.json`：本地配置文件，包含数据库密码时不要提交。
+- `config.local.json`：仓库内本地配置文件，已被 Git 忽略。
+- `%APPDATA%\betalens\config.json`：推荐的仓库外用户配置文件。
+- `config.json`：旧版本地配置路径，仍可读取但不再推荐。
 
-常见路径是 `betalens/datafeed/config.json`。配置读取逻辑会先找显式传入路径，再找默认配置，最后回落到内置默认值。
+也可用 `BETALENS_CONFIG` 显式指定配置文件路径。
 
 ## 配置优先级
 
 1. 运行时参数，例如 `Datafeed(..., db_config={...})`。
-2. `config.json`。
-3. 代码内置默认值。
+2. `BETALENS_DB_*` 环境变量。
+3. `BETALENS_CONFIG` 指定的配置文件。
+4. `%APPDATA%\betalens\config.json`。
+5. `betalens/datafeed/config.local.json`。
+6. 旧的 `betalens/datafeed/config.json`。
+7. 代码内置默认值。
 
 ```python
 from betalens.datafeed import Datafeed
@@ -66,18 +72,6 @@ df = Datafeed(
 ### logging
 
 日志目录、日志级别和格式。默认日志目录通常是 `./logs`。
-
-### excel
-
-Excel/CSV 读取参数，包括候选编码、表头识别和交易时间对齐规则。
-
-### wind
-
-Wind 数据抓取字段映射，覆盖股票、指数、基金、债券等日频数据。
-
-### ede
-
-EDE 文件解析规则，包括日期提取、指标列元数据识别和清洗关键词。
 
 ## 读取和修改配置
 
@@ -113,11 +107,13 @@ preview = runner.preview("data.xlsx", import_type="ede")
 record = runner.run("data.xlsx", import_type="ede", table="daily_market")
 ```
 
+解析参数通过 `runner.preview(..., options={...})`、`runner.run(..., options={...})` 或 `betalens_db_manager.adapters` 函数参数显式传入。
+
 ## 常见场景
 
 ### 开发环境
 
-复制 `config.example.json` 为 `config.json`，填本地 PostgreSQL 连接即可。
+复制 `config.example.json` 为 `config.local.json`，填本地 PostgreSQL 连接即可。
 
 ### 生产或共享环境
 

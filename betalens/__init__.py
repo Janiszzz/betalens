@@ -6,18 +6,14 @@ as ``betalens.datafeed`` does not eagerly import the full analyst/factor stack.
 
 from .datafeed import (
     Datafeed,
-    DataValidator,
     FillStrategy,
-    func_timer,
     get_absolute_trade_days,
     trade_days_offset,
 )
 
 __all__ = [
     "Datafeed",
-    "DataValidator",
     "FillStrategy",
-    "func_timer",
     "get_absolute_trade_days",
     "trade_days_offset",
     "BacktestBase",
