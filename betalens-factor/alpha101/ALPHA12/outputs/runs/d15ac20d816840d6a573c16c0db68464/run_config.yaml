@@ -30,5 +30,5 @@ run:
   initial_amount: 100000000
   benchmark_code: 000906.SH
   include_profiling: true
-  dump_excel: true
-  output_dir: outputs/runs/manual
+  dump_excel: false
+  output_dir: C:\Users\Janis\OneDrive\betalens\betalens-factor\alpha101\ALPHA12\outputs\runs\d15ac20d816840d6a573c16c0db68464

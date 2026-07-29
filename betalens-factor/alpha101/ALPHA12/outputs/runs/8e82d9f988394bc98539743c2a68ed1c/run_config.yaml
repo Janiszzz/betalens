@@ -26,9 +26,9 @@ run:
   start_date: '2024-01-01'
   end_date: '2025-12-31'
   rebal_freq: W
-  n_quantiles: 10
+  n_quantiles: 20
   initial_amount: 100000000
   benchmark_code: 000906.SH
   include_profiling: true
-  dump_excel: true
-  output_dir: outputs/runs/manual
+  dump_excel: false
+  output_dir: C:\Users\Janis\OneDrive\betalens\betalens-factor\alpha101\ALPHA12\outputs\runs\8e82d9f988394bc98539743c2a68ed1c

@@ -1,8 +1,8 @@
 eventstudy:
   event_file: 1.春节假期.xlsx
-  code: 000906.SH
+  code: 601398.SH
   benchmark_code: ''
-  metric: 收盘价
+  metric: 收盘价(元)
   table_name: daily_market
   mode: flexible
   multi_asset_mode: aggregate

@@ -175,6 +175,155 @@ def plot_monthly_heatmap(table: pd.DataFrame, title: str = '月度收益热力�
     return _fig_to_bytes(fig)
 
 
+def plot_group_nav(group_nav: pd.DataFrame, title: str = '分组净值曲线',
+                   n_quantiles: int = 10) -> bytes:
+    """十分组净值曲线（截面因子用）。
+
+    Args:
+        group_nav: DataFrame, index=date, columns=G1..Gn（各组净值，从1出发）
+        title: 图表标题
+        n_quantiles: 分组数（用于图例列数优化）
+
+    Returns:
+        PNG bytes
+    """
+    if group_nav.empty:
+        fig, ax = plt.subplots(figsize=(10, 4))
+        ax.text(0.5, 0.5, '数据不足', ha='center', va='center', transform=ax.transAxes)
+        ax.axis('off')
+        return _fig_to_bytes(fig)
+
+    fig, ax = plt.subplots(figsize=(12, 5))
+    cols = [c for c in group_nav.columns if c.startswith('G')]
+    n = len(cols)
+    colors = plt.cm.RdYlGn(np.linspace(0.1, 0.9, n))
+
+    for i, col in enumerate(cols):
+        pct = (group_nav[col] - 1) * 100  # 转为%，从0开始
+        ax.plot(group_nav.index, pct.values, label=col,
+                color=colors[i], linewidth=1.2)
+
+    ax.set_title(title, fontsize=13)
+    ax.set_ylabel('累计收益率 (%)')
+    ax.legend(fontsize=8, loc='upper left', ncol=max(1, n // 3))
+    ax.axhline(0, color='gray', linewidth=0.5, linestyle='--')
+    ax.grid(alpha=0.3)
+    return _fig_to_bytes(fig)
+
+
+def plot_timing_nav_with_trades(nav: pd.Series, trade_pairs: pd.DataFrame,
+                                 title: str = '净值曲线（含买卖点）') -> bytes:
+    """择时策略净值曲线 + 买卖点标注。
+
+    Args:
+        nav: 净值序列（index=date, values=nav）
+        trade_pairs: DataFrame，含 buy_date, sell_date, return 列
+        title: 图表标题
+
+    Returns:
+        PNG bytes
+    """
+    fig, ax = plt.subplots(figsize=(12, 5))
+    ax.plot(nav.index, nav.values, color='black', linewidth=1, label='净值', zorder=1)
+
+    if not trade_pairs.empty:
+        for _, row in trade_pairs.iterrows():
+            # 买入点
+            bd = row['buy_date']
+            bv = nav.asof(bd) if bd in nav.index else nav.loc[nav.index >= bd].iloc[0] if any(nav.index >= bd) else nav.iloc[-1]
+            ax.plot(bd, bv, marker='^', color='red', markersize=9, zorder=5)
+
+            # 卖出点 + 收益标注
+            sd = row['sell_date']
+            sv = nav.asof(sd) if sd in nav.index else nav.loc[nav.index >= sd].iloc[0] if any(nav.index >= sd) else nav.iloc[-1]
+            ax.plot(sd, sv, marker='v', color='green', markersize=9, zorder=5)
+            ret = row['return']
+            sign = '+' if ret >= 0 else ''
+            ax.annotate(f'{sign}{ret:.1%}', (sd, sv),
+                        textcoords='offset points', xytext=(0, 8),
+                        fontsize=7, ha='center',
+                        color='green' if ret >= 0 else 'red')
+
+        # 图例用 proxy artists
+        from matplotlib.lines import Line2D
+        handles = [
+            Line2D([0], [0], color='black', linewidth=1, label='净值'),
+            Line2D([0], [0], marker='^', color='red', linestyle='None',
+                   markersize=9, label='买入'),
+            Line2D([0], [0], marker='v', color='green', linestyle='None',
+                   markersize=9, label='卖出'),
+        ]
+        ax.legend(handles=handles, fontsize=9, loc='best')
+    else:
+        ax.legend(fontsize=9)
+
+    ax.set_title(title, fontsize=13)
+    ax.set_ylabel('净值')
+    ax.grid(alpha=0.3)
+    return _fig_to_bytes(fig)
+
+
+def plot_annual_trade_performance(trade_pairs: pd.DataFrame,
+                                   title: str = '分年度交易表现') -> bytes:
+    """分年度柱状收益 + 胜率折线。
+
+    Args:
+        trade_pairs: DataFrame，含 sell_date(Timestamp) 和 return(float) 列
+        title: 图表标题
+
+    Returns:
+        PNG bytes
+    """
+    if trade_pairs.empty:
+        fig, ax = plt.subplots(figsize=(10, 4))
+        ax.text(0.5, 0.5, '无交易记录', ha='center', va='center',
+                transform=ax.transAxes, fontsize=12)
+        ax.axis('off')
+        return _fig_to_bytes(fig)
+
+    df = trade_pairs.copy()
+    df['year'] = pd.to_datetime(df['sell_date']).dt.year
+    annual = df.groupby('year')['return'].agg([
+        ('avg_return', 'mean'),
+        ('win_rate', lambda s: (s > 0).mean()),
+        ('n_trades', 'count'),
+    ]).reset_index()
+
+    fig, ax1 = plt.subplots(figsize=(max(8, len(annual) * 0.6 + 2), 5))
+    ax2 = ax1.twinx()
+
+    # 柱状图：正红负绿
+    colors = ['#d62728' if v >= 0 else '#2ca02c' for v in annual['avg_return']]
+    bars = ax1.bar(annual['year'].astype(str), annual['avg_return'],
+                   color=colors, alpha=0.85, width=0.6)
+
+    # 每柱标注 n=
+    for bar, (_, row) in zip(bars, annual.iterrows()):
+        h = bar.get_height()
+        ypos = h + (0.001 if h >= 0 else -0.003)
+        va = 'bottom' if h >= 0 else 'top'
+        ax1.text(bar.get_x() + bar.get_width() / 2, ypos,
+                 f'n={int(row["n_trades"])}',
+                 ha='center', va=va, fontsize=7)
+
+    # 胜率折线
+    ax2.plot(annual['year'].astype(str), annual['win_rate'],
+             color='black', marker='o', linewidth=1.5, label='胜率', zorder=5)
+    ax2.axhline(0.5, color='gray', linewidth=0.8, linestyle='--', alpha=0.6)
+    ax2.set_ylim(0, 1.1)
+    ax2.set_ylabel('胜率')
+
+    ax1.axhline(0, color='gray', linewidth=0.8, linestyle='--', alpha=0.6)
+    ax1.set_xlabel('年份')
+    ax1.set_ylabel('单笔平均收益')
+    ax1.set_title(title, fontsize=13)
+    ax1.tick_params(axis='x', rotation=45)
+
+    ax2.legend(loc='upper right', fontsize=9)
+    fig.tight_layout()
+    return _fig_to_bytes(fig)
+
+
 # ── plotly → 交互 Figure ────────────────────────────────────────────────────
 
 def _import_plotly():

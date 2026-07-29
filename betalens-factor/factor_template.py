@@ -313,6 +313,83 @@ def append_grouped_profiling_excel(output_dir, name, labeled):
 
 
 # ============================================================
+# 静态图辅助函数
+# ============================================================
+
+def _match_trade_pairs(rebalance_log):
+    """将 rebalance_log 中 buy/sell 按 code FIFO 配对，计算每笔收益。
+
+    Returns:
+        DataFrame: code, buy_date, sell_date, buy_price, sell_price, return
+    """
+    if rebalance_log is None or rebalance_log.empty:
+        return pd.DataFrame(
+            columns=['code', 'buy_date', 'sell_date', 'buy_price', 'sell_price', 'return']
+        )
+    records = []
+    for code, grp in rebalance_log.groupby('code'):
+        grp = grp.sort_values('datetime')
+        pending = []  # 未平仓买入队列
+        for _, row in grp.iterrows():
+            if row['direction'] == 'buy':
+                pending.append(row)
+            elif row['direction'] == 'sell' and pending:
+                buy_row = pending.pop(0)
+                bp, sp_ = buy_row['price'], row['price']
+                if bp > 0 and sp_ > 0:
+                    records.append({
+                        'code': code,
+                        'buy_date': buy_row['datetime'],
+                        'sell_date': row['datetime'],
+                        'buy_price': float(bp),
+                        'sell_price': float(sp_),
+                        'return': (sp_ - bp) / bp,
+                    })
+    return pd.DataFrame(records)
+
+
+def _compute_group_nav(bt, factor_values, n_quantiles: int):
+    """从已有回测的 cost_ret 直接计算各分组等权净值，无需额外查库。
+
+    原理：bt.cost_ret 已记录每个调仓区间内各标的的价格变化率；
+    factor_values 给出每个信号日各分组的成员；两者结合即可得到各组
+    等权持仓期收益，cumprod 后得到净值曲线（从 1.0 出发）。
+
+    Args:
+        bt:            已完成回测的 BacktestBase 实例（含 cost_ret）
+        factor_values: _labeled_to_factor_values 输出（信号日/股票代码/分组）
+        n_quantiles:   分组数
+
+    Returns:
+        DataFrame: index=调仓日, columns=[G1..Gn]，净值从 1.0 出发
+    """
+    cost_ret = bt.cost_ret                               # index=调仓日, cols=codes+cash
+    signal_dates = sorted(factor_values['信号日'].unique())
+
+    nav_dict = {}
+    for g in range(1, n_quantiles + 1):
+        g_ret = pd.Series(0.0, index=cost_ret.index)
+        for i, sig_date in enumerate(signal_dates):
+            # cost_ret 由 pct_change 生成：第 i 个信号日持有的股票，
+            # 其收益体现在 cost_ret.iloc[i+1]（下一调仓日的价格变化率）
+            ret_idx = i + 1
+            if ret_idx >= len(cost_ret):
+                break
+            stocks = factor_values.loc[
+                (factor_values['信号日'] == sig_date) & (factor_values['分组'] == g),
+                '股票代码',
+            ].tolist()
+            avail = [c for c in stocks if c in cost_ret.columns]
+            if avail:
+                g_ret.iloc[ret_idx] = cost_ret.iloc[ret_idx][avail].mean()
+        nav_dict[f'G{g}'] = (1 + g_ret).cumprod()
+
+    if not nav_dict:
+        return pd.DataFrame()
+    return pd.DataFrame(nav_dict)
+
+
+# ============================================================
 # 因子声明 + 运行结果容器
 # ============================================================
 
@@ -352,6 +429,7 @@ class FactorSpec:
     group_weights: dict[str, Any] = field(default_factory=dict)
     intra_group_allocation: dict[str, Any] = field(default_factory=dict)
     backtest_metric: str = "收盘价(元)"
+    strategy_type: str = "cross_section"  # "cross_section" | "timing"
 
 
 @dataclass
@@ -701,7 +779,7 @@ class FactorPipeline:
         if verbose:
             print("  完成回测", flush=True)
 
-        # 8. 绩效评价：Analyst 门面一键出全指标分组表 + Excel + 交互 HTML
+        # 8. 绩效评价：Analyst 门面一键出全指标分组表 + Excel
         if verbose:
             print("  开始生成报告", flush=True)
         analyst = Analyst.from_backtest(
@@ -713,10 +791,55 @@ class FactorPipeline:
         )
         summary = analyst.report(
             to_excel=f"{output_dir}/{sp.name}_report.xlsx",
-            to_html=f"{output_dir}/{sp.name}_report.html",
         )
         if verbose:
-            print(f"  {sp.name} 指标项数: {len(summary)}  报告: {sp.name}_report.xlsx / .html")
+            print(f"  {sp.name} 指标项数: {len(summary)}  报告: {sp.name}_report.xlsx")
+
+        # 9. 静态图输出（替代交互 HTML）
+        if verbose:
+            print("  开始生成静态图", flush=True)
+        import betalens.analyst.plotting as _P
+
+        trade_pairs = _match_trade_pairs(bt.rebalance_log)
+
+        if sp.strategy_type == 'cross_section':
+            if verbose:
+                print(f"  跑各分组净值回测 (n_quantiles={n_quantiles})", flush=True)
+            group_nav = _compute_group_nav(bt, factor_values, n_quantiles)
+            if not group_nav.empty:
+                img = _P.plot_group_nav(
+                    group_nav,
+                    title=f'{sp.name} {n_quantiles}分组净值曲线',
+                    n_quantiles=n_quantiles,
+                )
+                with open(f'{output_dir}/{sp.name}_group_nav.png', 'wb') as _f:
+                    _f.write(img)
+                if verbose:
+                    print(f"  已保存: {sp.name}_group_nav.png", flush=True)
+
+        elif sp.strategy_type == 'timing':
+            img = _P.plot_timing_nav_with_trades(
+                bt.nav,
+                trade_pairs,
+                title=f'{sp.name} 净值曲线（含买卖点）',
+            )
+            with open(f'{output_dir}/{sp.name}_timing_nav.png', 'wb') as _f:
+                _f.write(img)
+            if verbose:
+                print(f"  已保存: {sp.name}_timing_nav.png", flush=True)
+
+        if not trade_pairs.empty:
+            img_annual = _P.plot_annual_trade_performance(
+                trade_pairs,
+                title=f'{sp.name} 分年度交易表现',
+            )
+            with open(f'{output_dir}/{sp.name}_annual.png', 'wb') as _f:
+                _f.write(img_annual)
+            if verbose:
+                print(f"  已保存: {sp.name}_annual.png", flush=True)
+
+        if verbose:
+            print("  静态图生成完毕", flush=True)
 
         if dump_excel:
             dump_path = f'{output_dir}/{sp.name}_dump.xlsx'

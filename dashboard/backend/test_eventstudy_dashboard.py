@@ -20,6 +20,7 @@ class EventStudyDashboardTests(unittest.TestCase):
 
         self.assertIn("defaults", payload)
         self.assertEqual(payload["defaults"]["event_file"], "1.春节假期.xlsx")
+        self.assertEqual(payload["defaults"]["code"], "000001.SZ")
         self.assertGreaterEqual(len(files), 1)
         self.assertTrue(any(item["id"] == "1.春节假期.xlsx" for item in files))
         first = next(item for item in files if item["id"] == "1.春节假期.xlsx")
