@@ -3,6 +3,7 @@ import {
   Activity,
   BarChart3,
   CalendarClock,
+  ChartNoAxesCombined,
   CheckCircle2,
   CircleDollarSign,
   ClipboardList,
@@ -1423,11 +1424,169 @@ function Overview({ result, state }: { result: RunResult | null; state: RunState
           />
         </Suspense>
       </div>
-      <FactorProfilingPanel runId={result.run.run_id} initial={result.charts.profiling} />
+      <BacktestChartPanels result={result} isTiming={false} />
       <DiagnosticsPanel result={result} />
       <RebalanceHoldings records={result.charts.rebalanceHoldings || []} />
       <Downloads result={result} />
     </div>
+  );
+}
+
+function BacktestChartPanels({
+  result,
+  isTiming
+}: {
+  result: RunResult;
+  isTiming: boolean;
+}) {
+  const groupNav = result.charts.groupNav || [];
+  const tradePairs = result.charts.tradePairs || [];
+  const annual = result.charts.annualTrade || [];
+  const nav = result.charts.nav || [];
+  const groupNames = Array.from(new Set(groupNav.map((row) => asString(row.group)))).sort(
+    (left, right) => asNumber(left.replace(/^G/, ''), 0) - asNumber(right.replace(/^G/, ''), 0)
+  );
+  const chartConfig = { displaylogo: false, responsive: true, scrollZoom: true };
+
+  return (
+    <>
+      <div className="section-title"><ChartNoAxesCombined size={18} />回测图形</div>
+      {!isTiming ? (
+        <div className="chart-card">
+          <div className="chart-card-title">分组累计收益曲线</div>
+          {groupNav.length ? (
+            <Suspense fallback={<div className="chart-loading"><Loader2 className="spin" size={18} />加载图表...</div>}>
+              <PlotView
+                data={groupNames.map((group, index) => ({
+                  x: groupNav.filter((row) => row.group === group).map((row) => row.date),
+                  y: groupNav.filter((row) => row.group === group).map((row) => row.cumulativeReturn),
+                  type: 'scatter',
+                  mode: 'lines',
+                  name: group,
+                  line: {
+                    color: `hsl(${Math.round((index / Math.max(groupNames.length - 1, 1)) * 125)}, 68%, 40%)`,
+                    width: 1.6
+                  },
+                  hovertemplate: `${group}<br>%{x}<br>累计收益 %{y:.2%}<extra></extra>`
+                }))}
+                layout={{
+                  ...baseLayout('', 430, true),
+                  margin: { l: 46, r: 22, t: 80, b: 45 },
+                  legend: { orientation: 'h', x: 0, y: 1.02, yanchor: 'bottom' },
+                  xaxis: {
+                    rangeslider: { visible: true, thickness: 0.08 },
+                    gridcolor: '#d8dde3',
+                    rangebreaks: tradingDayRangebreaks(groupNav)
+                  },
+                  yaxis: { gridcolor: '#d8dde3', zerolinecolor: '#87909a', tickformat: '.1%' }
+                }}
+                config={chartConfig}
+              />
+            </Suspense>
+          ) : <div className="table-empty">本次回测没有可展示的分组净值数据</div>}
+        </div>
+      ) : (
+        <div className="chart-card">
+          <div className="chart-card-title">净值曲线与买卖点</div>
+          {nav.length ? (
+            <Suspense fallback={<div className="chart-loading"><Loader2 className="spin" size={18} />加载图表...</div>}>
+              <PlotView
+                data={[
+                  {
+                    x: nav.map((row) => row.date),
+                    y: nav.map((row) => row.nav),
+                    type: 'scatter',
+                    mode: 'lines',
+                    name: '净值',
+                    line: { color: '#20262e', width: 1.8 },
+                    hovertemplate: '%{x}<br>净值 %{y:.4f}<extra></extra>'
+                  },
+                  {
+                    x: tradePairs.map((row) => row.buyDate),
+                    y: tradePairs.map((row) => row.buyNav),
+                    customdata: tradePairs.map((row) => [row.code, row.buyPrice]),
+                    type: 'scatter',
+                    mode: 'markers',
+                    name: '买入',
+                    marker: { color: '#b93732', symbol: 'triangle-up', size: 10 },
+                    hovertemplate: '%{x}<br>%{customdata[0]}<br>买入价 %{customdata[1]:.4f}<extra></extra>'
+                  },
+                  {
+                    x: tradePairs.map((row) => row.sellDate),
+                    y: tradePairs.map((row) => row.sellNav),
+                    customdata: tradePairs.map((row) => [row.code, row.sellPrice, row.return]),
+                    type: 'scatter',
+                    mode: 'markers',
+                    name: '卖出',
+                    marker: { color: '#278052', symbol: 'triangle-down', size: 10 },
+                    hovertemplate: '%{x}<br>%{customdata[0]}<br>卖出价 %{customdata[1]:.4f}<br>单笔收益 %{customdata[2]:.2%}<extra></extra>'
+                  }
+                ]}
+                layout={{
+                  ...baseLayout('', 430, true),
+                  margin: { l: 46, r: 22, t: 70, b: 45 },
+                  legend: { orientation: 'h', x: 0, y: 1.02, yanchor: 'bottom' },
+                  xaxis: {
+                    rangeslider: { visible: true, thickness: 0.08 },
+                    gridcolor: '#d8dde3',
+                    rangebreaks: tradingDayRangebreaks(nav)
+                  }
+                }}
+                config={chartConfig}
+              />
+            </Suspense>
+          ) : <div className="table-empty">本次回测没有可展示的净值数据</div>}
+        </div>
+      )}
+
+      <div className="chart-card">
+        <div className="chart-card-title">分年度交易表现</div>
+        {annual.length ? (
+          <Suspense fallback={<div className="chart-loading"><Loader2 className="spin" size={18} />加载图表...</div>}>
+            <PlotView
+              data={[
+                {
+                  x: annual.map((row) => row.year),
+                  y: annual.map((row) => row.avgReturn),
+                  text: annual.map((row) => `n=${row.tradeCount}`),
+                  textposition: 'outside',
+                  cliponaxis: false,
+                  type: 'bar',
+                  name: '单笔平均收益',
+                  marker: { color: annual.map((row) => asNumber(row.avgReturn, 0) >= 0 ? '#b93732' : '#278052') },
+                  hovertemplate: '%{x}年<br>平均收益 %{y:.2%}<br>%{text}<extra></extra>'
+                },
+                {
+                  x: annual.map((row) => row.year),
+                  y: annual.map((row) => row.winRate),
+                  type: 'scatter',
+                  mode: 'lines+markers',
+                  name: '胜率',
+                  yaxis: 'y2',
+                  line: { color: '#20262e', width: 2 },
+                  marker: { size: 7 },
+                  hovertemplate: '%{x}年<br>胜率 %{y:.2%}<extra></extra>'
+                }
+              ]}
+              layout={{
+                ...baseLayout('', 380, false),
+                margin: { l: 46, r: 46, t: 58, b: 30 },
+                legend: { orientation: 'h', x: 0, y: 1.02, yanchor: 'bottom' },
+                xaxis: { type: 'category', gridcolor: '#d8dde3' },
+                yaxis: { gridcolor: '#d8dde3', zerolinecolor: '#87909a', tickformat: '.1%', title: { text: '单笔平均收益' } },
+                yaxis2: { overlaying: 'y', side: 'right', range: [0, 1.1], tickformat: '.0%', title: { text: '胜率' }, zeroline: false },
+                shapes: [
+                  { type: 'line', x0: 0, x1: 1, xref: 'paper', y0: 0.5, y1: 0.5, yref: 'y2', line: { color: '#87909a', width: 1, dash: 'dash' } }
+                ]
+              }}
+              config={chartConfig}
+            />
+          </Suspense>
+        ) : <div className="table-empty">本次回测没有已平仓交易，暂无年度交易表现</div>}
+      </div>
+
+      {!isTiming ? <FactorProfilingPanel runId={result.run.run_id} initial={result.charts.profiling} /> : null}
+    </>
   );
 }
 
@@ -1464,6 +1623,8 @@ function TimingOverview({ result, state }: { result: RunResult | null; state: Ru
         <MetricsBlock title="收益风险" metrics={timingMetrics(metrics, 'return')} />
         <MetricsBlock title="预测收益能力" metrics={timingMetrics(metrics, 'prediction')} />
       </div>
+
+      <BacktestChartPanels result={result} isTiming />
 
       {navPrice.length ? (
         <div className="chart-card">
@@ -1811,6 +1972,8 @@ function FactorProfilingPanel({ runId, initial }: { runId: string; initial: Fact
   const histogram = profile.histogram || [];
   const ecdf = profile.ecdf || [];
   const timeseries = profile.timeseries || [];
+  const autocorrelation = profile.autocorrelation || [];
+  const turnover = profile.turnover || [];
   const summary = profile.summary || {};
 
   return (
@@ -1860,6 +2023,79 @@ function FactorProfilingPanel({ runId, initial }: { runId: string; initial: Fact
         <div className="chart-card inner-chart">
           <Suspense fallback={<div className="chart-loading"><Loader2 className="spin" size={18} />加载图表...</div>}>
             <PlotView
+              data={[{
+                x: timeseries.map((row) => row.date),
+                y: timeseries.map((row) => row.coverage),
+                type: 'scatter',
+                mode: 'lines',
+                name: '覆盖率',
+                line: { color: '#2d66a8', width: 2 },
+                hovertemplate: '%{x}<br>覆盖率 %{y:.2%}<extra></extra>'
+              }]}
+              layout={{ ...baseLayout('因子覆盖率', 300, true), yaxis: { gridcolor: '#d8dde3', range: [0, 1.05], tickformat: '.0%' } }}
+              config={{ displayModeBar: false, responsive: true }}
+            />
+          </Suspense>
+        </div>
+        <div className="chart-card inner-chart">
+          <Suspense fallback={<div className="chart-loading"><Loader2 className="spin" size={18} />加载图表...</div>}>
+            <PlotView
+              data={[{
+                x: timeseries.map((row) => row.date),
+                y: timeseries.map((row) => row.outlierRatio),
+                type: 'bar',
+                name: '极值占比',
+                marker: { color: '#8061a8' },
+                hovertemplate: '%{x}<br>极值占比 %{y:.2%}<extra></extra>'
+              }]}
+              layout={{ ...baseLayout('极值占比', 300, true), yaxis: { gridcolor: '#d8dde3', tickformat: '.1%' } }}
+              config={{ displayModeBar: false, responsive: true }}
+            />
+          </Suspense>
+        </div>
+        <div className="chart-card inner-chart">
+          <Suspense fallback={<div className="chart-loading"><Loader2 className="spin" size={18} />加载图表...</div>}>
+            <PlotView
+              data={[{
+                x: autocorrelation.map((row) => row.lag),
+                y: autocorrelation.map((row) => row.mean),
+                error_y: {
+                  type: 'data',
+                  array: autocorrelation.map((row) => row.std),
+                  visible: true,
+                  color: '#53606f'
+                },
+                customdata: autocorrelation.map((row) => row.periods),
+                type: 'bar',
+                name: 'Rank 自相关',
+                marker: { color: '#c57935' },
+                hovertemplate: 'lag %{x}<br>均值 %{y:.4f}<br>有效期数 %{customdata}<extra></extra>'
+              }]}
+              layout={baseLayout('Rank 自相关', 300, false)}
+              config={{ displayModeBar: false, responsive: true }}
+            />
+          </Suspense>
+        </div>
+        <div className="chart-card inner-chart">
+          <Suspense fallback={<div className="chart-loading"><Loader2 className="spin" size={18} />加载图表...</div>}>
+            <PlotView
+              data={[{
+                x: turnover.map((row) => row.date),
+                y: turnover.map((row) => row.turnover),
+                type: 'scatter',
+                mode: 'lines',
+                name: '换手率',
+                line: { color: '#278052', width: 2 },
+                hovertemplate: '%{x}<br>换手率 %{y:.2%}<extra></extra>'
+              }]}
+              layout={{ ...baseLayout('Top 20% 换手率', 300, true), yaxis: { gridcolor: '#d8dde3', tickformat: '.0%' } }}
+              config={{ displayModeBar: false, responsive: true }}
+            />
+          </Suspense>
+        </div>
+        <div className="chart-card inner-chart">
+          <Suspense fallback={<div className="chart-loading"><Loader2 className="spin" size={18} />加载图表...</div>}>
+            <PlotView
               data={[
                 {
                   x: ecdf.map((row) => row.value),
@@ -1884,9 +2120,21 @@ function FactorProfilingPanel({ runId, initial }: { runId: string; initial: Fact
                 { x: timeseries.map((row) => row.date), y: timeseries.map((row) => row.std), type: 'scatter', mode: 'lines', name: '标准差', yaxis: 'y2', line: { color: '#b94a48', width: 2 } }
               ]}
               layout={{
-                ...baseLayout('分布集中度时序', 300, true),
+                ...baseLayout('分布漂移（均值 / 标准差）', 300, true),
                 yaxis2: { overlaying: 'y', side: 'right', gridcolor: '#ffffff', zeroline: false }
               }}
+              config={{ displayModeBar: false, responsive: true }}
+            />
+          </Suspense>
+        </div>
+        <div className="chart-card inner-chart">
+          <Suspense fallback={<div className="chart-loading"><Loader2 className="spin" size={18} />加载图表...</div>}>
+            <PlotView
+              data={[
+                { x: timeseries.map((row) => row.date), y: timeseries.map((row) => row.skew), type: 'scatter', mode: 'lines', name: '偏度', line: { color: '#2d66a8', width: 2 } },
+                { x: timeseries.map((row) => row.date), y: timeseries.map((row) => row.kurt), type: 'scatter', mode: 'lines', name: '峰度', line: { color: '#b94a48', width: 2 } }
+              ]}
+              layout={baseLayout('偏度 / 峰度', 300, true)}
               config={{ displayModeBar: false, responsive: true }}
             />
           </Suspense>

@@ -108,7 +108,7 @@ def _ensure_runtime():
 
 def _ensure_profiling_runtime():
     global describe_distribution, coverage_stats, detect_outliers
-    global factor_autocorrelation, factor_turnover, distribution_stability
+    global distribution_stability
     global factor_profile_payload, plt
 
     if "factor_profile_payload" in globals():
@@ -118,8 +118,6 @@ def _ensure_profiling_runtime():
         describe_distribution as _describe_distribution,
         coverage_stats as _coverage_stats,
         detect_outliers as _detect_outliers,
-        factor_autocorrelation as _factor_autocorrelation,
-        factor_turnover as _factor_turnover,
         distribution_stability as _distribution_stability,
         factor_profile_payload as _factor_profile_payload,
     )
@@ -131,8 +129,6 @@ def _ensure_profiling_runtime():
     describe_distribution = _describe_distribution
     coverage_stats = _coverage_stats
     detect_outliers = _detect_outliers
-    factor_autocorrelation = _factor_autocorrelation
-    factor_turnover = _factor_turnover
     distribution_stability = _distribution_stability
     factor_profile_payload = _factor_profile_payload
     plt = _plt
@@ -317,35 +313,10 @@ def append_grouped_profiling_excel(output_dir, name, labeled):
 # ============================================================
 
 def _match_trade_pairs(rebalance_log):
-    """将 rebalance_log 中 buy/sell 按 code FIFO 配对，计算每笔收益。
+    """兼容旧模板调用，实际口径由 analyst.metrics 统一维护。"""
+    from betalens.analyst.metrics import match_trade_pairs
 
-    Returns:
-        DataFrame: code, buy_date, sell_date, buy_price, sell_price, return
-    """
-    if rebalance_log is None or rebalance_log.empty:
-        return pd.DataFrame(
-            columns=['code', 'buy_date', 'sell_date', 'buy_price', 'sell_price', 'return']
-        )
-    records = []
-    for code, grp in rebalance_log.groupby('code'):
-        grp = grp.sort_values('datetime')
-        pending = []  # 未平仓买入队列
-        for _, row in grp.iterrows():
-            if row['direction'] == 'buy':
-                pending.append(row)
-            elif row['direction'] == 'sell' and pending:
-                buy_row = pending.pop(0)
-                bp, sp_ = buy_row['price'], row['price']
-                if bp > 0 and sp_ > 0:
-                    records.append({
-                        'code': code,
-                        'buy_date': buy_row['datetime'],
-                        'sell_date': row['datetime'],
-                        'buy_price': float(bp),
-                        'sell_price': float(sp_),
-                        'return': (sp_ - bp) / bp,
-                    })
-    return pd.DataFrame(records)
+    return match_trade_pairs(rebalance_log)
 
 
 def _compute_group_nav(bt, factor_values, n_quantiles: int):
@@ -363,30 +334,9 @@ def _compute_group_nav(bt, factor_values, n_quantiles: int):
     Returns:
         DataFrame: index=调仓日, columns=[G1..Gn]，净值从 1.0 出发
     """
-    cost_ret = bt.cost_ret                               # index=调仓日, cols=codes+cash
-    signal_dates = sorted(factor_values['信号日'].unique())
+    from betalens.analyst.metrics import group_nav
 
-    nav_dict = {}
-    for g in range(1, n_quantiles + 1):
-        g_ret = pd.Series(0.0, index=cost_ret.index)
-        for i, sig_date in enumerate(signal_dates):
-            # cost_ret 由 pct_change 生成：第 i 个信号日持有的股票，
-            # 其收益体现在 cost_ret.iloc[i+1]（下一调仓日的价格变化率）
-            ret_idx = i + 1
-            if ret_idx >= len(cost_ret):
-                break
-            stocks = factor_values.loc[
-                (factor_values['信号日'] == sig_date) & (factor_values['分组'] == g),
-                '股票代码',
-            ].tolist()
-            avail = [c for c in stocks if c in cost_ret.columns]
-            if avail:
-                g_ret.iloc[ret_idx] = cost_ret.iloc[ret_idx][avail].mean()
-        nav_dict[f'G{g}'] = (1 + g_ret).cumprod()
-
-    if not nav_dict:
-        return pd.DataFrame()
-    return pd.DataFrame(nav_dict)
+    return group_nav(getattr(bt, 'cost_ret', None), factor_values, n_quantiles)
 
 
 # ============================================================
@@ -445,6 +395,7 @@ class RunResult:
     neutralize_stats: pd.DataFrame | None = None
     factor_values: pd.DataFrame | None = None
     pit_validation: pd.DataFrame | None = None
+    chart_data: dict | None = None
 
     def __iter__(self):
         return iter((self.backtest, self.analyst))
@@ -538,6 +489,21 @@ class FactorPipeline:
         """因子值体检：分布函数/集中度/p值阈值/时变稳定性 + PNG。"""
         _ensure_profiling_runtime()
         profile = factor_profile_payload(factor_wide)
+        profile_autocorrelation = pd.DataFrame(profile['autocorrelation']).rename(columns={
+            'mean': '自相关均值',
+            'std': '自相关std',
+            'periods': '有效期数',
+        })
+        if not profile_autocorrelation.empty:
+            profile_autocorrelation = profile_autocorrelation.set_index('lag')
+        profile_turnover = pd.Series(
+            {
+                pd.Timestamp(row['date']): row['turnover']
+                for row in profile['turnover']
+            },
+            name='turnover',
+            dtype=float,
+        )
         results = {
             'distribution': describe_distribution(factor_wide),
             'profile_summary': pd.DataFrame([profile['summary']]),
@@ -548,8 +514,8 @@ class FactorPipeline:
             'profile_timeseries': pd.DataFrame(profile['timeseries']),
             'coverage': coverage_stats(factor_wide),
             'outliers': detect_outliers(factor_wide),
-            'autocorrelation': factor_autocorrelation(factor_wide),
-            'turnover': factor_turnover(factor_wide),
+            'autocorrelation': profile_autocorrelation,
+            'turnover': profile_turnover,
             'stability': distribution_stability(factor_wide),
         }
 
@@ -801,6 +767,7 @@ class FactorPipeline:
         import betalens.analyst.plotting as _P
 
         trade_pairs = _match_trade_pairs(bt.rebalance_log)
+        group_nav = pd.DataFrame()
 
         if sp.strategy_type == 'cross_section':
             if verbose:
@@ -853,4 +820,8 @@ class FactorPipeline:
         return RunResult(backtest=bt, analyst=analyst,
                          profiling=profiling, neutralize_stats=neu_stats,
                          factor_values=factor_values,
-                         pit_validation=pit_validation)
+                         pit_validation=pit_validation,
+                         chart_data={
+                             'group_nav': group_nav,
+                             'trade_pairs': trade_pairs,
+                         })

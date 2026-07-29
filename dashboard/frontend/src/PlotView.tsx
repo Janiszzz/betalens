@@ -20,6 +20,7 @@ export default function PlotView({
       config={config}
       useResizeHandler
       className="plot"
+      style={{ width: '100%', height: typeof layout.height === 'number' ? `${layout.height}px` : '100%' }}
     />
   );
 }

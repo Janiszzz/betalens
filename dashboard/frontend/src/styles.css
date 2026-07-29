@@ -488,6 +488,7 @@ input {
 
 .view-stack {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
 }
 
@@ -554,6 +555,18 @@ input {
   background: white;
   border: 1px solid #dfe4ea;
   padding: 14px;
+}
+
+.chart-card {
+  min-width: 0;
+}
+
+.chart-card-title {
+  min-height: 22px;
+  color: #12263a;
+  font-size: 15px;
+  font-weight: 600;
+  text-align: center;
 }
 
 .profiling-panel,
@@ -918,6 +931,48 @@ tr:nth-child(even) td {
 }
 
 @media (max-width: 900px) {
+  body {
+    min-width: 320px;
+  }
+
+  .top-strip {
+    height: auto;
+    min-height: 42px;
+    flex-wrap: wrap;
+    padding: 8px 12px 0;
+  }
+
+  .top-tabs {
+    order: 3;
+    width: calc(100% + 24px);
+    margin: 0 -12px;
+    overflow-x: auto;
+  }
+
+  .top-tab {
+    flex: 1 0 112px;
+    min-height: 40px;
+  }
+
+  .run-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
+    padding: 14px 16px;
+  }
+
+  .run-actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .settings-bar {
+    height: auto;
+    min-height: 46px;
+    padding: 10px 16px;
+    overflow-x: auto;
+  }
+
   .detail-layout {
     grid-template-columns: 1fr;
   }
@@ -942,6 +997,19 @@ tr:nth-child(even) td {
   .event-selector select {
     width: 100%;
     max-width: none;
+  }
+
+  .profiling-grid,
+  .timing-metric-columns {
+    grid-template-columns: 1fr;
+  }
+
+  .profiling-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .content-panel {
+    padding: 14px;
   }
 }
 

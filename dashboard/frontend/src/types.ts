@@ -73,6 +73,9 @@ export type RunResult = {
     dailyAmount: Array<Record<string, number | string>>;
     positionWeight: Array<Record<string, number | string>>;
     rebalanceHoldings: Array<Record<string, number | string | null>>;
+    groupNav: Array<Record<string, number | string | null>>;
+    tradePairs: Array<Record<string, number | string | null>>;
+    annualTrade: Array<Record<string, number | string | null>>;
     profiling: FactorProfiling;
   };
   tables: {
@@ -109,6 +112,8 @@ export type FactorProfiling = {
   quantiles: Array<Record<string, number | string | null>>;
   tests: Array<Record<string, number | string | null>>;
   timeseries: Array<Record<string, number | string | null>>;
+  autocorrelation: Array<Record<string, number | string | null>>;
+  turnover: Array<Record<string, number | string | null>>;
 };
 
 export type EventFile = {

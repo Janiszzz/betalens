@@ -1,0 +1,34 @@
+meta:
+  class: alpha101
+  name: ALPHA12
+  source: WorldQuant 101 Formulaic Alphas (Kakushadze 2016)
+  formula: sign(delta(volume,1)) * (-1 * delta(close,1))
+  logic: 量增价跌 / 量缩价涨 → 因子值高（看多），方向 positive。
+factor_spec:
+  inputs:
+    close_wide: 收盘价(元)
+    volume_wide: 成交量(股)
+  compute_kwargs: {}
+  direction: positive
+  table_name: daily_market
+  index_code: 000906.SH
+  use_industry: true
+  use_mktcap: false
+  industry_scheme: 申万一级行业
+  backtest_metric: 开盘价(元)
+weight:
+  mode: classic-long-short
+  long_groups: null
+  short_groups: null
+  group_weights: {}
+  intra_group_allocation: {}
+run:
+  start_date: '2024-01-01'
+  end_date: '2025-12-31'
+  rebal_freq: W
+  n_quantiles: 10
+  initial_amount: 100000000
+  benchmark_code: 000906.SH
+  include_profiling: true
+  dump_excel: false
+  output_dir: C:\Users\Janis\OneDrive\betalens\betalens-factor\alpha101\ALPHA12\outputs\runs\cfcf2121a9fc4dabb4311193cbba07ce

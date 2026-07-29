@@ -242,6 +242,8 @@ def build_factor_profile_payload(
             "quantiles": [],
             "tests": [],
             "timeseries": [],
+            "autocorrelation": [],
+            "turnover": [],
         }
 
     long = factor_df.rename(columns={"signal_date": "input_ts", "factor_value": "factor"})
@@ -968,6 +970,89 @@ def build_chart_data(bt: Any, factor_values: pd.DataFrame | None = None) -> dict
     }
 
 
+def _nav_value_for_trade(nav: pd.Series | None, trade_date: Any) -> float | None:
+    if nav is None or nav.empty:
+        return None
+    series = nav.sort_index()
+    date = pd.Timestamp(trade_date)
+    if date in series.index:
+        return _clean_scalar(series.asof(date))
+    following = series.loc[series.index >= date]
+    value = following.iloc[0] if not following.empty else series.iloc[-1]
+    return _clean_scalar(value)
+
+
+def build_generated_chart_data(
+    bt: Any,
+    factor_values: pd.DataFrame | None = None,
+    n_quantiles: Any = None,
+    precomputed: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """复用脚本静态图口径，生成供 dashboard 渲染的结构化数据。"""
+    from betalens.analyst import metrics as M
+
+    try:
+        quantiles = int(n_quantiles)
+    except (TypeError, ValueError):
+        normalized = _normalize_factor_values(factor_values)
+        groups = pd.to_numeric(normalized.get("group"), errors="coerce")
+        quantiles = int(groups.max()) if groups is not None and groups.notna().any() else 0
+
+    precomputed = precomputed or {}
+    group_frame = precomputed.get("group_nav")
+    if group_frame is None:
+        group_frame = M.group_nav(getattr(bt, "cost_ret", None), factor_values, quantiles)
+    group_records: list[dict[str, Any]] = []
+    if not group_frame.empty:
+        for date, row in group_frame.sort_index().iterrows():
+            for group, value in row.items():
+                if pd.isna(value):
+                    continue
+                group_records.append(
+                    {
+                        "date": pd.Timestamp(date).strftime("%Y-%m-%d"),
+                        "group": str(group),
+                        "nav": _clean_scalar(value),
+                        "cumulativeReturn": _clean_scalar(float(value) - 1.0),
+                    }
+                )
+
+    nav = getattr(bt, "nav", None)
+    trade_pairs = precomputed.get("trade_pairs")
+    if trade_pairs is None:
+        trade_pairs = M.match_trade_pairs(getattr(bt, "rebalance_log", None))
+    trade_records = []
+    for _, row in trade_pairs.iterrows():
+        trade_records.append(
+            {
+                "code": str(row["code"]),
+                "buyDate": pd.Timestamp(row["buy_date"]).strftime("%Y-%m-%d"),
+                "sellDate": pd.Timestamp(row["sell_date"]).strftime("%Y-%m-%d"),
+                "buyPrice": _clean_scalar(row["buy_price"]),
+                "sellPrice": _clean_scalar(row["sell_price"]),
+                "return": _clean_scalar(row["return"]),
+                "buyNav": _nav_value_for_trade(nav, row["buy_date"]),
+                "sellNav": _nav_value_for_trade(nav, row["sell_date"]),
+            }
+        )
+
+    annual = M.annual_trade_performance(trade_pairs)
+    annual_records = [
+        {
+            "year": str(int(row["year"])),
+            "avgReturn": _clean_scalar(row["avg_return"]),
+            "winRate": _clean_scalar(row["win_rate"]),
+            "tradeCount": int(row["n_trades"]),
+        }
+        for _, row in annual.iterrows()
+    ]
+    return {
+        "groupNav": group_records,
+        "tradePairs": trade_records,
+        "annualTrade": annual_records,
+    }
+
+
 def build_trade_table(bt: Any) -> list[dict[str, Any]]:
     trade = getattr(bt, "rebalance_log", None)
     if trade is None:
@@ -1058,6 +1143,7 @@ def build_result_payload(
     factor_values: pd.DataFrame | None = None,
     pit_validation: pd.DataFrame | None = None,
     neutralize_stats: pd.DataFrame | None = None,
+    chart_data: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """构建可 JSON 化的结果（指标+图表+表元数据）。巨表明细不在内,走 /table 分页。
     不含 downloads —— 那个按需实时探测磁盘,因为 dump 是异步落盘的。"""
@@ -1074,6 +1160,12 @@ def build_result_payload(
         "timing": build_timing_payload(run.backtest, factor_values),
         "charts": {
             **build_chart_data(run.backtest, factor_values),
+            **build_generated_chart_data(
+                run.backtest,
+                factor_values,
+                run.parameters.get("n_quantiles"),
+                chart_data,
+            ),
             "profiling": profiling,
         },
         "tables": table_metas,

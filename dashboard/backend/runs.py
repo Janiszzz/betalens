@@ -272,6 +272,7 @@ class RunManager:
             bt = run.backtest
             pit_validation = getattr(result, "pit_validation", None)
             neutralize_stats = getattr(result, "neutralize_stats", None)
+            chart_data = getattr(result, "chart_data", None)
             from .serialization import build_result_payload, write_factor_values_parquet
 
             run.append_log("[dashboard] writing factor_values parquet\n")
@@ -285,6 +286,7 @@ class RunManager:
                 factor_values,
                 pit_validation=pit_validation,
                 neutralize_stats=neutralize_stats,
+                chart_data=chart_data,
             )
             run.append_log("[dashboard] marking run completed\n")
             run.mark_completed()

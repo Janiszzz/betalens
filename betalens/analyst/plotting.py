@@ -281,13 +281,7 @@ def plot_annual_trade_performance(trade_pairs: pd.DataFrame,
         ax.axis('off')
         return _fig_to_bytes(fig)
 
-    df = trade_pairs.copy()
-    df['year'] = pd.to_datetime(df['sell_date']).dt.year
-    annual = df.groupby('year')['return'].agg([
-        ('avg_return', 'mean'),
-        ('win_rate', lambda s: (s > 0).mean()),
-        ('n_trades', 'count'),
-    ]).reset_index()
+    annual = M.annual_trade_performance(trade_pairs)
 
     fig, ax1 = plt.subplots(figsize=(max(8, len(annual) * 0.6 + 2), 5))
     ax2 = ax1.twinx()

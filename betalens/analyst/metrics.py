@@ -335,6 +335,111 @@ def trade_pnl(rebalance_log: pd.DataFrame) -> pd.DataFrame:
     return out.sort_values('total_value', ascending=False)
 
 
+def match_trade_pairs(rebalance_log: pd.DataFrame | None) -> pd.DataFrame:
+    """按证券代码将买卖记录 FIFO 配对并计算单笔收益率。"""
+    columns = ['code', 'buy_date', 'sell_date', 'buy_price', 'sell_price', 'return']
+    if rebalance_log is None or rebalance_log.empty:
+        return pd.DataFrame(columns=columns)
+
+    required = {'code', 'datetime', 'direction', 'price'}
+    if not required.issubset(rebalance_log.columns):
+        return pd.DataFrame(columns=columns)
+
+    records = []
+    for code, group in rebalance_log.groupby('code'):
+        pending = []
+        for _, row in group.sort_values('datetime').iterrows():
+            if row['direction'] == 'buy':
+                pending.append(row)
+            elif row['direction'] == 'sell' and pending:
+                buy_row = pending.pop(0)
+                buy_price = pd.to_numeric(buy_row['price'], errors='coerce')
+                sell_price = pd.to_numeric(row['price'], errors='coerce')
+                if pd.notna(buy_price) and pd.notna(sell_price) and buy_price > 0 and sell_price > 0:
+                    records.append({
+                        'code': str(code),
+                        'buy_date': pd.Timestamp(buy_row['datetime']),
+                        'sell_date': pd.Timestamp(row['datetime']),
+                        'buy_price': float(buy_price),
+                        'sell_price': float(sell_price),
+                        'return': float((sell_price - buy_price) / buy_price),
+                    })
+    return pd.DataFrame(records, columns=columns)
+
+
+def annual_trade_performance(trade_pairs: pd.DataFrame | None) -> pd.DataFrame:
+    """按平仓年份汇总单笔平均收益、胜率和交易次数。"""
+    columns = ['year', 'avg_return', 'win_rate', 'n_trades']
+    if trade_pairs is None or trade_pairs.empty:
+        return pd.DataFrame(columns=columns)
+    if not {'sell_date', 'return'}.issubset(trade_pairs.columns):
+        return pd.DataFrame(columns=columns)
+
+    frame = trade_pairs[['sell_date', 'return']].copy()
+    frame['sell_date'] = pd.to_datetime(frame['sell_date'], errors='coerce')
+    frame['return'] = pd.to_numeric(frame['return'], errors='coerce')
+    frame = frame.dropna(subset=['sell_date', 'return'])
+    if frame.empty:
+        return pd.DataFrame(columns=columns)
+
+    frame['year'] = frame['sell_date'].dt.year
+    return frame.groupby('year')['return'].agg(
+        avg_return='mean',
+        win_rate=lambda values: (values > 0).mean(),
+        n_trades='count',
+    ).reset_index()
+
+
+def group_nav(
+    cost_ret: pd.DataFrame | None,
+    factor_values: pd.DataFrame | None,
+    n_quantiles: int,
+) -> pd.DataFrame:
+    """由调仓区间收益与信号日分组成员计算各组等权净值。"""
+    if cost_ret is None or cost_ret.empty or factor_values is None or factor_values.empty:
+        return pd.DataFrame()
+    if n_quantiles < 1:
+        return pd.DataFrame()
+
+    frame = factor_values.rename(columns={
+        'input_ts': '信号日',
+        'date': '信号日',
+        'code': '股票代码',
+        'group': '分组',
+    }).copy()
+    required = {'信号日', '股票代码', '分组'}
+    if not required.issubset(frame.columns):
+        return pd.DataFrame()
+
+    frame['信号日'] = pd.to_datetime(frame['信号日'], errors='coerce')
+    frame['分组'] = pd.to_numeric(frame['分组'], errors='coerce')
+    frame = frame.dropna(subset=['信号日', '股票代码', '分组'])
+    if frame.empty:
+        return pd.DataFrame()
+
+    returns = cost_ret.copy().sort_index()
+    returns = returns.apply(lambda col: pd.to_numeric(col, errors='coerce'))
+    signal_dates = sorted(frame['信号日'].unique())
+    nav_by_group = {}
+    for group_number in range(1, int(n_quantiles) + 1):
+        group_returns = pd.Series(0.0, index=returns.index, dtype=float)
+        for index, signal_date in enumerate(signal_dates):
+            return_index = index + 1
+            if return_index >= len(returns):
+                break
+            stocks = frame.loc[
+                (frame['信号日'] == signal_date) & (frame['分组'] == group_number),
+                '股票代码',
+            ].astype(str)
+            available = [code for code in stocks if code in returns.columns]
+            if available:
+                value = returns.iloc[return_index][available].mean()
+                if pd.notna(value):
+                    group_returns.iloc[return_index] = float(value)
+        nav_by_group[f'G{group_number}'] = (1.0 + group_returns).cumprod()
+    return pd.DataFrame(nav_by_group)
+
+
 # ── 基准相对类 ──────────────────────────────────────────────────────────────
 
 def beta(returns: pd.Series, bench_returns: pd.Series) -> float:

@@ -432,6 +432,8 @@ def factor_profile_payload(
             "quantiles": [],
             "tests": [],
             "timeseries": [],
+            "autocorrelation": [],
+            "turnover": [],
         }
 
     count = int(len(values))
@@ -533,6 +535,23 @@ def factor_profile_payload(
             }
         )
 
+    autocorrelation = [
+        {
+            "lag": int(lag),
+            "mean": _clean(row.get("自相关均值")),
+            "std": _clean(row.get("自相关std")),
+            "periods": _clean(row.get("有效期数")),
+        }
+        for lag, row in factor_autocorrelation(wide).iterrows()
+    ]
+    turnover = [
+        {
+            "date": pd.Timestamp(dt).strftime("%Y-%m-%d"),
+            "turnover": _clean(value),
+        }
+        for dt, value in factor_turnover(wide).items()
+    ]
+
     return {
         "summary": {
             "count": count,
@@ -553,6 +572,8 @@ def factor_profile_payload(
         "quantiles": quantiles,
         "tests": tests,
         "timeseries": timeseries,
+        "autocorrelation": autocorrelation,
+        "turnover": turnover,
     }
 
 

@@ -8,7 +8,15 @@ import numpy as np
 import pandas as pd
 
 from . import serialization as serialization_module
-from .serialization import build_chart_data, build_position_table, build_timing_payload, read_table_page, write_table_parquet
+from .serialization import (
+    build_chart_data,
+    build_factor_profile_payload,
+    build_generated_chart_data,
+    build_position_table,
+    build_timing_payload,
+    read_table_page,
+    write_table_parquet,
+)
 
 
 class TablePagingTests(unittest.TestCase):
@@ -143,6 +151,66 @@ class TablePagingTests(unittest.TestCase):
         self.assertEqual(records[1]["side"], "short")
         self.assertEqual(records[1]["weight"], -0.4)
         self.assertEqual(records[1]["group"], 1)
+
+    def test_generated_charts_match_script_group_and_trade_logic(self) -> None:
+        class FakeBacktest:
+            idx = pd.to_datetime(["2024-01-01", "2024-01-02", "2024-01-03"])
+            nav = pd.Series([1.0, 1.1, 1.2], index=idx)
+            cost_ret = pd.DataFrame(
+                {
+                    "000001.SZ": [0.0, 0.10, 0.20],
+                    "000002.SZ": [0.0, -0.10, 0.05],
+                    "cash": [0.0, 0.0, 0.0],
+                },
+                index=idx,
+            )
+            rebalance_log = pd.DataFrame(
+                {
+                    "code": ["000001.SZ", "000001.SZ"],
+                    "datetime": pd.to_datetime(["2024-01-01", "2024-01-03"]),
+                    "direction": ["buy", "sell"],
+                    "price": [10.0, 12.0],
+                }
+            )
+
+        factor_values = pd.DataFrame(
+            {
+                "信号日": pd.to_datetime(["2024-01-01", "2024-01-01", "2024-01-02", "2024-01-02"]),
+                "股票代码": ["000001.SZ", "000002.SZ", "000002.SZ", "000001.SZ"],
+                "因子值": [1.0, -1.0, 0.5, -0.5],
+                "分组": [1, 2, 1, 2],
+            }
+        )
+
+        charts = build_generated_chart_data(FakeBacktest(), factor_values, 2)
+        group = {(row["date"], row["group"]): row["nav"] for row in charts["groupNav"]}
+
+        self.assertAlmostEqual(group[("2024-01-02", "G1")], 1.1)
+        self.assertAlmostEqual(group[("2024-01-03", "G1")], 1.155)
+        self.assertAlmostEqual(group[("2024-01-03", "G2")], 1.08)
+        self.assertEqual(charts["tradePairs"][0]["buyDate"], "2024-01-01")
+        self.assertAlmostEqual(charts["tradePairs"][0]["return"], 0.2)
+        self.assertEqual(charts["annualTrade"], [
+            {"year": "2024", "avgReturn": 0.2, "winRate": 1.0, "tradeCount": 1}
+        ])
+
+    def test_factor_profile_contains_all_static_panel_series(self) -> None:
+        dates = pd.date_range("2024-01-01", periods=4, freq="D")
+        factor_values = pd.DataFrame(
+            [
+                {"信号日": date, "股票代码": f"00000{code}.SZ", "因子值": float(code + offset), "分组": code}
+                for offset, date in enumerate(dates)
+                for code in range(1, 7)
+            ]
+        )
+
+        profile = build_factor_profile_payload(factor_values)
+
+        self.assertTrue(profile["available"])
+        self.assertEqual([row["lag"] for row in profile["autocorrelation"]], [1, 3, 6, 12])
+        self.assertEqual(len(profile["turnover"]), len(dates))
+        self.assertIn("coverage", profile["timeseries"][0])
+        self.assertIn("outlierRatio", profile["timeseries"][0])
 
     def test_position_table_skips_zero_quantity_rows(self) -> None:
         class FakeBacktest:
