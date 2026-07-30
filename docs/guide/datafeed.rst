@@ -110,10 +110,21 @@ Datafeed 查询
 
 .. code-block:: python
 
-   from betalens.datafeed import get_index_universe, get_index_universe_date
+   from betalens.datafeed import (
+       get_index_universe,
+       get_index_universe_date,
+       get_index_universe_panel,
+   )
 
    codes = get_index_universe(cursor, "000906.SH", "2024-03-01")
    effective_date = get_index_universe_date(cursor, "000906.SH", "2024-03-01")
+   panel = get_index_universe_panel(
+       cursor,
+       "000906.SH",
+       ["2024-03-01", "2024-03-04"],
+   )
+
+``get_index_universe_panel`` 返回 ``{date: set[str]}``。规范化数据库使用单次批量查询；旧表结构自动逐日回退。也可通过 ``Datafeed("index_universe").get_index_universe_panel(...)`` 调用。
 
 入库建议使用数据库管理工具：
 

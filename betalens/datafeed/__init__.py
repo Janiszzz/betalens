@@ -3,7 +3,7 @@
 from .core import Datafeed, get_absolute_trade_days, trade_days_offset
 from .industry import get_industry_members, query_industry
 from .validation import FillStrategy
-from .universe import get_index_universe, get_index_universe_date
+from .universe import get_index_universe, get_index_universe_date, get_index_universe_panel
 
 __all__ = [
     "Datafeed",
@@ -14,6 +14,7 @@ __all__ = [
     "query_industry",
     "get_index_universe",
     "get_index_universe_date",
+    "get_index_universe_panel",
 ]
 
 __version__ = "2.3.1"

@@ -19,6 +19,63 @@ class SignalWeightResult:
     events: dict[str, pd.DataFrame] = field(default_factory=dict)
 
 
+def resolve_timing_start_date(
+    start_date: str,
+    end_date: str,
+    *,
+    target_codes: Sequence[str],
+    metrics: Sequence[str],
+    table_name: str,
+) -> str:
+    """Move a timing run start to the first date with all required target data."""
+    from betalens.datafeed import Datafeed
+
+    requested = pd.Timestamp(start_date).normalize()
+    end = pd.Timestamp(end_date).normalize()
+    if requested > end:
+        raise ValueError(f"start_date {requested.date()} is later than end_date {end.date()}")
+
+    unique_codes = list(dict.fromkeys(str(code) for code in target_codes if str(code)))
+    unique_metrics = list(dict.fromkeys(str(metric) for metric in metrics if str(metric)))
+    if not unique_codes:
+        raise ValueError("timing strategy requires at least one target code")
+    if not unique_metrics:
+        raise ValueError("timing strategy requires at least one target data metric")
+
+    starts: dict[tuple[str, str], pd.Timestamp] = {}
+    data = Datafeed(table_name)
+    try:
+        for code in unique_codes:
+            for metric in unique_metrics:
+                dates = data.get_available_dates(
+                    code=code,
+                    metric=metric,
+                    end_date=end.strftime("%Y-%m-%d"),
+                )
+                available = pd.to_datetime(dates, errors="coerce")
+                available = available[~pd.isna(available)]
+                if not len(available):
+                    raise ValueError(
+                        f"target {code} has no {metric} data on or before {end.date()} "
+                        f"in {table_name}"
+                    )
+                starts[(code, metric)] = pd.Timestamp(available.min()).normalize()
+    finally:
+        data.close()
+
+    data_start = max(starts.values())
+    effective = max(requested, data_start)
+    if effective > requested:
+        targets = ", ".join(unique_codes)
+        print(
+            f"[WARN] 择时回测开始日期已自动调整: 标的 {targets} 的必要行情数据从 "
+            f"{data_start.strftime('%Y-%m-%d')} 起可用；请求日期 "
+            f"{requested.strftime('%Y-%m-%d')} 调整为 {effective.strftime('%Y-%m-%d')}。",
+            flush=True,
+        )
+    return effective.strftime("%Y-%m-%d")
+
+
 def _signal_config(params: Mapping[str, Any] | None) -> Mapping[str, Any]:
     if not params:
         return {}
@@ -303,12 +360,18 @@ def rolling_z_weight(
     for code in code_list:
         if code not in factor_wide.columns:
             continue
-        factor = _daily_series(factor_wide[code]).reindex(signal_idx)
-        history = factor.shift(1)
+        full_factor = _daily_series(factor_wide[code])
+        valid_factor = full_factor.dropna()
+        history = valid_factor.shift(1)
         rolling = history.rolling(window=win, min_periods=win)
-        rolling_mean = rolling.mean()
-        rolling_std = rolling.std()
-        threshold = rolling_mean + sig * rolling_std
+        rolling_mean = rolling.mean().reindex(signal_idx)
+        rolling_std = rolling.std().reindex(signal_idx)
+        factor = full_factor.reindex(signal_idx)
+        threshold = (
+            rolling_mean + sig * rolling_std
+            if op == "gt"
+            else rolling_mean - sig * rolling_std
+        )
         active = _event_active(factor, threshold, op)
         target = _target_from_active(active, side_sign, weight_cap)
         stocks[code] = target.fillna(0.0).astype(float)

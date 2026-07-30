@@ -14,6 +14,7 @@ for _path in (REPO_ROOT, FACTOR_DIR):
 
 from factor_ALPHA12 import compute_alpha12  # noqa: E402
 import factor_ALPHA12_timing as timing  # noqa: E402
+from betalens.factor.signal import build_signal_weights  # noqa: E402
 
 
 class Alpha12TimingTests(unittest.TestCase):
@@ -43,12 +44,22 @@ class Alpha12TimingTests(unittest.TestCase):
         idx = pd.date_range("2024-01-01", periods=5, freq="D")
         factor_wide = pd.DataFrame({"000001.SZ": [1.0, 2.0, 3.0, 4.0, 3.0]}, index=idx)
 
-        weights, factor_values = timing._build_timing_outputs(
+        result = build_signal_weights(
             factor_wide=factor_wide,
             signal_dates=list(idx),
             codes=["000001.SZ"],
-            params={"threshold_window": 3, "threshold_sigma": 1.0, "max_weight": 1.0},
+            params={
+                "signal_weight": {
+                    "method": "rolling_z",
+                    "window": 3,
+                    "sigma": 1.0,
+                    "operator": "gt",
+                    "side": "short",
+                    "max_weight": 1.0,
+                }
+            },
         )
+        weights, factor_values = result.weights, result.factor_values
 
         self.assertEqual(list(weights.index), list(idx + pd.Timedelta(minutes=10)))
         self.assertEqual(weights["000001.SZ"].tolist(), [0.0, 0.0, 0.0, -1.0, 0.0])

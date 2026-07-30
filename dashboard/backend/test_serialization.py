@@ -337,14 +337,46 @@ class TablePagingTests(unittest.TestCase):
             )
             daily_pnl_total = pd.Series([0.0, 1.0, 1.0], index=nav_idx)
             daily_amount = pd.Series([100.0, 101.0, 102.0], index=nav_idx)
-            cost_price = pd.DataFrame({"000001.SZ": [10.0, 10.1, 10.2]}, index=price_idx)
+            daily_price = pd.DataFrame({"000001.SZ": [10.0, 10.1, 10.2]}, index=price_idx)
+            cost_price = pd.DataFrame(
+                {"000001.SZ": [99.0, 98.0]},
+                index=pd.to_datetime(["2024-01-01 00:10", "2024-01-03 00:10"]),
+            )
+            rebalance_log = pd.DataFrame(
+                {
+                    "datetime": pd.to_datetime(["2024-01-02 00:10", "2024-01-03 00:10"]),
+                    "code": ["000001.SZ", "000001.SZ"],
+                    "direction": ["sell", "buy"],
+                    "price": [99.0, 98.0],
+                }
+            )
 
-        records = build_timing_payload(FakeBacktest())["charts"]["navPrice"]
+        charts = build_timing_payload(FakeBacktest())["charts"]
+        records = charts["navPrice"]
 
         self.assertEqual([row["date"] for row in records], ["2024-01-01", "2024-01-02", "2024-01-03"])
         self.assertEqual([row["nav"] for row in records], [1.0, 1.01, 1.02])
         self.assertEqual([row["price"] for row in records], [10.0, 10.1, 10.2])
         self.assertEqual([row["position"] for row in records], [0.0, 0.8, 0.8])
+        self.assertEqual(
+            charts["tradeMarkers"],
+            [
+                {
+                    "date": "2024-01-02",
+                    "code": "000001.SZ",
+                    "side": "sell",
+                    "price": 10.1,
+                    "tradePrice": 99.0,
+                },
+                {
+                    "date": "2024-01-03",
+                    "code": "000001.SZ",
+                    "side": "buy",
+                    "price": 10.2,
+                    "tradePrice": 98.0,
+                },
+            ],
+        )
 
     def test_timing_prediction_falls_back_without_factor_values(self) -> None:
         class FakeBacktest:

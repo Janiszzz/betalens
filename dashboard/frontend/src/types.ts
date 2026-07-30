@@ -43,6 +43,7 @@ export type TimingPayload = {
   metrics: Metric[];
   charts: {
     navPrice: Array<Record<string, number | string | null>>;
+    tradeMarkers: Array<Record<string, number | string | null>>;
     position: Array<Record<string, number | string | null>>;
     drawdown: Array<Record<string, number | string | null>>;
     dailyPnl: Array<Record<string, number | string | null>>;

@@ -153,6 +153,37 @@ def fetch_daily_wide(metric, universe=None, start_date=None, end_date=None,
     return df.pivot_table(index='datetime', columns='code', values='value').sort_index()
 
 
+def align_daily_wides(wides):
+    """Align daily metrics by trade date at that day's latest availability time."""
+    import pandas as pd
+
+    nonempty = [wide for wide in wides.values() if wide is not None and not wide.empty]
+    if not nonempty:
+        return dict(wides)
+
+    latest_by_day = {}
+    for wide in nonempty:
+        for ts in pd.DatetimeIndex(wide.index):
+            stamp = pd.Timestamp(ts)
+            day = stamp.normalize()
+            if day not in latest_by_day or stamp > latest_by_day[day]:
+                latest_by_day[day] = stamp
+    days = pd.DatetimeIndex(sorted(latest_by_day))
+    canonical_index = pd.DatetimeIndex([latest_by_day[day] for day in days])
+
+    aligned = {}
+    for name, wide in wides.items():
+        if wide is None or wide.empty:
+            aligned[name] = wide
+            continue
+        frame = wide.copy()
+        frame.index = pd.DatetimeIndex(frame.index).normalize()
+        frame = frame.loc[~frame.index.duplicated(keep="last")].reindex(days)
+        frame.index = canonical_index
+        aligned[name] = frame
+    return aligned
+
+
 def wide_to_prequery(wide_df, metric_name, signal_dates):
     """宽表 → betalens 长表（仅保留 signal_dates 当日截面）。
 
@@ -173,15 +204,55 @@ def wide_to_prequery(wide_df, metric_name, signal_dates):
 def build_pit_universe(signal_dates, index_code, table_name="index_universe"):
     """构建 {信号日: [成分股代码]} 的 point-in-time 成分股映射（防前视）。"""
     data = Datafeed(table_name)
-    pit = {}
     try:
-        for d in signal_dates:
-            date_str = pd.Timestamp(d).strftime('%Y-%m-%d')
-            codes = data.get_index_universe(index_code, date_str)
-            pit[d] = set(codes)
+        pit = data.get_index_universe_panel(index_code, signal_dates)
     finally:
         data.close()
     return pit
+
+
+def mask_wide_by_pit_universe(wide_df, pit_universe):
+    """Mask every row to constituents effective on that row's calendar date."""
+    import pandas as pd
+
+    if wide_df is None or wide_df.empty or not pit_universe:
+        return wide_df
+    mask = pd.DataFrame(False, index=wide_df.index, columns=wide_df.columns)
+    columns = set(map(str, wide_df.columns))
+    for ts in wide_df.index:
+        members = pit_universe.get(pd.Timestamp(ts).date(), set())
+        keep = list(columns.intersection(map(str, members)))
+        if keep:
+            mask.loc[ts, keep] = True
+    return wide_df.where(mask)
+
+
+def fetch_industry_wide(scheme, universe, dates, reference_index, chunk_size=30):
+    """Fetch a PIT industry label panel and align it to market-wide timestamps."""
+    if not universe or not dates or reference_index is None:
+        return pd.DataFrame()
+    pieces = []
+    data = Datafeed("industry")
+    try:
+        day_list = list(dict.fromkeys(pd.Timestamp(day).date() for day in dates))
+        for offset in range(0, len(day_list), int(chunk_size)):
+            chunk = day_list[offset:offset + int(chunk_size)]
+            frame = data.query_industry(codes=list(universe), dates=chunk, scheme=scheme)
+            if frame is not None and not frame.empty:
+                pieces.append(frame[["query_date", "code", "ind_name"]])
+    finally:
+        data.close()
+    if not pieces:
+        return pd.DataFrame(index=reference_index, columns=universe, dtype=object)
+    labels = pd.concat(pieces, ignore_index=True)
+    labels["query_date"] = pd.to_datetime(labels["query_date"]).dt.normalize()
+    pivot = labels.pivot_table(
+        index="query_date", columns="code", values="ind_name", aggfunc="last"
+    )
+    normalized = pd.DatetimeIndex(reference_index).normalize()
+    out = pivot.reindex(index=normalized, columns=universe)
+    out.index = reference_index
+    return out
 
 
 def filter_long_by_pit_universe(long_df, pit_universe):
@@ -190,7 +261,7 @@ def filter_long_by_pit_universe(long_df, pit_universe):
     某信号日成分股为空（指数无快照）时严格剔除该期，避免在无实时股票池
     约束的情况下误选全市场股票。
     """
-    if not pit_universe:
+    if long_df.empty or not pit_universe:
         return long_df
 
     def _keep(row):
@@ -226,13 +297,19 @@ def infer_warmup_days(compute_kwargs, minimum=0):
 
 def validate_weights_in_pit_universe(weights, pit_universe):
     """校验每期非零权重股票是否都属于该期 PIT 股票池。"""
+    import pandas as pd
+
     if not pit_universe or weights is None or weights.empty:
         return pd.DataFrame()
     rows = []
     for ts, row in weights.iterrows():
         signal_date = pd.Timestamp(ts).date()
         members = pit_universe.get(signal_date, set())
-        selected = {str(code) for code, weight in row.items() if pd.notna(weight) and abs(float(weight)) > 0}
+        selected = {
+            str(code)
+            for code, weight in row.items()
+            if str(code) != "cash" and pd.notna(weight) and abs(float(weight)) > 0
+        }
         outside = sorted(selected - {str(code) for code in members})
         rows.append({
             "input_ts": pd.Timestamp(ts),
@@ -366,6 +443,9 @@ class FactorSpec:
     name: str
     inputs: dict[str, str]
     compute: Callable[..., pd.DataFrame]
+    industry_inputs: dict[str, str] = field(default_factory=dict)
+    required_history_bars: int = 0
+    mask_inputs_by_pit: bool = False
     direction: str = "positive"
     compute_kwargs: dict[str, Any] = field(default_factory=dict)
     table_name: str = DB_TABLE
@@ -597,6 +677,7 @@ class FactorPipeline:
             extra_inputs: dict[str, pd.DataFrame] | None = None,
             include_profiling: bool = True,
             dump_excel: bool = True,
+            warmup_days: int | None = None,
             verbose: bool = True) -> RunResult:
         """运行完整管线: 取数 → 算子 → [profiling] → 中性化 → 分组 → 权重 → 回测 → 报告
 
@@ -609,8 +690,12 @@ class FactorPipeline:
         _ensure_runtime()
         print("  运行依赖已加载", flush=True)
         sp = self.spec
-        warmup_days = infer_warmup_days(sp.compute_kwargs, minimum=30)
-        fetch_start = (pd.Timestamp(start_date) - pd.Timedelta(days=warmup_days)).strftime("%Y-%m-%d")
+        inferred_days = infer_warmup_days(
+            sp.compute_kwargs,
+            minimum=max(30, int(sp.required_history_bars) * 2 + 30),
+        )
+        warmup = int(warmup_days) if warmup_days is not None else inferred_days
+        fetch_start = (pd.Timestamp(start_date) - pd.Timedelta(days=warmup)).strftime("%Y-%m-%d")
 
         rebalance_dates = get_absolute_trade_days(start_date, end_date,
                                                   rebal_freq, use_pmc=False)
@@ -633,7 +718,8 @@ class FactorPipeline:
         if sp.index_code:
             if verbose:
                 print(f"  构建 PIT 股票池: {sp.index_code}, 信号日 {len(signal_dates)} 期", flush=True)
-            pit_universe = build_pit_universe(signal_dates, sp.index_code)
+            pit_dates = all_trade_days if sp.mask_inputs_by_pit else signal_dates
+            pit_universe = build_pit_universe(pit_dates, sp.index_code)
             universe = sorted({c for codes in pit_universe.values() for c in codes})
             if verbose:
                 empty_days = sum(1 for codes in pit_universe.values() if not codes)
@@ -652,6 +738,27 @@ class FactorPipeline:
             if verbose:
                 print(f"  完成取数: {arg_name} ({metric}) {w.shape}", flush=True)
             wides[arg_name] = w
+        wides = align_daily_wides(wides)
+        if sp.mask_inputs_by_pit and pit_universe is not None:
+            wides = {
+                name: mask_wide_by_pit_universe(wide, pit_universe)
+                for name, wide in wides.items()
+            }
+        if sp.industry_inputs:
+            reference_index = next(
+                (wide.index for wide in wides.values() if wide is not None and not wide.empty),
+                pd.DatetimeIndex([]),
+            )
+            for arg_name, scheme in sp.industry_inputs.items():
+                industry_wide = fetch_industry_wide(
+                    scheme,
+                    universe=universe,
+                    dates=all_trade_days,
+                    reference_index=reference_index,
+                )
+                if sp.mask_inputs_by_pit and pit_universe is not None:
+                    industry_wide = mask_wide_by_pit_universe(industry_wide, pit_universe)
+                wides[arg_name] = industry_wide
         if extra_inputs:
             wides.update(extra_inputs)
 
@@ -735,6 +842,9 @@ class FactorPipeline:
             print(f"  PIT 权重校验: {len(pit_validation)-bad}/{len(pit_validation)} 期通过")
             if bad:
                 print("  [WARN] 存在调仓股票不在当期 PIT 股票池内，请检查 pit_validation")
+        if "cash" not in weights.columns:
+            weights = weights.copy()
+            weights["cash"] = 1.0 - weights.sum(axis=1)
         weights.index = weights.index + pd.Timedelta(minutes=10)
 
         # 7. 回测

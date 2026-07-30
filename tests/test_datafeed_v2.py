@@ -396,6 +396,64 @@ def test_index_universe_normalized_uses_latest_pit_snapshot(monkeypatch):
     assert result == ["000001.SZ", "000002.SZ"]
 
 
+def test_index_universe_panel_normalized_batches_dates(monkeypatch):
+    cursor = RecordingCursor(
+        fetchall=[[
+            {"query_date": datetime(2024, 1, 31), "code": "000001.SZ"},
+            {"query_date": datetime(2024, 1, 31), "code": "000002.SZ"},
+            {"query_date": datetime(2024, 2, 1), "code": "000002.SZ"},
+        ]]
+    )
+    monkeypatch.setattr(universe, "_normalized_schema_available", lambda _: True)
+
+    result = universe.get_index_universe_panel(
+        cursor,
+        "000300.SH",
+        ["2024-01-31", "2024-02-01", "2024-02-01 15:00:01"],
+    )
+
+    statement, params = cursor.calls[-1]
+    statement = " ".join(_sql_text(statement).split())
+    assert "unnest(%s::timestamp[]) WITH ORDINALITY" in statement
+    assert "LEFT JOIN LATERAL" in statement
+    assert len(cursor.calls) == 1
+    assert params == (
+        [datetime(2024, 1, 31), datetime(2024, 2, 1)],
+        "000300.SH",
+    )
+    assert result == {
+        date(2024, 1, 31): {"000001.SZ", "000002.SZ"},
+        date(2024, 2, 1): {"000002.SZ"},
+    }
+
+
+def test_index_universe_panel_legacy_falls_back_per_unique_date(monkeypatch):
+    cursor = RecordingCursor()
+    calls = []
+    monkeypatch.setattr(universe, "_normalized_schema_available", lambda _: False)
+
+    def fake_get_index_universe(_cursor, index_code, date, **kwargs):
+        calls.append((index_code, date, kwargs["table_name"], kwargs["metric"]))
+        return [f"member-{date}"]
+
+    monkeypatch.setattr(universe, "get_index_universe", fake_get_index_universe)
+
+    result = universe.get_index_universe_panel(
+        cursor,
+        "000300.SH",
+        ["2024-01-31", "2024-01-31 15:00:01", "2024-02-01"],
+        table_name="legacy_universe",
+        metric="members",
+    )
+
+    assert calls == [
+        ("000300.SH", "2024-01-31", "legacy_universe", "members"),
+        ("000300.SH", "2024-02-01", "legacy_universe", "members"),
+    ]
+    assert result[date(2024, 1, 31)] == {"member-2024-01-31"}
+    assert result[date(2024, 2, 1)] == {"member-2024-02-01"}
+
+
 @pytest.mark.parametrize(
     ("index_code", "query_date", "message"),
     [("", "2024-01-31", "index_code不能为空"), ("000300.SH", "", "date不能为空")],

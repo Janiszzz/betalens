@@ -78,7 +78,10 @@ def factor_metadata(config: Mapping[str, Any]) -> dict[str, Any]:
         "name": meta.get("name", ""),
         "formula": meta.get("formula", ""),
         "logic": meta.get("logic", ""),
-        "inputs": factor_spec.get("inputs", {}),
+        "inputs": {
+            **dict(factor_spec.get("inputs", {}) or {}),
+            **dict(factor_spec.get("industry_inputs", {}) or {}),
+        },
         "compute_kwargs": factor_spec.get("compute_kwargs", {}) or {},
     }
 
@@ -148,7 +151,7 @@ def factor_spec_options(config: Mapping[str, Any], config_path: str | Path) -> d
         ("mode", "long_groups", "short_groups"),
         context=f"{config_path}: weight",
     )
-    return {
+    options = {
         "inputs": dict(factor_spec["inputs"]),
         "compute_kwargs": dict(factor_spec["compute_kwargs"] or {}),
         "direction": str(factor_spec["direction"]),
@@ -164,3 +167,10 @@ def factor_spec_options(config: Mapping[str, Any], config_path: str | Path) -> d
         "group_weights": dict(weight.get("group_weights") or {}),
         "intra_group_allocation": dict(weight.get("intra_group_allocation") or {}),
     }
+    if "industry_inputs" in factor_spec:
+        options["industry_inputs"] = dict(factor_spec.get("industry_inputs") or {})
+    if "required_history_bars" in factor_spec:
+        options["required_history_bars"] = int(factor_spec.get("required_history_bars") or 0)
+    if "mask_inputs_by_pit" in factor_spec:
+        options["mask_inputs_by_pit"] = bool(factor_spec.get("mask_inputs_by_pit", False))
+    return options

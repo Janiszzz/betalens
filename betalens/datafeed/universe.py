@@ -24,7 +24,8 @@
 """
 
 import logging
-from typing import Optional, List
+from datetime import date as Date
+from typing import Iterable, Optional, List
 
 import pandas as pd
 
@@ -34,6 +35,87 @@ from .query import _normalized_schema_available
 
 DEFAULT_TABLE = 'index_universe'
 DEFAULT_METRIC = 'universe'
+
+
+def _normalize_query_dates(dates: Iterable) -> list[pd.Timestamp]:
+    out = []
+    seen = set()
+    for value in dates:
+        day = pd.Timestamp(value).normalize()
+        if day in seen:
+            continue
+        seen.add(day)
+        out.append(day)
+    return out
+
+
+def get_index_universe_panel(
+    cursor,
+    index_code: str,
+    dates: Iterable,
+    table_name: str = DEFAULT_TABLE,
+    metric: str = DEFAULT_METRIC,
+    logger: Optional[logging.Logger] = None,
+) -> dict[Date, set[str]]:
+    """Return point-in-time constituents for many dates in one call."""
+    if logger is None:
+        logger = _get_default_logger()
+    if not index_code:
+        raise ValueError("index_code不能为空")
+    query_dates = _normalize_query_dates(dates)
+    if not query_dates:
+        return {}
+
+    panel = {day.date(): set() for day in query_dates}
+    if (
+        table_name == DEFAULT_TABLE
+        and metric == DEFAULT_METRIC
+        and _normalized_schema_available(cursor)
+    ):
+        cursor.execute(
+            """
+            WITH requested AS (
+                SELECT query_date, input_ord
+                FROM unnest(%s::timestamp[]) WITH ORDINALITY
+                     AS d(query_date, input_ord)
+            )
+            SELECT r.query_date, member.code
+            FROM requested r
+            LEFT JOIN LATERAL (
+                SELECT s.snapshot_id
+                FROM betalens.index_snapshot s
+                JOIN betalens.entity_dim idx ON idx.entity_id = s.index_entity_id
+                WHERE idx.code = %s AND s.effective_at <= r.query_date
+                ORDER BY s.effective_at DESC
+                LIMIT 1
+            ) latest ON TRUE
+            LEFT JOIN betalens.index_constituent c
+                   ON c.snapshot_id = latest.snapshot_id
+            LEFT JOIN betalens.entity_dim member
+                   ON member.entity_id = c.constituent_entity_id
+            ORDER BY r.input_ord, COALESCE(c.ordinal, 2147483647), member.code
+            """,
+            ([day.to_pydatetime() for day in query_dates], index_code),
+        )
+        for row in cursor.fetchall():
+            query_date = row.get("query_date") if isinstance(row, dict) else row[0]
+            code = row.get("code") if isinstance(row, dict) else row[1]
+            if code:
+                panel[pd.Timestamp(query_date).date()].add(str(code))
+        return panel
+
+    for day in query_dates:
+        panel[day.date()] = set(
+            get_index_universe(
+                cursor,
+                index_code=index_code,
+                date=day.strftime("%Y-%m-%d"),
+                table_name=table_name,
+                metric=metric,
+                logger=logger,
+            )
+        )
+    return panel
 
 
 def _get_default_logger():

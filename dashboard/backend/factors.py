@@ -23,6 +23,16 @@ def _strategy_type(meta: dict[str, Any]) -> str:
     return value if value in _STRATEGY_TYPES else "cross_sectional"
 
 
+def _display_inputs(factor_spec: dict[str, Any]) -> dict[str, str]:
+    return {
+        **{str(key): str(value) for key, value in (factor_spec.get("inputs") or {}).items()},
+        **{
+            str(key): f"industry:{value}"
+            for key, value in (factor_spec.get("industry_inputs") or {}).items()
+        },
+    }
+
+
 def _factor_yaml_paths(factor_dir: Path) -> list[Path]:
     """Return factor YAMLs in a factor directory, canonical file first."""
     canonical = factor_dir / f"factor_{factor_dir.name}.yaml"
@@ -118,7 +128,7 @@ def discover_factors() -> tuple[FactorSummary, ...]:
                     formula=meta.get("formula", ""),
                     logic=meta.get("logic", ""),
                     source=meta.get("source") or source,
-                    inputs=factor_spec.get("inputs", {}),
+                    inputs=_display_inputs(factor_spec),
                     defaults=effective_factor_defaults(spec_data, factor),
                 )
             )
@@ -163,7 +173,7 @@ def get_factor_detail(factor_class: str, name: str) -> FactorDetail:
         formula=meta.get("formula", ""),
         logic=meta.get("logic", ""),
         source=meta.get("source") or spec_data.get("source", ""),
-        inputs=factor_spec.get("inputs", {}),
+        inputs=_display_inputs(factor_spec),
         defaults=effective_factor_defaults(spec_data, factor_cfg),
         compute_kwargs=factor_spec.get("compute_kwargs", {}) or {},
         doc=doc,

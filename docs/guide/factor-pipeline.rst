@@ -47,6 +47,7 @@ YAML 结构
    factor_spec:
      inputs:
        close_wide: 收盘价(元)
+     industry_inputs: {}
      compute_kwargs:
        window: 4
      direction: positive
@@ -56,6 +57,8 @@ YAML 结构
      use_mktcap: false
      industry_scheme: 申万一级行业
      backtest_metric: 收盘价(元)
+     required_history_bars: 0
+     mask_inputs_by_pit: false
    weight:
      mode: freeplay
      long_groups: null
@@ -70,6 +73,7 @@ YAML 结构
      initial_amount: 100000000
      include_profiling: true
      dump_excel: true
+     warmup_days: null
      output_dir: outputs/runs/manual
 
 不做类级、因子级、脚本级多层覆盖；具体运行以完整 YAML 为唯一参数源。Dashboard 提交后会生成本次运行的 ``run_config.yaml``，再用这份文件构造 ``FactorSpec`` 和 run 参数。
@@ -126,13 +130,29 @@ FactorSpec
 
 * ``name``：因子名和输出前缀。
 * ``inputs``：``{算子参数名: 数据库 metric}``。
+* ``industry_inputs``：可选的 ``{算子参数名: PIT 行业分类体系}``；用于公式内部的行业中性化。
 * ``compute``：宽表算子函数。
+* ``required_history_bars``：公式累计需要的交易日历史根数；未显式设置 ``warmup_days`` 时用于自动推断取数起点。
+* ``mask_inputs_by_pit``：为 ``true`` 时，在公式计算前逐交易日按 ``index_code`` 的 PIT 成分掩码过滤所有输入。
 * ``direction``：``positive`` 高分组做多，``negative`` 低分组做多。
 * ``table_name``：输入数据表，常用 ``daily_market``。
 * ``index_code``：PIT 指数成分过滤。
 * ``use_industry`` / ``use_mktcap``：行业和市值中性化。
 * ``weight_mode``、``long_groups``、``short_groups``：权重生成口径。
 * ``backtest_metric``：回测成交价指标。
+
+``FactorPipeline.run(..., warmup_days=N)`` 可用日历日显式覆盖自动预热；省略或在 YAML 中设为 ``null`` 时，管线根据 ``required_history_bars`` 与算子参数推断。旧 YAML 无需增加上述可选字段。
+
+Alpha101 目录
+-------------
+
+``betalens-factor/alpha101/alpha101_formulas.py`` 是 101 个论文公式、输入依赖与精确回看长度的注册表。每个因子的截面版和择时版脚本/YAML 由 ``tools/generate_catalog.py`` 生成；CI 或本地校验使用：
+
+.. code-block:: powershell
+
+   python betalens-factor\alpha101\tools\generate_catalog.py --check
+
+择时版以中证 800 日频 PIT 截面作为 Alpha101 排名和行业中性化的公式上下文，并始终把 YAML 中 ``stock_code`` 指定的股票加入计算截面；指数成分资格不限制目标股票产生信号。目标股票自身数据或因子值无效时目标仓位为零。若请求开始日期早于目标股票全部必要行情字段的共同起点，管线自动将有效开始日期后移，并在运行日志中提示请求日期、目标代码和调整后日期。默认 ``rolling_z`` 信号使用过去 120 个有效因子观测的历史上轨、1 倍标准差、满仓做空，执行时间为信号日后 10 分钟。
 
 RunResult
 ---------

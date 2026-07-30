@@ -4,7 +4,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from betalens.factor.config import ConfigError, load_yaml_config, resolve_run_output_dir
+from betalens.factor.config import (
+    ConfigError,
+    factor_metadata,
+    factor_spec_options,
+    load_yaml_config,
+    resolve_run_output_dir,
+)
 
 
 class FactorConfigTests(unittest.TestCase):
@@ -57,6 +63,46 @@ run:
 
             with self.assertRaisesRegex(ConfigError, "section 'factor_spec'"):
                 load_yaml_config(path, required_sections=("meta", "factor_spec"))
+
+    def test_new_factor_spec_fields_are_optional_for_old_yaml(self) -> None:
+        config = {
+            "meta": {"name": "OLD"},
+            "factor_spec": {
+                "inputs": {"close_wide": "收盘价(元)"},
+                "compute_kwargs": {},
+                "direction": "positive",
+                "table_name": "daily_market",
+                "index_code": "000906.SH",
+                "use_industry": False,
+                "use_mktcap": False,
+                "industry_scheme": "申万一级行业",
+                "backtest_metric": "收盘价(元)",
+            },
+            "weight": {"mode": "freeplay", "long_groups": None, "short_groups": None},
+        }
+
+        options = factor_spec_options(config, "factor_OLD.yaml")
+
+        self.assertNotIn("industry_inputs", options)
+        self.assertNotIn("required_history_bars", options)
+        self.assertNotIn("mask_inputs_by_pit", options)
+
+    def test_factor_metadata_merges_industry_inputs_for_read_only_display(self) -> None:
+        config = {
+            "meta": {"name": "WITH_INDUSTRY", "formula": "x", "logic": "y"},
+            "factor_spec": {
+                "inputs": {"close_wide": "收盘价(元)"},
+                "industry_inputs": {"industry_wide": "申万二级行业"},
+                "compute_kwargs": {},
+            },
+        }
+
+        metadata = factor_metadata(config)
+
+        self.assertEqual(
+            metadata["inputs"],
+            {"close_wide": "收盘价(元)", "industry_wide": "申万二级行业"},
+        )
 
 
 if __name__ == "__main__":

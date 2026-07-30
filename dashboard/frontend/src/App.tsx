@@ -1440,9 +1440,7 @@ function BacktestChartPanels({
   isTiming: boolean;
 }) {
   const groupNav = result.charts.groupNav || [];
-  const tradePairs = result.charts.tradePairs || [];
   const annual = result.charts.annualTrade || [];
-  const nav = result.charts.nav || [];
   const groupNames = Array.from(new Set(groupNav.map((row) => asString(row.group)))).sort(
     (left, right) => asNumber(left.replace(/^G/, ''), 0) - asNumber(right.replace(/^G/, ''), 0)
   );
@@ -1450,7 +1448,7 @@ function BacktestChartPanels({
 
   return (
     <>
-      <div className="section-title"><ChartNoAxesCombined size={18} />回测图形</div>
+      {!isTiming ? <div className="section-title"><ChartNoAxesCombined size={18} />回测图形</div> : null}
       {!isTiming ? (
         <div className="chart-card">
           <div className="chart-card-title">分组累计收益曲线</div>
@@ -1485,59 +1483,7 @@ function BacktestChartPanels({
             </Suspense>
           ) : <div className="table-empty">本次回测没有可展示的分组净值数据</div>}
         </div>
-      ) : (
-        <div className="chart-card">
-          <div className="chart-card-title">净值曲线与买卖点</div>
-          {nav.length ? (
-            <Suspense fallback={<div className="chart-loading"><Loader2 className="spin" size={18} />加载图表...</div>}>
-              <PlotView
-                data={[
-                  {
-                    x: nav.map((row) => row.date),
-                    y: nav.map((row) => row.nav),
-                    type: 'scatter',
-                    mode: 'lines',
-                    name: '净值',
-                    line: { color: '#20262e', width: 1.8 },
-                    hovertemplate: '%{x}<br>净值 %{y:.4f}<extra></extra>'
-                  },
-                  {
-                    x: tradePairs.map((row) => row.buyDate),
-                    y: tradePairs.map((row) => row.buyNav),
-                    customdata: tradePairs.map((row) => [row.code, row.buyPrice]),
-                    type: 'scatter',
-                    mode: 'markers',
-                    name: '买入',
-                    marker: { color: '#b93732', symbol: 'triangle-up', size: 10 },
-                    hovertemplate: '%{x}<br>%{customdata[0]}<br>买入价 %{customdata[1]:.4f}<extra></extra>'
-                  },
-                  {
-                    x: tradePairs.map((row) => row.sellDate),
-                    y: tradePairs.map((row) => row.sellNav),
-                    customdata: tradePairs.map((row) => [row.code, row.sellPrice, row.return]),
-                    type: 'scatter',
-                    mode: 'markers',
-                    name: '卖出',
-                    marker: { color: '#278052', symbol: 'triangle-down', size: 10 },
-                    hovertemplate: '%{x}<br>%{customdata[0]}<br>卖出价 %{customdata[1]:.4f}<br>单笔收益 %{customdata[2]:.2%}<extra></extra>'
-                  }
-                ]}
-                layout={{
-                  ...baseLayout('', 430, true),
-                  margin: { l: 46, r: 22, t: 70, b: 45 },
-                  legend: { orientation: 'h', x: 0, y: 1.02, yanchor: 'bottom' },
-                  xaxis: {
-                    rangeslider: { visible: true, thickness: 0.08 },
-                    gridcolor: '#d8dde3',
-                    rangebreaks: tradingDayRangebreaks(nav)
-                  }
-                }}
-                config={chartConfig}
-              />
-            </Suspense>
-          ) : <div className="table-empty">本次回测没有可展示的净值数据</div>}
-        </div>
-      )}
+      ) : null}
 
       <div className="chart-card">
         <div className="chart-card-title">分年度交易表现</div>
@@ -1595,7 +1541,9 @@ function TimingOverview({ result, state }: { result: RunResult | null; state: Ru
   const timing = result.timing;
   const metrics = timing?.metrics || [];
   const navPrice = timing?.charts?.navPrice || [];
-  const position = timing?.charts?.position || [];
+  const tradeMarkers = timing?.charts?.tradeMarkers || [];
+  const buyMarkers = tradeMarkers.filter((row) => row.side === 'buy');
+  const sellMarkers = tradeMarkers.filter((row) => row.side === 'sell');
   const drawdown = timing?.charts?.drawdown || [];
   const dailyPnl = timing?.charts?.dailyPnl || [];
   const tradeReturns = timing?.charts?.tradeReturns || [];
@@ -1603,10 +1551,9 @@ function TimingOverview({ result, state }: { result: RunResult | null; state: Ru
   const openForwardReturns = timing?.charts?.openForwardReturns || [];
   const tradeRows = formatTimingTradeRows(timing?.tables?.tradeSegments || []);
   const predictionRows = formatTimingPredictionRows(timing?.tables?.prediction || []);
-  const navPriceLayout = baseLayout('净值 / 标的价格 / 仓位', 390, true);
+  const navPriceLayout = baseLayout('净值 / 标的价格 / 仓位与买卖点', 430, true);
   const hasAnyChart = Boolean(
     navPrice.length
-    || position.length
     || drawdown.length
     || dailyPnl.length
     || tradeReturns.length
@@ -1623,8 +1570,6 @@ function TimingOverview({ result, state }: { result: RunResult | null; state: Ru
         <MetricsBlock title="收益风险" metrics={timingMetrics(metrics, 'return')} />
         <MetricsBlock title="预测收益能力" metrics={timingMetrics(metrics, 'prediction')} />
       </div>
-
-      <BacktestChartPanels result={result} isTiming />
 
       {navPrice.length ? (
         <div className="chart-card">
@@ -1648,6 +1593,7 @@ function TimingOverview({ result, state }: { result: RunResult | null; state: Ru
                   name: '标的价格',
                   yaxis: 'y2',
                   line: { color: '#6a9f42', width: 1.8 },
+                  connectgaps: true,
                   hovertemplate: '价格 %{y:.3f}<extra></extra>'
                 },
                 {
@@ -1658,6 +1604,28 @@ function TimingOverview({ result, state }: { result: RunResult | null; state: Ru
                   yaxis: 'y3',
                   marker: { color: 'rgba(233, 65, 65, 0.18)' },
                   hovertemplate: '仓位 %{y:.1%}<extra></extra>'
+                },
+                {
+                  x: buyMarkers.map((row) => row.date),
+                  y: buyMarkers.map((row) => asNullableNumber(row.price)),
+                  customdata: buyMarkers.map((row) => [row.code, row.tradePrice]),
+                  type: 'scatter',
+                  mode: 'markers',
+                  name: '买入',
+                  yaxis: 'y2',
+                  marker: { color: '#b93732', symbol: 'triangle-up', size: 10 },
+                  hovertemplate: '%{x}<br>%{customdata[0]}<br>价格曲线 %{y:.4f}<br>成交价 %{customdata[1]:.4f}<extra></extra>'
+                },
+                {
+                  x: sellMarkers.map((row) => row.date),
+                  y: sellMarkers.map((row) => asNullableNumber(row.price)),
+                  customdata: sellMarkers.map((row) => [row.code, row.tradePrice]),
+                  type: 'scatter',
+                  mode: 'markers',
+                  name: '卖出',
+                  yaxis: 'y2',
+                  marker: { color: '#278052', symbol: 'triangle-down', size: 10 },
+                  hovertemplate: '%{x}<br>%{customdata[0]}<br>价格曲线 %{y:.4f}<br>成交价 %{customdata[1]:.4f}<extra></extra>'
                 }
               ]}
               layout={{
@@ -1677,40 +1645,7 @@ function TimingOverview({ result, state }: { result: RunResult | null; state: Ru
         </div>
       ) : null}
 
-      {position.length ? (
-        <div className="chart-card">
-          <Suspense fallback={<div className="chart-loading"><Loader2 className="spin" size={18} />加载图表...</div>}>
-            <PlotView
-              data={[
-                {
-                  x: position.map((row) => row.date),
-                  y: position.map((row) => asNullableNumber(row.position)),
-                  type: 'scatter',
-                  mode: 'lines',
-                  fill: 'tozeroy',
-                  name: '股票仓位',
-                  line: { color: '#e94141', width: 2 },
-                  hovertemplate: '仓位 %{y:.2%}<extra></extra>'
-                },
-                {
-                  x: position.map((row) => row.date),
-                  y: position.map((row) => asNullableNumber(row.cash)),
-                  type: 'scatter',
-                  mode: 'lines',
-                  name: '现金仓位',
-                  line: { color: '#87909a', width: 1.6, dash: 'dot' },
-                  hovertemplate: '现金 %{y:.2%}<extra></extra>'
-                }
-              ]}
-              layout={{
-                ...baseLayout('仓位时间序列', 280, true),
-                yaxis: { gridcolor: '#d8dde3', zerolinecolor: '#87909a', tickformat: '.0%', range: [0, 1] }
-              }}
-              config={{ displayModeBar: false, responsive: true }}
-            />
-          </Suspense>
-        </div>
-      ) : null}
+      <BacktestChartPanels result={result} isTiming />
 
       {(dailyPnl.length || drawdown.length) ? (
         <div className="chart-card">

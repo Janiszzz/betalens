@@ -1246,6 +1246,8 @@ class BacktestBase(object):
             
             self.position = self.position[common_cols]
             close_price_ts = close_price_ts[common_cols]
+            # Preserve the complete daily valuation series for timing charts and exports.
+            self.daily_price = close_price_ts.copy()
             
             # 每标的每日持仓金额 = 持仓数量 × 当日收盘价（cash 价=1 → 现金额）
             self.daily_position_value = self.position.mul(close_price_ts, axis=0).astype(float)
@@ -1328,7 +1330,7 @@ class BacktestBase(object):
         """
         df_attrs = [
             'weight', 'actual_weight', 'cost_price', 'actual_datetime', 'cost_ret',
-            'amount', 'position', 'daily_amount', 'nav',
+            'amount', 'position', 'daily_price', 'daily_amount', 'nav',
             'daily_position_value', 'daily_pnl', 'daily_pnl_total', 'rebalance_log',
         ]
         meta_keys = [

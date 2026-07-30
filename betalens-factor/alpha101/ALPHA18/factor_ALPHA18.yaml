@@ -1,0 +1,38 @@
+meta:
+  class: alpha101
+  name: ALPHA18
+  source: WorldQuant 101 Formulaic Alphas (Kakushadze 2016)
+  formula: -1*rank(stddev(abs(close-open),5)+(close-open)+correlation(close,open,10))
+  logic: 严格按论文公式计算，高值作为正向截面因子。
+factor_spec:
+  inputs:
+    open_wide: 开盘价(元)
+    close_wide: 收盘价(元)
+  industry_inputs: {}
+  compute_kwargs: {}
+  direction: positive
+  table_name: daily_market
+  index_code: 000906.SH
+  use_industry: true
+  use_mktcap: false
+  industry_scheme: 申万一级行业
+  backtest_metric: 开盘价(元)
+  required_history_bars: 10
+  mask_inputs_by_pit: true
+weight:
+  mode: classic-long-short
+  long_groups: null
+  short_groups: null
+  group_weights: {}
+  intra_group_allocation: {}
+run:
+  start_date: '2024-01-01'
+  end_date: '2025-12-31'
+  rebal_freq: W
+  n_quantiles: 10
+  initial_amount: 100000000
+  benchmark_code: 000906.SH
+  include_profiling: true
+  dump_excel: true
+  warmup_days: null
+  output_dir: outputs/runs/manual

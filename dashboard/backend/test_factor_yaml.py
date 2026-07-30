@@ -30,6 +30,26 @@ class FactorYamlDashboardTests(unittest.TestCase):
         xichou_timing = next(item for item in factors if item.factor_class == "tdx" and item.name == "XICHOU_timing")
         self.assertEqual(xichou_timing.strategy_type, "timing")
 
+    def test_discover_factors_exposes_complete_alpha101_catalog(self) -> None:
+        clear_factor_cache()
+        alpha101 = [item for item in discover_factors() if item.factor_class == "alpha101"]
+        names = {item.name for item in alpha101}
+
+        self.assertEqual(len(alpha101), 202)
+        self.assertEqual(
+            names,
+            {
+                name
+                for number in range(1, 102)
+                for name in (f"ALPHA{number}", f"ALPHA{number}_timing")
+            },
+        )
+        self.assertEqual(sum(item.strategy_type == "cross_sectional" for item in alpha101), 101)
+        self.assertEqual(sum(item.strategy_type == "timing" for item in alpha101), 101)
+
+        alpha48 = next(item for item in alpha101 if item.name == "ALPHA48")
+        self.assertEqual(alpha48.inputs["subindustry_wide"], "industry:申万三级行业")
+
     def test_get_factor_config_supports_multiple_yaml_specs_in_one_dir(self) -> None:
         script, _class_cfg, factor_cfg = get_factor_config("tdx", "XICHOU_timing")
 

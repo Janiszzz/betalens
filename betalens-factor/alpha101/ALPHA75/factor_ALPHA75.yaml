@@ -1,0 +1,40 @@
+meta:
+  class: alpha101
+  name: ALPHA75
+  source: WorldQuant 101 Formulaic Alphas (Kakushadze 2016)
+  formula: rank(correlation(vwap,volume,4.24304))<rank(correlation(rank(low),rank(adv50),12.4413))
+  logic: 严格按论文公式计算，高值作为正向截面因子。
+factor_spec:
+  inputs:
+    low_wide: 最低价(元)
+    volume_wide: 成交量(股)
+    vwap_wide: 均价(元)
+    amount_wide: 成交金额(元)
+  industry_inputs: {}
+  compute_kwargs: {}
+  direction: positive
+  table_name: daily_market
+  index_code: 000906.SH
+  use_industry: true
+  use_mktcap: false
+  industry_scheme: 申万一级行业
+  backtest_metric: 开盘价(元)
+  required_history_bars: 61
+  mask_inputs_by_pit: true
+weight:
+  mode: classic-long-short
+  long_groups: null
+  short_groups: null
+  group_weights: {}
+  intra_group_allocation: {}
+run:
+  start_date: '2024-01-01'
+  end_date: '2025-12-31'
+  rebal_freq: W
+  n_quantiles: 10
+  initial_amount: 100000000
+  benchmark_code: 000906.SH
+  include_profiling: true
+  dump_excel: true
+  warmup_days: null
+  output_dir: outputs/runs/manual

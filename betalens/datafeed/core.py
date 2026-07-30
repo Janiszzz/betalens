@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import warnings
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 import pandas as pd
@@ -262,6 +262,18 @@ class Datafeed:
             self._cursor,
             index_code=index_code,
             date=date,
+            table_name=self.sheet,
+            logger=self.logger,
+        )
+
+    def get_index_universe_panel(self, index_code: str, dates) -> dict[date, set[str]]:
+        """Return latest point-in-time constituents for each requested date."""
+        from .universe import get_index_universe_panel
+
+        return get_index_universe_panel(
+            self._cursor,
+            index_code=index_code,
+            dates=dates,
             table_name=self.sheet,
             logger=self.logger,
         )

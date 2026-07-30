@@ -2,12 +2,13 @@ meta:
   class: alpha101
   name: ALPHA12
   source: WorldQuant 101 Formulaic Alphas (Kakushadze 2016)
-  formula: sign(delta(volume,1)) * (-1 * delta(close,1))
-  logic: 量增价跌 / 量缩价涨 → 因子值高（看多），方向 positive。
+  formula: sign(delta(volume,1))*(-1*delta(close,1))
+  logic: 严格按论文公式计算，高值作为正向截面因子。
 factor_spec:
   inputs:
     close_wide: 收盘价(元)
     volume_wide: 成交量(股)
+  industry_inputs: {}
   compute_kwargs: {}
   direction: positive
   table_name: daily_market
@@ -16,6 +17,8 @@ factor_spec:
   use_mktcap: false
   industry_scheme: 申万一级行业
   backtest_metric: 开盘价(元)
+  required_history_bars: 2
+  mask_inputs_by_pit: true
 weight:
   mode: classic-long-short
   long_groups: null
@@ -31,4 +34,5 @@ run:
   benchmark_code: 000906.SH
   include_profiling: true
   dump_excel: true
+  warmup_days: null
   output_dir: outputs/runs/manual

@@ -413,6 +413,7 @@ def _empty_timing_payload() -> dict[str, Any]:
         "metrics": [],
         "charts": {
             "navPrice": [],
+            "tradeMarkers": [],
             "position": [],
             "drawdown": [],
             "dailyPnl": [],
@@ -522,7 +523,9 @@ def _timing_primary_code(stock_weight: pd.DataFrame) -> str | None:
 
 
 def _timing_price_series(bt: Any, primary_code: str | None) -> pd.Series:
-    prices = _numeric_frame(getattr(bt, "cost_price", None))
+    prices = _numeric_frame(getattr(bt, "daily_price", None))
+    if prices.empty:
+        prices = _numeric_frame(getattr(bt, "cost_price", None))
     if prices.empty:
         return pd.Series(dtype=float)
     if primary_code and primary_code in prices.columns:
@@ -549,6 +552,53 @@ def _timing_nav_price_records(
                 "nav": _clean_scalar(nav.get(dt)),
                 "price": _clean_scalar(price.get(dt)),
                 "position": _clean_scalar(position.get(dt)),
+            }
+        )
+    return records
+
+
+def _timing_trade_marker_records(
+    rebalance_log: Any,
+    price: pd.Series,
+    primary_code: str | None,
+) -> list[dict[str, Any]]:
+    """Return buy/sell events whose y values sit on the displayed price curve."""
+    if (
+        rebalance_log is None
+        or not isinstance(rebalance_log, pd.DataFrame)
+        or rebalance_log.empty
+        or price.empty
+    ):
+        return []
+    required = {"datetime", "code", "direction"}
+    if not required.issubset(rebalance_log.columns):
+        return []
+
+    records: list[dict[str, Any]] = []
+    for _, row in rebalance_log.sort_values("datetime").iterrows():
+        code = str(row["code"])
+        direction = str(row["direction"]).lower()
+        if primary_code and code != primary_code:
+            continue
+        if direction not in {"buy", "sell"}:
+            continue
+        dt = pd.to_datetime(row["datetime"], errors="coerce")
+        if pd.isna(dt):
+            continue
+        day = pd.Timestamp(dt).normalize()
+        curve_price = _finite_float(price.get(day))
+        if curve_price is None:
+            following = price.loc[price.index >= day]
+            curve_price = _finite_float(following.iloc[0]) if not following.empty else None
+        if curve_price is None:
+            continue
+        records.append(
+            {
+                "date": day.strftime("%Y-%m-%d"),
+                "code": code,
+                "side": direction,
+                "price": curve_price,
+                "tradePrice": _clean_scalar(row.get("price")),
             }
         )
     return records
@@ -930,6 +980,9 @@ def build_timing_payload(bt: Any, factor_values: pd.DataFrame | None = None) -> 
     ]
     payload["charts"] = {
         "navPrice": _timing_nav_price_records(nav, price, position),
+        "tradeMarkers": _timing_trade_marker_records(
+            getattr(bt, "rebalance_log", None), price, primary_code
+        ),
         "position": _timing_position_records(position, cash),
         "drawdown": _series_points(drawdown, "drawdown"),
         "dailyPnl": _series_points(daily_pnl, "pnl"),
