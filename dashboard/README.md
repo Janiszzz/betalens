@@ -4,6 +4,9 @@ Betalens Dashboard 是 Betalens 量化框架的浏览器工作台：FastAPI 后�
 
 ## 启动
 
+前置条件：Python 环境已安装 `.[dashboard,viz]`（或 `.[full]`），Node.js 版本至少为
+20.19。先用 `python --version`、`node --version` 和 `npm --version` 验证当前终端环境。
+
 一键启动前后端：
 
 ```powershell

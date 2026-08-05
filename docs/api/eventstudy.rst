@@ -37,6 +37,7 @@ EventStudy
          - ``valid_codes`` (list, 多标的模式): 有效代码列表
          - ``skipped_codes`` (list, 多标的模式): 无有效窗口的代码及原因
          - ``comparison`` (dict, compare 模式): 稳定事件映射和 ``by_code`` 逐标的统计、收益矩阵、累计矩阵、覆盖率
+         - Dashboard 结果中的 ``assets``: 有效标的的 ``code``、中文 ``name`` 和图例 ``label``；名称查不到时 ``name`` 为 ``null``，``label`` 回退为代码
          - ``period_stats`` (pd.DataFrame, 仅单标的+periods): 分段统计
 
       .. note::

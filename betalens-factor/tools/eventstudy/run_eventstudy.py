@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -30,10 +31,14 @@ def load_params(config_path: str | Path = PARAMS_FILE) -> tuple[dict[str, Any], 
 
 
 def parse_codes(value: Any) -> str | list[str]:
-    if isinstance(value, list):
-        codes = [str(item).strip() for item in value if str(item).strip()]
-    else:
-        codes = [item.strip() for item in str(value or "").replace("\n", ",").replace(";", ",").split(",") if item.strip()]
+    items = value if isinstance(value, list) else [value]
+    codes = [
+        code.strip()
+        for item in items
+        for code in re.split(r"[,，;；\r\n]+", str(item or ""))
+        if code.strip()
+    ]
+    codes = list(dict.fromkeys(codes))
     if not codes:
         raise ValueError("参数 code 至少需要一个标的代码")
     return codes[0] if len(codes) == 1 else codes

@@ -16,18 +16,28 @@
 
 ## 安装
 
+前置条件：Python 3.10+、PostgreSQL 13+；使用 Dashboard 还需要 Node.js 20.19+。
+
 ```powershell
 git clone https://github.com/Janiszzz/betalens.git
 cd betalens
-python -m pip install -e .
-python -m pip install -r requirements.txt
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip setuptools wheel
+python -m pip install -e ".[full]"
 ```
 
-按需安装可选依赖：
+复制数据库配置模板，填写本机 PostgreSQL 密码，然后初始化默认的 `datafeed` 数据库：
 
 ```powershell
-python -m pip install -e ".[viz,dashboard,db,gui]"
+Copy-Item betalens\datafeed\config.example.json betalens\datafeed\config.local.json
+notepad betalens\datafeed\config.local.json
+python -m betalens_db_manager plan
+.\betalens_db_manager\init_local.bat
+python -m betalens_db_manager verify
 ```
+
+数据库、依赖包、数据导入、Dashboard 和常见故障的逐步说明见[从零安装教程](docs/getting-started/installation.rst)。
 
 ## 快速开始
 
@@ -104,7 +114,7 @@ Dashboard 扫描 `betalens-factor/` 下的 YAML 因子配置，支持因子发�
 betalens/
 ├── betalens/              # 主包：datafeed / factor / backtest / analyst / eventstudy / robust
 ├── betalens-factor/       # 因子脚本、YAML 参数、运行产物和参数挖掘入口
-├── betalens-db-manager/   # 数据库管理工具源码目录；稳定 Python import 名为 betalens_db_manager
+├── betalens_db_manager/   # 数据库管理工具；稳定 Python import 名为 betalens_db_manager
 ├── dashboard/             # FastAPI + React/Vite Dashboard
 ├── docs/                  # Sphinx 文档
 ├── tests/                 # 测试
@@ -124,7 +134,7 @@ python -m sphinx -b html -n -W --keep-going docs docs\_build\html
 
 文档入口：
 
-- 快速开始：[安装指南](docs/getting-started/installation.rst) · [10 分钟快速上手](docs/getting-started/quickstart.rst)
+- 快速开始：[项目全景](docs/getting-started/project-overview.rst) · [从零安装](docs/getting-started/installation.rst) · [10 分钟快速上手](docs/getting-started/quickstart.rst)
 - 用户指南：[Datafeed](docs/guide/datafeed.rst) · [Factor](docs/guide/factor.rst) · [Backtest](docs/guide/backtest.rst) · [Analyst](docs/guide/analyst.rst) · [Dashboard](docs/guide/dashboard.rst) · [因子管线](docs/guide/factor-pipeline.rst) · [参数挖掘](docs/guide/factor-mining.rst) · [数据库管理](docs/guide/db-manager.rst)
 - API 参考：[Datafeed](docs/api/datafeed.rst) · [Factor](docs/api/factor.rst) · [Backtest](docs/api/backtest.rst) · [Analyst](docs/api/analyst.rst) · [EventStudy](docs/api/eventstudy.rst) · [Robust](docs/api/robust.rst)
 
@@ -134,8 +144,9 @@ python -m sphinx -b html -n -W --keep-going docs docs\_build\html
 
 - `viz`：plotly 交互图。
 - `dashboard`：FastAPI / Uvicorn / Pydantic / PyArrow。
-- `db`：psycopg2-binary。
+- `db`：PostgreSQL 文件导入、Parquet 和旧 XLS 支持。
 - `gui`：PySide6 数据库管理 GUI。
+- `full`：一次安装上述全部可选能力，推荐新用户使用。
 
 ## 许可证
 

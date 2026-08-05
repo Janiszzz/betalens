@@ -91,6 +91,29 @@ class EventStudyCompareTests(unittest.TestCase):
         self.assertAlmostEqual(by_code["B"]["returns_matrix"].loc[0, 0], 0.02)
         self.assertAlmostEqual(result["returns_matrix"].loc[0, 0], 0.015)
 
+    def test_compare_preserves_each_assets_pre_event_cumulative_return(self) -> None:
+        result = EventStudy(self.feed).analyze(
+            self.events,
+            code=["A", "B"],
+            window_before=1,
+            window_after=1,
+            multi_asset_mode="compare",
+        )
+
+        by_code = result["comparison"]["by_code"]
+        self.assertAlmostEqual(
+            by_code["A"]["cumulative_returns_matrix"].loc[-1, 0],
+            (1.02 ** 2) - 1,
+        )
+        self.assertAlmostEqual(
+            by_code["B"]["cumulative_returns_matrix"].loc[-1, 0],
+            (1.03 ** 2) - 1,
+        )
+        self.assertNotEqual(
+            by_code["B"]["cumulative_returns_matrix"].loc[-1, 0],
+            0,
+        )
+
     def test_aggregate_remains_default_and_fixed_mode_is_available(self) -> None:
         aggregate = EventStudy(self.feed).analyze(
             self.events,

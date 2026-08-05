@@ -62,7 +62,7 @@ df = Datafeed(
   "database": {
     "host": "localhost",
     "port": "5432",
-    "dbname": "betalens",
+    "dbname": "datafeed",
     "user": "postgres",
     "password": "your_password"
   }
@@ -114,6 +114,7 @@ record = runner.run("data.xlsx", import_type="ede", table="daily_market")
 ### 开发环境
 
 复制 `config.example.json` 为 `config.local.json`，填本地 PostgreSQL 连接即可。
+默认数据库名为 `datafeed`；可使用 `python -m betalens_db_manager init --yes` 创建并初始化。
 
 ### 生产或共享环境
 

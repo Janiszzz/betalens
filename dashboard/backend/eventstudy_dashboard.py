@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import re
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -8,6 +9,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from betalens.analyst.naming import get_name_map
 from betalens.datafeed import Datafeed
 from betalens.eventstudy.eventstudy import EventStudy
 from betalens.factor.config import load_yaml_config, section
@@ -145,14 +147,45 @@ def discover_event_files() -> dict[str, Any]:
 
 
 def _parse_codes(value: Any) -> str | list[str]:
-    if isinstance(value, list):
-        codes = [str(v).strip() for v in value if str(v).strip()]
-    else:
-        text = str(value or "")
-        codes = [part.strip() for part in text.replace("\n", ",").replace(";", ",").split(",") if part.strip()]
+    items = value if isinstance(value, list) else [value]
+    codes = [
+        code.strip()
+        for item in items
+        for code in re.split(r"[,，;；\r\n]+", str(item or ""))
+        if code.strip()
+    ]
+    codes = list(dict.fromkeys(codes))
     if not codes:
         raise ValueError("至少需要一个标的代码")
     return codes[0] if len(codes) == 1 else codes
+
+
+def _asset_payload(codes: Any) -> list[dict[str, str | None]]:
+    if isinstance(codes, str):
+        normalized_codes = [codes]
+    else:
+        normalized_codes = [str(code) for code in (codes or []) if str(code).strip()]
+    normalized_codes = list(dict.fromkeys(code.strip() for code in normalized_codes if code.strip()))
+
+    try:
+        name_map = get_name_map(normalized_codes)
+    except Exception:
+        name_map = {}
+
+    assets: list[dict[str, str | None]] = []
+    for code in normalized_codes:
+        raw_name = name_map.get(code)
+        name = str(raw_name).strip() if raw_name is not None and pd.notna(raw_name) else None
+        if not name:
+            name = None
+        assets.append(
+            {
+                "code": code,
+                "name": name,
+                "label": f"{code} {name}" if name else code,
+            }
+        )
+    return assets
 
 
 def _parse_int_list(value: Any) -> list[int]:
@@ -350,7 +383,10 @@ def run_event_study(params: dict[str, Any]) -> dict[str, Any]:
     if events.empty:
         raise ValueError("事件文件中没有 event=1 的记录")
 
-    code = _parse_codes(merged.get("code"))
+    # A missing request field keeps the YAML default for backward compatibility,
+    # while an explicitly blank field must not silently run a different target.
+    code_value = defaults.get("code") if params.get("code") is None else params.get("code")
+    code = _parse_codes(code_value)
     benchmark_code = str(merged.get("benchmark_code") or merged.get("benchmarkCode") or "").strip() or None
     metric = str(merged.get("metric"))
     table_name = str(merged.get("table_name") or merged.get("tableName"))
@@ -385,6 +421,8 @@ def run_event_study(params: dict[str, Any]) -> dict[str, Any]:
     if "error" in raw:
         raise ValueError(str(raw["error"]))
 
+    valid_codes = raw.get("valid_codes", [code] if isinstance(code, str) else code)
+    assets = _asset_payload(valid_codes)
     daily = _records(raw.get("daily_stats"), "day")
     cumulative = _records(raw.get("cumulative_stats"), "day")
     day0 = _key_metric(daily, 0)
@@ -396,6 +434,7 @@ def run_event_study(params: dict[str, Any]) -> dict[str, Any]:
             "name": path.stem,
             "path": str(path.relative_to(REPO_ROOT)),
         },
+        "assets": assets,
         "parameters": {
             "code": code,
             "benchmarkCode": benchmark_code,
@@ -410,7 +449,7 @@ def run_event_study(params: dict[str, Any]) -> dict[str, Any]:
         },
         "summary": {
             "eventCount": int(raw.get("event_count", 0)),
-            "validCodes": raw.get("valid_codes", [code] if isinstance(code, str) else code),
+            "validCodes": valid_codes,
             "day0Mean": day0.get("mean") if day0 else None,
             "day0TStat": day0.get("t_stat") if day0 else None,
             "day0PositiveProb": day0.get("positive_prob") if day0 else None,

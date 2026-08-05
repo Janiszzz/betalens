@@ -6,6 +6,10 @@ Dashboard
 启动
 ----
 
+前端需要 Node.js 20.19+ 和 npm，后端需要安装 ``.[dashboard,viz]``；完整安装可直接使用
+``python -m pip install -e ".[full]"``。第一次配置环境请先阅读
+:doc:`../getting-started/installation`。
+
 一键启动前后端：
 
 .. code-block:: powershell

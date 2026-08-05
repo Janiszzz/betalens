@@ -13,6 +13,9 @@
 
    Copy-Item betalens\datafeed\config.example.json betalens\datafeed\config.local.json
 
+模板和 Database Manager 的默认数据库名均为 ``datafeed``。首次安装请先完成
+:doc:`../getting-started/installation` 中的 PostgreSQL 与 schema 初始化步骤。
+
 配置优先级：
 
 1. 运行时传入的 ``db_config``。

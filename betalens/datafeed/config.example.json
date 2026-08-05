@@ -1,5 +1,5 @@
 {
-  "_comment": "这是datafeed模块的配置文件示例，复制此文件为config.json并根据需要修改",
+  "_comment": "这是 datafeed 模块的配置示例；仓库开发请复制为 config.local.json 后修改",
   "database": {
     "_comment": "PostgreSQL数据库连接配置",
     "dbname": "datafeed",

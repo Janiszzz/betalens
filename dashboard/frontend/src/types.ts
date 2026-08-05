@@ -154,12 +154,19 @@ export type EventStudyComparison = {
   eventCumulativeByCode: Array<Record<string, number | string | null>>;
 };
 
+export type EventStudyAsset = {
+  code: string;
+  name: string | null;
+  label: string;
+};
+
 export type EventStudyResult = {
   eventFile: {
     id: string;
     name: string;
     path: string;
   };
+  assets?: EventStudyAsset[];
   parameters: Record<string, unknown>;
   summary: Record<string, number | string | string[] | null>;
   charts: {

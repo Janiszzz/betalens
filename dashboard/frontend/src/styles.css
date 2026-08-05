@@ -454,6 +454,10 @@ input {
   font-size: 12px;
 }
 
+.field input[aria-invalid="true"] {
+  border-color: #c93632;
+}
+
 .field.inline input[type="checkbox"] {
   width: 18px;
   min-width: 18px;
@@ -646,6 +650,40 @@ input {
 
 .event-metrics-grid {
   grid-template-columns: repeat(7, minmax(120px, 1fr));
+}
+
+.event-key-statistics {
+  display: grid;
+  gap: 12px;
+}
+
+.event-result-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.event-result-identity {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+  color: #53606f;
+  font-size: 12px;
+}
+
+.event-result-identity strong {
+  border: 1px solid #b8cae1;
+  background: #e9f1fb;
+  color: #244f83;
+  padding: 4px 8px;
+}
+
+.event-result-identity span {
+  overflow-wrap: anywhere;
 }
 
 .event-comparison-heading {
@@ -984,9 +1022,14 @@ tr:nth-child(even) td {
   }
 
   .event-comparison-heading,
+  .event-result-heading,
   .table-header {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .event-result-identity {
+    justify-content: flex-start;
   }
 
   .event-comparison-meta {

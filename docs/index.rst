@@ -16,12 +16,18 @@ Betalens 文档
 快速安装
 --------
 
+准备好 Python 3.10+ 和 PostgreSQL 13+ 后，在 PowerShell 执行：
+
 .. code-block:: powershell
 
    git clone https://github.com/Janiszzz/betalens.git
    cd betalens
-   python -m pip install -e .
-   python -m pip install -r requirements.txt
+   python -m venv .venv
+   .\.venv\Scripts\Activate.ps1
+   python -m pip install -e ".[full]"
+
+数据库安装、连接配置、schema 初始化和数据导入不能由上面三条命令替代。第一次使用请完整
+阅读 :doc:`getting-started/installation`，并逐项执行其中的验收命令。
 
 快速示例
 --------
@@ -73,6 +79,7 @@ Betalens 文档
    :maxdepth: 2
    :caption: 快速开始
 
+   getting-started/project-overview
    getting-started/installation
    getting-started/quickstart
 
