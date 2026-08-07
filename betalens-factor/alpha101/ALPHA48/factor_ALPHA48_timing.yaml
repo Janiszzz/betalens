@@ -11,6 +11,10 @@ factor_spec:
   industry_inputs:
     subindustry_wide: 申万三级行业
   compute_kwargs:
+    formula_params:
+      window_1: 250
+      window_2: 250
+      exponent_1: 2
     stock_code: 300750.SZ
     signal_weight:
       method: rolling_z

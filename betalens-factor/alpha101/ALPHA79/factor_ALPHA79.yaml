@@ -12,7 +12,15 @@ factor_spec:
     amount_wide: 成交金额(元)
   industry_inputs:
     sector_wide: 申万一级行业
-  compute_kwargs: {}
+  compute_kwargs:
+    formula_params:
+      coefficient_1: 0.60733
+      lag_1: 1.23438
+      window_1: 14.6644
+      coefficient_2: 0.60733
+      window_2: 3.60973
+      window_3: 9.18637
+      window_4: 150
   direction: positive
   table_name: daily_market
   index_code: 000906.SH

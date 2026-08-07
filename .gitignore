@@ -51,6 +51,7 @@ config.local.json
 #因子挖掘缓存
 **/_sweep/_cache/
 **/_walkforward/_cache/
+**/outputs/
 
 #版权问题
 *XICHOU*

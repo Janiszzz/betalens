@@ -10,7 +10,11 @@ factor_spec:
     volume_wide: 成交量(股)
     amount_wide: 成交金额(元)
   industry_inputs: {}
-  compute_kwargs: {}
+  compute_kwargs:
+    formula_params:
+      window_1: 5
+      window_2: 10
+      window_3: 20
   direction: positive
   table_name: daily_market
   index_code: 000906.SH

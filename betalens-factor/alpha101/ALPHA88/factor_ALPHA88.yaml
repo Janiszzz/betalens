@@ -12,7 +12,15 @@ factor_spec:
     low_wide: 最低价(元)
     amount_wide: 成交金额(元)
   industry_inputs: {}
-  compute_kwargs: {}
+  compute_kwargs:
+    formula_params:
+      window_1: 8.01266
+      window_2: 2.61957
+      window_3: 8.06882
+      window_4: 8.44728
+      window_5: 20.6966
+      window_6: 6.65053
+      window_7: 60
   direction: positive
   table_name: daily_market
   index_code: 000906.SH

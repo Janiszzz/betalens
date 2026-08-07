@@ -13,6 +13,14 @@ factor_spec:
   industry_inputs:
     sector_wide: 申万一级行业
   compute_kwargs:
+    formula_params:
+      window_1: 8.14941
+      window_2: 19.383
+      window_3: 11.8259
+      window_4: 81
+      window_5: 17.1543
+      lag_1: 1.24383
+      window_6: 19.569
     stock_code: 300750.SZ
     signal_weight:
       method: rolling_z

@@ -9,7 +9,11 @@ factor_spec:
     returns_wide: 涨跌幅(%)
     cap_wide: 总市值(元)
   industry_inputs: {}
-  compute_kwargs: {}
+  compute_kwargs:
+    formula_params:
+      window_1: 10
+      window_2: 3
+      window_3: 2
   direction: positive
   table_name: daily_market
   index_code: 000906.SH

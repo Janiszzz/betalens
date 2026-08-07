@@ -9,7 +9,14 @@ factor_spec:
   inputs:
     close_wide: 收盘价(元)
   industry_inputs: {}
-  compute_kwargs: {}
+  compute_kwargs:
+    formula_params:
+      lag_1: 100
+      lag_2: 100
+      threshold_1: 0.05
+      window_1: 100
+      lag_3: 3
+      window_2: 100
   direction: positive
   table_name: daily_market
   index_code: 000906.SH

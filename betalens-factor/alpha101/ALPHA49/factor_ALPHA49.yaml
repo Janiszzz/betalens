@@ -9,7 +9,9 @@ factor_spec:
   inputs:
     close_wide: 收盘价(元)
   industry_inputs: {}
-  compute_kwargs: {}
+  compute_kwargs:
+    formula_params:
+      coefficient_1: 0.1
   direction: positive
   table_name: daily_market
   index_code: 000906.SH

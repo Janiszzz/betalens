@@ -14,7 +14,7 @@ for _path in (_REPO_ROOT, _FACTOR_ROOT, _CLASS_DIR, _FACTOR_DIR):
         sys.path.insert(0, str(_path))
 
 from betalens.factor.config import factor_spec_options, load_yaml_config, run_parameters, section  # noqa: E402
-from alpha101_formulas import compute_alpha  # noqa: E402
+from alpha101_formulas import compute_alpha, required_history_bars_for_alpha  # noqa: E402
 from factor_template_alpha101 import FactorSpec, FactorPipeline  # noqa: E402
 
 
@@ -32,6 +32,10 @@ def compute_alpha34(close_wide, returns_wide, **kwargs):
 
 def build_spec(config: dict, config_path: str | Path = _CONFIG_FILE) -> FactorSpec:
     options = factor_spec_options(config, config_path)
+    options["required_history_bars"] = required_history_bars_for_alpha(
+        34,
+        options.get("compute_kwargs", {}).get("formula_params"),
+    )
     return FactorSpec(
         name=str(section(config, "meta")["name"]),
         compute=compute_alpha34,

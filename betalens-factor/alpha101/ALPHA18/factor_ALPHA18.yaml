@@ -9,7 +9,10 @@ factor_spec:
     open_wide: 开盘价(元)
     close_wide: 收盘价(元)
   industry_inputs: {}
-  compute_kwargs: {}
+  compute_kwargs:
+    formula_params:
+      window_1: 10
+      window_2: 5
   direction: positive
   table_name: daily_market
   index_code: 000906.SH

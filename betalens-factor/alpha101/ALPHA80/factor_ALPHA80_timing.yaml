@@ -13,6 +13,13 @@ factor_spec:
   industry_inputs:
     industry_wide: 申万二级行业
   compute_kwargs:
+    formula_params:
+      window_1: 5.53756
+      coefficient_1: 0.868128
+      window_2: 5.11456
+      coefficient_2: 0.868128
+      lag_1: 4.04545
+      window_3: 10
     stock_code: 300750.SZ
     signal_weight:
       method: rolling_z

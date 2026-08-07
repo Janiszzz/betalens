@@ -13,6 +13,12 @@ factor_spec:
     vwap_wide: 均价(元)
   industry_inputs: {}
   compute_kwargs:
+    formula_params:
+      window_1: 6.72611
+      window_2: 7.23052
+      window_3: 11.4157
+      lag_1: 3.51013
+      coefficient_1: 2
     stock_code: 300750.SZ
     signal_weight:
       method: rolling_z

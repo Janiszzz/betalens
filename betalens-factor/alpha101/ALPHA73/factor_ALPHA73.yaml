@@ -10,7 +10,15 @@ factor_spec:
     low_wide: 最低价(元)
     vwap_wide: 均价(元)
   industry_inputs: {}
-  compute_kwargs: {}
+  compute_kwargs:
+    formula_params:
+      window_1: 16.7411
+      window_2: 2.91864
+      coefficient_1: 0.147155
+      window_3: 3.33829
+      lag_1: 4.72775
+      coefficient_2: 0.147155
+      lag_2: 2.03608
   direction: positive
   table_name: daily_market
   index_code: 000906.SH

@@ -11,7 +11,15 @@ factor_spec:
     amount_wide: 成交金额(元)
   industry_inputs:
     industry_wide: 申万二级行业
-  compute_kwargs: {}
+  compute_kwargs:
+    formula_params:
+      window_1: 3.79744
+      window_2: 15.3012
+      window_3: 5.51607
+      window_4: 10.1466
+      window_5: 6.94279
+      lag_1: 3.48158
+      window_6: 10
   direction: positive
   table_name: daily_market
   index_code: 000906.SH

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import itertools
+import hashlib
 import json
 import os
 import pickle
@@ -22,6 +23,7 @@ __all__ = [
     "RollingMiningConfig",
     "build_grid_combos",
     "gen_rolling_windows",
+    "gen_rolling_train_test_windows",
     "metrics_from_nav",
     "run_parameter_sweep",
     "run_walk_forward",
@@ -33,6 +35,7 @@ DEFAULT_WORKERS = min(10, max(1, (os.cpu_count() or 4) - 2))
 DEFAULT_MAX_MEMORY_RATIO = 0.50
 DEFAULT_CACHE_MEMORY_MULTIPLIER = 3.0
 DEFAULT_WORKER_MEMORY_OVERHEAD_BYTES = 512 * 1024 * 1024
+CACHE_SCHEMA_VERSION = 2
 
 
 @dataclass
@@ -104,6 +107,11 @@ class RollingMiningConfig:
     cache_memory_multiplier: float = DEFAULT_CACHE_MEMORY_MULTIPLIER
     worker_memory_overhead_bytes: int = DEFAULT_WORKER_MEMORY_OVERHEAD_BYTES
     max_windows_per_scheme: int | None = None
+    # ``split`` preserves the original two-stage behaviour.  ``paired``
+    # creates a train window followed immediately by its test window and
+    # advances both together, which is the usual walk-forward protocol.
+    rolling_mode: str = "split"
+    paired_schemes: Sequence[tuple[int, int, int]] | None = None
     universe: Sequence[str] | None = None
 
 
@@ -395,6 +403,50 @@ def gen_rolling_windows(
     return windows
 
 
+def gen_rolling_train_test_windows(
+    start: str,
+    end: str,
+    train_len: int,
+    test_len: int,
+    step: int,
+    cap: int | None = None,
+) -> list[tuple[str, str, str, str]]:
+    """Generate contiguous rolling train/test pairs without look-ahead.
+
+    The test interval starts on the first trading day after its paired train
+    interval.  Both intervals then advance by ``step`` trading days.  The
+    helper deliberately works on absolute trading days, matching
+    :func:`gen_rolling_windows` and the rest of the mining engine.
+    """
+    from betalens.datafeed import get_absolute_trade_days
+
+    train_len = int(train_len)
+    test_len = int(test_len)
+    step = int(step)
+    if train_len < 1 or test_len < 1 or step < 1:
+        raise ValueError("train_len, test_len and step must be positive")
+    days = sorted(get_absolute_trade_days(start, end, "D", use_pmc=False))
+    windows = []
+    i = 0
+    while i + train_len + test_len <= len(days):
+        train_start = days[i]
+        train_end = days[i + train_len - 1]
+        test_start = days[i + train_len]
+        test_end = days[i + train_len + test_len - 1]
+        windows.append(
+            (
+                train_start.strftime("%Y-%m-%d"),
+                train_end.strftime("%Y-%m-%d"),
+                test_start.strftime("%Y-%m-%d"),
+                test_end.strftime("%Y-%m-%d"),
+            )
+        )
+        i += step
+    if cap and len(windows) > cap:
+        return [windows[0], windows[-1]] if cap == 2 else windows[:cap]
+    return windows
+
+
 def infer_warmup_days_from_params(params: Mapping[str, Any], minimum: int = 30) -> int:
     candidates = []
     scan_items = list(params.items())
@@ -452,6 +504,120 @@ def fetch_daily_wide(
     df["value"] = pd.to_numeric(df["value"], errors="coerce")
     df["datetime"] = pd.to_datetime(df["datetime"])
     return df.pivot_table(index="datetime", columns="code", values="value").sort_index()
+
+
+def align_daily_wides(wides: Mapping[str, pd.DataFrame | None]) -> dict[str, pd.DataFrame | None]:
+    """Align market panels to one canonical timestamp per calendar day.
+
+    ``daily_market`` metrics are not guaranteed to be stored at the same
+    intraday timestamp (for example, open at 09:30 and close/returns at
+    15:00).  Alpha formulas operate on a panel, so keeping those native
+    timestamps would make binary operators compare differently labelled
+    frames.  Pick the latest timestamp observed on each day across all
+    non-empty panels, normalize every panel to calendar dates, and restore
+    that canonical timestamp index.
+    """
+    nonempty = [wide for wide in wides.values() if wide is not None and not wide.empty]
+    if not nonempty:
+        return dict(wides)
+
+    latest_by_day: dict[pd.Timestamp, pd.Timestamp] = {}
+    for wide in nonempty:
+        for ts in pd.DatetimeIndex(wide.index):
+            stamp = pd.Timestamp(ts)
+            day = stamp.normalize()
+            previous = latest_by_day.get(day)
+            if previous is None or stamp > previous:
+                latest_by_day[day] = stamp
+    days = pd.DatetimeIndex(sorted(latest_by_day))
+    canonical_index = pd.DatetimeIndex([latest_by_day[day] for day in days])
+
+    aligned: dict[str, pd.DataFrame | None] = {}
+    for name, wide in wides.items():
+        if wide is None or wide.empty:
+            aligned[name] = wide
+            continue
+        frame = wide.copy()
+        frame.index = pd.DatetimeIndex(frame.index).normalize()
+        frame = frame.loc[~frame.index.duplicated(keep="last")].reindex(days)
+        frame.index = canonical_index
+        aligned[name] = frame
+    return aligned
+
+
+def fetch_industry_wide(
+    scheme: str,
+    universe: Sequence[str] | None,
+    dates,
+    reference_index: pd.DatetimeIndex | None = None,
+    chunk_size: int = 30,
+) -> pd.DataFrame:
+    """Fetch a PIT industry label panel aligned to a market wide index."""
+    if not universe or not dates:
+        return pd.DataFrame(index=reference_index, columns=universe or [], dtype=object)
+
+    from betalens.datafeed import Datafeed
+
+    pieces = []
+    data = Datafeed("industry")
+    try:
+        day_list = list(dict.fromkeys(pd.Timestamp(day).date() for day in dates))
+        for offset in range(0, len(day_list), int(chunk_size)):
+            frame = data.query_industry(
+                codes=list(universe),
+                dates=day_list[offset : offset + int(chunk_size)],
+                scheme=scheme,
+            )
+            if frame is not None and not frame.empty:
+                pieces.append(frame[["query_date", "code", "ind_name"]])
+    finally:
+        data.close()
+
+    if not pieces:
+        return pd.DataFrame(index=reference_index, columns=universe, dtype=object)
+    labels = pd.concat(pieces, ignore_index=True)
+    labels["query_date"] = pd.to_datetime(labels["query_date"]).dt.normalize()
+    pivot = labels.pivot_table(
+        index="query_date", columns="code", values="ind_name", aggfunc="last"
+    )
+    if reference_index is None:
+        return pivot.reindex(columns=universe).sort_index()
+    normalized = pd.DatetimeIndex(reference_index).normalize()
+    out = pivot.reindex(index=normalized, columns=universe)
+    out.index = pd.DatetimeIndex(reference_index)
+    return out
+
+
+def mask_wide_by_pit_universe(wide_df: pd.DataFrame, pit_universe) -> pd.DataFrame:
+    """Mask a wide panel to the PIT universe effective on each calendar date."""
+    if wide_df is None or wide_df.empty or not pit_universe:
+        return wide_df
+    mask = pd.DataFrame(False, index=wide_df.index, columns=wide_df.columns)
+    columns = set(map(str, wide_df.columns))
+    for ts in wide_df.index:
+        members = pit_universe.get(pd.Timestamp(ts).date(), set())
+        keep = list(columns.intersection(map(str, members)))
+        if keep:
+            mask.loc[ts, keep] = True
+    return wide_df.where(mask)
+
+
+def _cache_signature(config: Any, spec: Any, fetch_start: str, end: str) -> str:
+    payload = {
+        "schema": CACHE_SCHEMA_VERSION,
+        "fetch_start": fetch_start,
+        "end": end,
+        "table_name": getattr(spec, "table_name", "daily_market"),
+        "index_code": getattr(spec, "index_code", None),
+        "backtest_metric": getattr(spec, "backtest_metric", "收盘价(元)"),
+        "mask_inputs_by_pit": bool(getattr(spec, "mask_inputs_by_pit", False)),
+        "inputs": dict(getattr(spec, "inputs", {}) or {}),
+        "industry_inputs": dict(getattr(spec, "industry_inputs", {}) or {}),
+        "industry_scheme": getattr(spec, "industry_scheme", None),
+        "universe": list(getattr(config, "universe", None) or []),
+    }
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def wide_to_prequery(wide_df: pd.DataFrame, metric_name: str, signal_dates) -> pd.DataFrame:
@@ -526,8 +692,17 @@ def _preprocess_if_needed(
     metric = spec.name
     data = fix_null_values(prequery, strategy=FillStrategy.DROP, columns=[metric])
     industry_scheme = getattr(spec, "industry_scheme", "申万一级行业") if use_industry else None
-    industry_panel = query_industry_panel(data, scheme=industry_scheme, industry_table="industry", verbose=False) \
-        if industry_scheme else None
+    industry_panel = None
+    if industry_scheme:
+        cached = (_CACHE_DATA or {}).get("industry_by_scheme", {}).get(industry_scheme)
+        if cached is not None and not cached.empty:
+            cached_long = wide_to_prequery(cached, "__mining_industry", signal_dates)
+            if not cached_long.empty:
+                industry_panel = cached_long.set_index(["input_ts", "code"])["__mining_industry"]
+        if industry_panel is None:
+            industry_panel = query_industry_panel(
+                data, scheme=industry_scheme, industry_table="industry", verbose=False
+            )
 
     mktcap_col = None
     if use_mktcap:
@@ -676,7 +851,11 @@ def _run_one_task(task: dict[str, Any]) -> dict[str, Any]:
             return out
 
         wides = {}
-        for arg_name in spec.inputs:
+        input_names = list(dict.fromkeys([
+            *getattr(spec, "inputs", {}),
+            *getattr(spec, "industry_inputs", {}),
+        ]))
+        for arg_name in input_names:
             wide = _CACHE_DATA["inputs"][arg_name]
             wides[arg_name] = wide.loc[
                 (wide.index >= pd.Timestamp(fetch_start)) &
@@ -774,23 +953,40 @@ def _cache_dir(config: Any) -> Path:
 
 
 def build_cache_for_config(config: Any, spans: Sequence[tuple[str, str]], sample_params: Mapping[str, Any]) -> CachePaths:
+    """Build a cache containing PIT-safe market and industry inputs.
+
+    Industry inputs are kept in the same ``inputs`` mapping as market panels so
+    existing task workers can pass them directly to ``spec.compute``.  The
+    neutralization panel is stored separately by scheme and reused by every
+    candidate instead of querying the industry table once per task.
+    """
     from betalens.datafeed import get_absolute_trade_days
 
     cache_dir = _cache_dir(config)
     cache_dir.mkdir(parents=True, exist_ok=True)
     paths = _cache_paths(cache_dir)
-    if paths.data.exists() and paths.pit.exists() and not config.rebuild_cache:
-        print(f"[cache] hit: {paths.data.name}, {paths.pit.name}")
-        return paths
-
     spec = _load_spec(config.factor_module, config.spec_factory, sample_params)
     start = _date_min(*spans)
     end = _date_max(*spans)
-    fetch_start = (pd.Timestamp(start) - pd.Timedelta(days=int(config.max_warmup_days))).strftime("%Y-%m-%d")
-    print(f"[cache] fetch range: {fetch_start} ~ {end}")
+    fetch_start = (
+        pd.Timestamp(start) - pd.Timedelta(days=int(config.max_warmup_days))
+    ).strftime("%Y-%m-%d")
+    signature = _cache_signature(config, spec, fetch_start, end)
 
+    if paths.data.exists() and paths.pit.exists() and paths.meta.exists() and not config.rebuild_cache:
+        try:
+            meta = json.loads(paths.meta.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
+            meta = {}
+        if meta.get("schema_version") == CACHE_SCHEMA_VERSION and meta.get("cache_signature") == signature:
+            print(f"[cache] hit: {paths.data.name}, {paths.pit.name}")
+            return paths
+
+    print(f"[cache] fetch range: {fetch_start} ~ {end}")
     all_days = sorted(get_absolute_trade_days(fetch_start, end, "D", use_pmc=False))
-    pit_days = [d for d in all_days if d >= pd.Timestamp(start).date()]
+    pit_days = all_days if getattr(spec, "mask_inputs_by_pit", False) else [
+        d for d in all_days if d >= pd.Timestamp(start).date()
+    ]
 
     pit = None
     universe = list(config.universe) if config.universe is not None else None
@@ -803,8 +999,9 @@ def build_cache_for_config(config: Any, spans: Sequence[tuple[str, str]], sample
     elif universe is None:
         raise ValueError("config.universe is required when spec.index_code is empty")
 
+    raw_inputs = {}
     inputs = {}
-    metrics_by_arg = dict(getattr(spec, "inputs", {}))
+    metrics_by_arg = dict(getattr(spec, "inputs", {}) or {})
     for arg_name, metric in metrics_by_arg.items():
         t0 = time.time()
         wide = fetch_daily_wide(
@@ -814,15 +1011,14 @@ def build_cache_for_config(config: Any, spans: Sequence[tuple[str, str]], sample
             end_date=end,
             table_name=getattr(spec, "table_name", "daily_market"),
         )
-        inputs[arg_name] = wide
+        raw_inputs[arg_name] = wide
         print(f"[cache] {arg_name} ({metric}): {wide.shape}, {time.time() - t0:.1f}s")
 
     price_metric = getattr(spec, "backtest_metric", "收盘价(元)")
-    price = None
-    for arg_name, metric in metrics_by_arg.items():
-        if metric == price_metric:
-            price = inputs[arg_name]
-            break
+    price = next(
+        (wide for arg, metric in metrics_by_arg.items() if metric == price_metric for wide in [raw_inputs[arg]]),
+        None,
+    )
     if price is None:
         t0 = time.time()
         price = fetch_daily_wide(
@@ -834,17 +1030,60 @@ def build_cache_for_config(config: Any, spans: Sequence[tuple[str, str]], sample
         )
         print(f"[cache] price ({price_metric}): {price.shape}, {time.time() - t0:.1f}s")
 
+    # Market metrics can have different intraday timestamps.  Align them
+    # before deriving the reference index, PIT masks, or the cached price
+    # panel so every formula receives identically labelled daily wides.
+    aligned_market = align_daily_wides({**raw_inputs, "__price__": price})
+    raw_inputs = {arg_name: aligned_market[arg_name] for arg_name in metrics_by_arg}
+    price = aligned_market["__price__"]
+    for arg_name, wide in raw_inputs.items():
+        inputs[arg_name] = (
+            mask_wide_by_pit_universe(wide, pit)
+            if getattr(spec, "mask_inputs_by_pit", False)
+            else wide
+        )
+
+    reference_index = next(
+        (wide.index for wide in raw_inputs.values() if wide is not None and not wide.empty),
+        pd.DatetimeIndex(all_days),
+    )
+    industry_by_scheme = {}
+    industry_specs = dict(getattr(spec, "industry_inputs", {}) or {})
+    schemes = dict(industry_specs)
+    neutralize_scheme = getattr(spec, "industry_scheme", None) if getattr(spec, "use_industry", False) else None
+    if neutralize_scheme:
+        schemes.setdefault("__neutralize_industry", neutralize_scheme)
+    for arg_name, scheme in schemes.items():
+        t0 = time.time()
+        wide = fetch_industry_wide(scheme, universe, all_days, reference_index=reference_index)
+        if arg_name == "__neutralize_industry":
+            industry_by_scheme[scheme] = mask_wide_by_pit_universe(wide, pit) if getattr(spec, "mask_inputs_by_pit", False) else wide
+        else:
+            inputs[arg_name] = mask_wide_by_pit_universe(wide, pit) if getattr(spec, "mask_inputs_by_pit", False) else wide
+        print(f"[cache] {arg_name} ({scheme}): {wide.shape}, {time.time() - t0:.1f}s")
+
+    payload = {
+        "inputs": inputs,
+        "price": price,
+        "universe": universe,
+        "industry_by_scheme": industry_by_scheme,
+    }
     with open(paths.data, "wb") as f:
-        pickle.dump({"inputs": inputs, "price": price, "universe": universe}, f)
+        pickle.dump(payload, f)
     with open(paths.pit, "wb") as f:
         pickle.dump(pit, f)
     meta = {
+        "schema_version": CACHE_SCHEMA_VERSION,
+        "cache_signature": signature,
         "cache_payload_memory_bytes": int(
-            _cache_payload_memory_bytes(inputs, price) + _pit_memory_estimate_bytes(pit)
+            _cache_payload_memory_bytes(inputs, price)
+            + sum(_dataframe_memory_bytes(wide) for wide in industry_by_scheme.values())
+            + _pit_memory_estimate_bytes(pit)
         ),
         "pickle_bytes": int(paths.data.stat().st_size + paths.pit.stat().st_size),
         "input_shapes": {name: list(wide.shape) for name, wide in inputs.items()},
         "price_shape": list(price.shape) if isinstance(price, pd.DataFrame) else None,
+        "industry_schemes": sorted(industry_by_scheme),
         "universe_size": len(universe or []),
     }
     with open(paths.meta, "w", encoding="utf-8") as f:
@@ -886,6 +1125,45 @@ def build_tasks(
                     "initial_amount": config.initial_amount,
                     "time_tolerance": config.time_tolerance,
                 })
+    return tasks
+
+
+def build_paired_tasks(
+    *,
+    config: Any,
+    phase: str,
+    pairs: Sequence[tuple[str, str, str, str]],
+    scheme: str,
+    combos: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    """Build tasks for a paired rolling train/test schedule."""
+    tasks = []
+    for train_start, train_end, test_start, test_end in pairs:
+        if phase == "train":
+            win_start, win_end = train_start, train_end
+        elif phase == "test":
+            win_start, win_end = test_start, test_end
+        else:
+            raise ValueError(f"paired tasks only support train/test, got {phase!r}")
+        for combo in combos:
+            params = dict(combo["params"])
+            tasks.append({
+                "params": params,
+                "gid": combo["gid"],
+                "factor_module": config.factor_module,
+                "spec_factory": config.spec_factory,
+                "weight_hook": config.weight_hook,
+                "warmup_days": _warmup_days(config, params),
+                "phase": phase,
+                "scheme": scheme,
+                "win_start": win_start,
+                "win_end": win_end,
+                "engine": config.engine,
+                "rebal_freq": config.rebal_freq,
+                "n_quantiles_param": config.n_quantiles_param,
+                "initial_amount": config.initial_amount,
+                "time_tolerance": config.time_tolerance,
+            })
     return tasks
 
 
@@ -1041,6 +1319,159 @@ def run_parameter_sweep(config: ParameterSweepConfig) -> pd.DataFrame:
     return df
 
 
+def _run_paired_walk_forward(
+    config: RollingMiningConfig,
+    output_dir: Path,
+    combos: Sequence[Mapping[str, Any]],
+) -> dict[str, pd.DataFrame]:
+    """Run a true rolling train -> immediately-following-test schedule."""
+    paired_schemes = list(config.paired_schemes or [])
+    if not paired_schemes:
+        raise ValueError("rolling_mode='paired' requires paired_schemes")
+
+    cache_paths = build_cache_for_config(
+        config,
+        [config.train, config.test, config.valid],
+        combos[0]["params"],
+    )
+    train_frames = []
+    test_pairs: list[tuple[str, str, str, str, str]] = []
+    print(f"\n[TRAIN->TEST] paired rolling schemes={paired_schemes}")
+    for train_len, test_len, step in paired_schemes:
+        scheme = f"paired/{train_len}/{test_len}/{step}"
+        pairs = gen_rolling_train_test_windows(
+            config.train[0],
+            config.test[1],
+            train_len,
+            test_len,
+            step,
+            cap=config.max_windows_per_scheme,
+        )
+        if not pairs:
+            print(f"  [{scheme}] no complete train/test pairs")
+            continue
+        test_pairs.extend((a, b, c, d, scheme) for a, b, c, d in pairs)
+        tasks = build_paired_tasks(
+            config=config,
+            phase="train",
+            pairs=pairs,
+            scheme=scheme,
+            combos=combos,
+        )
+        print(f"  [{scheme}] train windows={len(pairs)} tasks={len(tasks)}")
+        train_frames.append(run_tasks(config, tasks, cache_paths))
+
+    train_df = pd.concat(train_frames, ignore_index=True) if train_frames else pd.DataFrame()
+    train_df.to_csv(output_dir / "train_results.csv", index=False, encoding="utf-8-sig")
+    train_tally = tally_champions(
+        train_df,
+        objective=config.objective,
+        higher_is_better=config.objective_higher_is_better,
+    )
+    train_tally.to_csv(output_dir / "train_champions.csv", index=False, encoding="utf-8-sig")
+    if train_tally.empty:
+        print("  [TRAIN] no valid result")
+        return {"train_results": train_df, "train_champions": train_tally}
+
+    counts = train_tally["wins_count"].values
+    p_low, p_high = np.percentile(
+        counts,
+        [config.candidate_percentile[0] * 100, config.candidate_percentile[1] * 100],
+    )
+    candidates = train_tally[train_tally["wins_count"] >= p_low]
+    candidates.to_csv(output_dir / "train_candidates.csv", index=False, encoding="utf-8-sig")
+    print(
+        f"  wins_count P{config.candidate_percentile[0] * 100:.0f}={p_low:.1f} "
+        f"P{config.candidate_percentile[1] * 100:.0f}={p_high:.1f} candidates={len(candidates)}"
+    )
+    candidate_gids = set(candidates["gid"])
+    candidate_combos = [combo for combo in combos if combo["gid"] in candidate_gids]
+
+    test_frames = []
+    for train_start, train_end, test_start, test_end, scheme in test_pairs:
+        tasks = build_paired_tasks(
+            config=config,
+            phase="test",
+            pairs=[(train_start, train_end, test_start, test_end)],
+            scheme=scheme,
+            combos=candidate_combos,
+        )
+        test_frames.append(run_tasks(config, tasks, cache_paths))
+    test_df = pd.concat(test_frames, ignore_index=True) if test_frames else pd.DataFrame()
+    test_df.to_csv(output_dir / "test_results.csv", index=False, encoding="utf-8-sig")
+    test_tally = tally_champions(
+        test_df,
+        objective=config.objective,
+        higher_is_better=config.objective_higher_is_better,
+    )
+    test_tally.to_csv(output_dir / "test_champions.csv", index=False, encoding="utf-8-sig")
+    if test_tally.empty:
+        print("  [TEST] no valid result")
+        return {
+            "train_results": train_df,
+            "train_champions": train_tally,
+            "train_candidates": candidates,
+            "test_results": test_df,
+            "test_champions": test_tally,
+        }
+
+    top = test_tally.head(config.report_top_n)
+    print(f"  [TEST] top {len(top)}:")
+    print(top.to_string(index=False))
+    combo_by_gid = {combo["gid"]: combo for combo in combos}
+
+    valid_tasks = []
+    for rank, gid in enumerate(top["gid"].tolist(), 1):
+        combo = combo_by_gid[gid]
+        params = dict(combo["params"])
+        valid_tasks.append({
+            "params": params,
+            "gid": combo["gid"],
+            "rank": rank,
+            "factor_module": config.factor_module,
+            "spec_factory": config.spec_factory,
+            "weight_hook": config.weight_hook,
+            "warmup_days": _warmup_days(config, params),
+            "phase": "valid",
+            "scheme": "full",
+            "win_start": config.valid[0],
+            "win_end": config.valid[1],
+            "engine": config.engine,
+            "rebal_freq": config.rebal_freq,
+            "n_quantiles_param": config.n_quantiles_param,
+            "initial_amount": config.initial_amount,
+            "time_tolerance": config.time_tolerance,
+        })
+    valid_df = run_tasks(config, valid_tasks, cache_paths)
+    if not valid_df.empty and "rank" in valid_df.columns:
+        valid_df = valid_df.sort_values("rank").reset_index(drop=True)
+    valid_df.to_csv(output_dir / "valid_results.csv", index=False, encoding="utf-8-sig")
+
+    if config.valid_report_hook:
+        for rank, gid in enumerate(top["gid"].tolist(), 1):
+            try:
+                _call_module_function(
+                    config.factor_module,
+                    config.valid_report_hook,
+                    combo_by_gid[gid]["params"],
+                    rank,
+                    str(output_dir),
+                    config.valid[0],
+                    config.valid[1],
+                )
+            except Exception as exc:
+                print(f"  [valid report] #{rank} failed: {exc}")
+
+    return {
+        "train_results": train_df,
+        "train_champions": train_tally,
+        "train_candidates": candidates,
+        "test_results": test_df,
+        "test_champions": test_tally,
+        "valid_results": valid_df,
+    }
+
+
 def run_walk_forward(config: RollingMiningConfig) -> dict[str, pd.DataFrame]:
     output_dir = _as_path(config.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -1051,6 +1482,11 @@ def run_walk_forward(config: RollingMiningConfig) -> dict[str, pd.DataFrame]:
     )
     if not combos:
         return {}
+
+    if config.rolling_mode == "paired":
+        return _run_paired_walk_forward(config, _as_path(config.output_dir), combos)
+    if config.rolling_mode != "split":
+        raise ValueError(f"unknown rolling_mode: {config.rolling_mode!r}")
 
     print(
         f"=== Walk-forward mining (engine={config.engine}, workers={config.workers}) ==="

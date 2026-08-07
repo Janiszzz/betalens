@@ -1,0 +1,28 @@
+mining:
+  factors: all
+  output_dir: outputs/_walkforward
+  cache_dir: outputs/_walkforward/_cache
+  train: ['2010-01-01', '2019-12-31']
+  test: ['2020-01-01', '2022-12-31']
+  valid: ['2023-01-01', '2025-12-31']
+  n_quantiles: [10]
+  rebal_freq: W
+  initial_amount: 100000000
+  max_candidates: 256
+  rolling_mode: paired
+  paired_schemes:
+    train_lengths: [252, 504]
+    test_lengths: [63, 126]
+    steps: [63, 126]
+  objective: sharpe
+  objective_higher_is_better: true
+  candidate_percentile: [0.5, 0.75]
+  report_top_n: 3
+  engine: vector
+  workers: 4
+  rebuild_cache: false
+  resume: true
+  fail_fast: false
+  max_memory_ratio: 0.5
+  max_warmup_days: 5000
+  max_windows_per_scheme: null

@@ -10,7 +10,13 @@ factor_spec:
     volume_wide: 成交量(股)
   industry_inputs:
     sector_wide: 申万一级行业
-  compute_kwargs: {}
+  compute_kwargs:
+    formula_params:
+      window_1: 17.4842
+      window_2: 13.4283
+      window_3: 14.8717
+      window_4: 6.92131
+      lag_1: 1.46063
   direction: positive
   table_name: daily_market
   index_code: 000906.SH

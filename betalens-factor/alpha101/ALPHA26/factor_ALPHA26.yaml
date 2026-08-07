@@ -9,7 +9,12 @@ factor_spec:
     high_wide: 最高价(元)
     volume_wide: 成交量(股)
   industry_inputs: {}
-  compute_kwargs: {}
+  compute_kwargs:
+    formula_params:
+      window_1: 3
+      window_2: 5
+      window_3: 5
+      window_4: 5
   direction: positive
   table_name: daily_market
   index_code: 000906.SH

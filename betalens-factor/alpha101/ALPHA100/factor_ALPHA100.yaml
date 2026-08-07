@@ -13,7 +13,13 @@ factor_spec:
     amount_wide: 成交金额(元)
   industry_inputs:
     subindustry_wide: 申万三级行业
-  compute_kwargs: {}
+  compute_kwargs:
+    formula_params:
+      window_1: 5
+      window_2: 30
+      window_3: 20
+      coefficient_1: 1.5
+      window_4: 20
   direction: positive
   table_name: daily_market
   index_code: 000906.SH

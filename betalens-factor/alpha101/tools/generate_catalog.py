@@ -14,7 +14,11 @@ for path in (REPO_ROOT, CLASS_DIR):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-from alpha101_formulas import ALPHA_DEFINITIONS  # noqa: E402
+from alpha101_formulas import (  # noqa: E402
+    ALPHA_DEFINITIONS,
+    default_formula_params,
+    required_history_bars_for_alpha,
+)
 
 
 SOURCE = "WorldQuant 101 Formulaic Alphas (Kakushadze 2016)"
@@ -51,7 +55,7 @@ for _path in (_REPO_ROOT, _FACTOR_ROOT, _CLASS_DIR, _FACTOR_DIR):
         sys.path.insert(0, str(_path))
 
 from betalens.factor.config import factor_spec_options, load_yaml_config, run_parameters, section  # noqa: E402
-from alpha101_formulas import compute_alpha  # noqa: E402
+from alpha101_formulas import compute_alpha, required_history_bars_for_alpha  # noqa: E402
 from factor_template_alpha101 import FactorSpec, {pipeline_import}  # noqa: E402
 
 
@@ -69,6 +73,10 @@ def {compute_name}({_signature(definition)}):
 
 def build_spec(config: dict, config_path: str | Path = _CONFIG_FILE) -> FactorSpec:
     options = factor_spec_options(config, config_path)
+    options["required_history_bars"] = required_history_bars_for_alpha(
+        {definition.number},
+        options.get("compute_kwargs", {{}}).get("formula_params"),
+    )
     return FactorSpec(
         name=str(section(config, "meta")["name"]),
         compute={compute_name},
@@ -121,6 +129,7 @@ def factor_config(definition, *, timing: bool) -> dict:
         "industry_inputs": dict(definition.industry_inputs),
         "compute_kwargs": (
             {
+                "formula_params": default_formula_params(definition.number),
                 "stock_code": "300750.SZ",
                 "signal_weight": {
                     "method": "rolling_z",
@@ -132,7 +141,7 @@ def factor_config(definition, *, timing: bool) -> dict:
                 },
             }
             if timing
-            else {}
+            else {"formula_params": default_formula_params(definition.number)}
         ),
         "direction": "positive",
         "table_name": "daily_market",

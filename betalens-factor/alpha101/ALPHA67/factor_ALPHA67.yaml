@@ -12,7 +12,11 @@ factor_spec:
   industry_inputs:
     sector_wide: 申万一级行业
     subindustry_wide: 申万三级行业
-  compute_kwargs: {}
+  compute_kwargs:
+    formula_params:
+      window_1: 6.02936
+      window_2: 2.14593
+      window_3: 20
   direction: positive
   table_name: daily_market
   index_code: 000906.SH

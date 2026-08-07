@@ -1,9 +1,12 @@
 """Canonical WorldQuant Alpha101 formulas on daily wide DataFrames."""
 from __future__ import annotations
 
+import ast
 from dataclasses import dataclass
+import inspect
 import re
-from typing import Callable, Mapping
+import textwrap
+from typing import Any, Callable, Mapping
 
 import numpy as np
 import pandas as pd
@@ -181,7 +184,19 @@ class AlphaDefinition:
     inputs: Mapping[str, str]
     industry_inputs: Mapping[str, str]
     required_history_bars: int
-    compute: Callable[[dict[str, pd.DataFrame]], pd.DataFrame]
+    compute: Callable[[dict[str, pd.DataFrame], Mapping[str, Any] | None], pd.DataFrame]
+    parameters: Mapping[str, "AlphaParameter"]
+
+
+@dataclass(frozen=True)
+class AlphaParameter:
+    """One numeric formula literal exposed for controlled parameter mining."""
+
+    name: str
+    default: int | float
+    kind: str
+    searchable: bool
+    source_line: int
 
 
 def _adv(data: dict[str, pd.DataFrame], n: float) -> pd.DataFrame:
@@ -811,7 +826,137 @@ def alpha101(d):
     return (d["close"] - d["open"]) / ((d["high"] - d["low"]) + 0.001)
 
 
-ALPHA_FUNCTIONS = {number: globals()[f"alpha{number}"] for number in range(1, 102)}
+_ROLLING_CALLS = {
+    "ts_rank", "ts_min", "ts_max", "ts_sum", "ts_mean", "correlation",
+    "covariance", "stddev", "product", "ts_argmax", "ts_argmin",
+    "decay_linear", "_adv",
+}
+_LAG_CALLS = {"delta", "delay"}
+
+
+def _call_name(node: ast.AST) -> str | None:
+    return node.id if isinstance(node, ast.Name) else None
+
+
+def _parameter_kind(node: ast.Constant, parents: Mapping[int, tuple[ast.AST, int]]) -> str:
+    parent_info = parents.get(id(node))
+    if parent_info is None:
+        return "coefficient"
+    parent, position = parent_info
+    if isinstance(parent, ast.Call):
+        name = _call_name(parent.func)
+        if name in _ROLLING_CALLS and position >= 1:
+            return "window"
+        if name in _LAG_CALLS and position >= 1:
+            return "lag"
+        if name == "signed_power" and position == 1:
+            return "exponent"
+    if isinstance(parent, ast.Compare):
+        return "threshold"
+    if isinstance(parent, ast.BinOp) and isinstance(parent.op, ast.Pow):
+        return "exponent"
+    if isinstance(parent, ast.BinOp) and isinstance(parent.op, ast.Div) and getattr(parent, "right", None) is node:
+        value = float(node.value)
+        if 0 < abs(value) < 0.01:
+            return "epsilon"
+    return "coefficient"
+
+
+def _literal_nodes(function_node: ast.FunctionDef) -> list[ast.Constant]:
+    return [
+        node
+        for node in ast.walk(function_node)
+        if isinstance(node, ast.Constant)
+        and isinstance(node.value, (int, float))
+        and not isinstance(node.value, bool)
+        and abs(float(node.value)) not in (0.0, 1.0)
+    ]
+
+
+def _parameter_specs_for_function(function_node: ast.FunctionDef) -> dict[str, AlphaParameter]:
+    parents: dict[int, tuple[ast.AST, int]] = {}
+    for parent in ast.walk(function_node):
+        for position, child in enumerate(ast.iter_child_nodes(parent)):
+            parents[id(child)] = (parent, position)
+
+    counters: dict[str, int] = {}
+    specs: dict[str, AlphaParameter] = {}
+    for node in _literal_nodes(function_node):
+        kind = _parameter_kind(node, parents)
+        if function_node.name == "alpha101" and abs(float(node.value)) < 0.01:
+            kind = "epsilon"
+        counters[kind] = counters.get(kind, 0) + 1
+        name = f"{kind}_{counters[kind]}"
+        specs[name] = AlphaParameter(
+            name=name,
+            default=node.value,
+            kind=kind,
+            searchable=kind != "epsilon",
+            source_line=int(getattr(node, "lineno", 0)),
+        )
+    return specs
+
+
+def _parameter_value(params: Mapping[str, Any] | None, name: str, default: Any) -> Any:
+    return default if params is None else params.get(name, default)
+
+
+class _LiteralParameterizer(ast.NodeTransformer):
+    def __init__(self, node_to_name: Mapping[int, str]):
+        self.node_to_name = node_to_name
+
+    def visit_Constant(self, node: ast.Constant):  # noqa: N802
+        name = self.node_to_name.get(id(node))
+        if name is None:
+            return node
+        return ast.copy_location(
+            ast.Call(
+                func=ast.Name(id="_parameter_value", ctx=ast.Load()),
+                args=[
+                    ast.Name(id="_params", ctx=ast.Load()),
+                    ast.Constant(value=name),
+                    ast.Constant(value=node.value),
+                ],
+                keywords=[],
+            ),
+            node,
+        )
+
+
+def _parameterize_function(number: int, original, specs: Mapping[str, AlphaParameter]):
+    source = textwrap.dedent(inspect.getsource(original))
+    tree = ast.parse(source)
+    target = next(node for node in tree.body if isinstance(node, ast.FunctionDef))
+    nodes = _literal_nodes(target)
+    names = list(specs)
+    target.args.args.append(ast.arg(arg="_params", annotation=None))
+    target.args.defaults.append(ast.Constant(value=None))
+    target.name = f"alpha{number}_parameterized"
+    parameterizer = _LiteralParameterizer({id(node): names[i] for i, node in enumerate(nodes)})
+    target = parameterizer.visit(target)
+    ast.fix_missing_locations(target)
+    module = ast.Module(body=[target], type_ignores=[])
+    namespace = dict(globals())
+    namespace["_parameter_value"] = _parameter_value
+    exec(compile(module, filename=inspect.getsourcefile(original) or "<alpha101>", mode="exec"), namespace)
+    return namespace[target.name]
+
+
+def _build_parameterized_functions() -> tuple[dict[int, dict[str, AlphaParameter]], dict[int, Callable[..., pd.DataFrame]]]:
+    specs_by_number: dict[int, dict[str, AlphaParameter]] = {}
+    functions: dict[int, Callable[..., pd.DataFrame]] = {}
+    for number in range(1, 102):
+        original = globals()[f"alpha{number}"]
+        source = textwrap.dedent(inspect.getsource(original))
+        tree = ast.parse(source)
+        function_node = next(node for node in tree.body if isinstance(node, ast.FunctionDef))
+        specs = _parameter_specs_for_function(function_node)
+        specs_by_number[number] = specs
+        functions[number] = _parameterize_function(number, original, specs)
+    return specs_by_number, functions
+
+
+ALPHA_PARAMETER_SPECS, ALPHA_FUNCTIONS = _build_parameterized_functions()
 
 
 def _input_specs(formula: str) -> tuple[dict[str, str], dict[str, str]]:
@@ -841,6 +986,7 @@ def _definition(number: int) -> AlphaDefinition:
         industry_inputs=industry_inputs,
         required_history_bars=REQUIRED_HISTORY_BARS[number - 1],
         compute=ALPHA_FUNCTIONS[number],
+        parameters=ALPHA_PARAMETER_SPECS[number],
     )
 
 
@@ -861,8 +1007,54 @@ def get_definition(name_or_number: str | int) -> AlphaDefinition:
         raise KeyError(f"Alpha101 number must be 1..101: {number}") from exc
 
 
+def resolve_formula_params(name_or_number: str | int, formula_params: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    """Validate and fill formula parameters while preserving paper defaults."""
+    definition = get_definition(name_or_number)
+    supplied = dict(formula_params or {})
+    unknown = sorted(set(supplied) - set(definition.parameters))
+    if unknown:
+        raise KeyError(f"unknown {definition.name} formula parameter(s): {', '.join(unknown)}")
+    resolved = {}
+    for name, spec in definition.parameters.items():
+        value = supplied.get(name, spec.default)
+        if isinstance(value, bool) or not isinstance(value, (int, float, np.integer, np.floating)):
+            raise TypeError(f"{definition.name}.{name} must be numeric")
+        value = float(value) if isinstance(spec.default, float) else int(value)
+        if not np.isfinite(value):
+            raise ValueError(f"{definition.name}.{name} must be finite")
+        if spec.kind in {"window", "lag"} and value < 1:
+            raise ValueError(f"{definition.name}.{name} must be >= 1")
+        if spec.kind == "exponent" and value == 0:
+            raise ValueError(f"{definition.name}.{name} must be non-zero")
+        resolved[name] = value
+    return resolved
+
+
+def default_formula_params(name_or_number: str | int) -> dict[str, Any]:
+    return resolve_formula_params(name_or_number)
+
+
+def required_history_bars_for_alpha(
+    name_or_number: str | int,
+    formula_params: Mapping[str, Any] | None = None,
+) -> int:
+    """Return a conservative history requirement for a parameterized formula."""
+    definition = get_definition(name_or_number)
+    resolved = resolve_formula_params(name_or_number, formula_params)
+    required = int(definition.required_history_bars)
+    for name, spec in definition.parameters.items():
+        if spec.kind not in {"window", "lag"}:
+            continue
+        default = int(round(float(spec.default)))
+        value = int(round(float(resolved[name])))
+        required += max(0, value - default)
+    return max(1, required)
+
+
 def compute_alpha(name_or_number: str | int, **wides) -> pd.DataFrame:
     definition = get_definition(name_or_number)
+    formula_params = wides.pop("formula_params", None)
+    resolved_params = resolve_formula_params(name_or_number, formula_params)
     data = {}
     for variable, (argument, _metric) in MARKET_INPUTS.items():
         if argument not in wides:
@@ -872,7 +1064,7 @@ def compute_alpha(name_or_number: str | int, **wides) -> pd.DataFrame:
     for variable, (argument, _scheme) in INDUSTRY_INPUTS.items():
         if argument in wides:
             data[variable] = wides[argument]
-    result = definition.compute(data)
+    result = definition.compute(data, resolved_params)
     return clean_inf(result).reindex_like(next(iter(wides.values())))
 
 
@@ -880,10 +1072,15 @@ __all__ = [
     "ALPHA_DEFINITIONS",
     "ALPHA_FUNCTIONS",
     "AlphaDefinition",
+    "AlphaParameter",
+    "ALPHA_PARAMETER_SPECS",
     "FORMULAS",
     "MARKET_INPUTS",
     "INDUSTRY_INPUTS",
     "REQUIRED_HISTORY_BARS",
     "compute_alpha",
+    "default_formula_params",
     "get_definition",
+    "required_history_bars_for_alpha",
+    "resolve_formula_params",
 ]

@@ -8,7 +8,9 @@ factor_spec:
   inputs:
     low_wide: 最低价(元)
   industry_inputs: {}
-  compute_kwargs: {}
+  compute_kwargs:
+    formula_params:
+      window_1: 9
   direction: positive
   table_name: daily_market
   index_code: 000906.SH

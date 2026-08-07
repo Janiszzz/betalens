@@ -10,7 +10,10 @@ factor_spec:
     close_wide: 收盘价(元)
     volume_wide: 成交量(股)
   industry_inputs: {}
-  compute_kwargs: {}
+  compute_kwargs:
+    formula_params:
+      window_1: 6
+      lag_1: 2
   direction: positive
   table_name: daily_market
   index_code: 000906.SH

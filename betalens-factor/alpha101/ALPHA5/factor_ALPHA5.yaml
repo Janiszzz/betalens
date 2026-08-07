@@ -10,7 +10,10 @@ factor_spec:
     close_wide: 收盘价(元)
     vwap_wide: 均价(元)
   industry_inputs: {}
-  compute_kwargs: {}
+  compute_kwargs:
+    formula_params:
+      coefficient_1: 10
+      window_1: 10
   direction: positive
   table_name: daily_market
   index_code: 000906.SH

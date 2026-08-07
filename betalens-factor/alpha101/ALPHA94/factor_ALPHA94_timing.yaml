@@ -11,6 +11,13 @@ factor_spec:
     amount_wide: 成交金额(元)
   industry_inputs: {}
   compute_kwargs:
+    formula_params:
+      window_1: 2.70756
+      window_2: 18.0926
+      window_3: 11.5783
+      window_4: 19.6462
+      window_5: 4.02992
+      window_6: 60
     stock_code: 300750.SZ
     signal_weight:
       method: rolling_z

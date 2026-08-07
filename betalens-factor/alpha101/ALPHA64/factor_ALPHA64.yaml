@@ -12,7 +12,18 @@ factor_spec:
     vwap_wide: 均价(元)
     amount_wide: 成交金额(元)
   industry_inputs: {}
-  compute_kwargs: {}
+  compute_kwargs:
+    formula_params:
+      coefficient_1: 0.178404
+      window_1: 16.6208
+      coefficient_2: 0.178404
+      coefficient_3: 0.178404
+      window_2: 12.7054
+      window_3: 12.7054
+      coefficient_4: 2
+      coefficient_5: 0.178404
+      window_4: 120
+      lag_1: 3.69741
   direction: positive
   table_name: daily_market
   index_code: 000906.SH

@@ -10,7 +10,11 @@ factor_spec:
     vwap_wide: 均价(元)
   industry_inputs:
     sector_wide: 申万一级行业
-  compute_kwargs: {}
+  compute_kwargs:
+    formula_params:
+      window_1: 3.92795
+      window_2: 5.50322
+      window_3: 7.89291
   direction: positive
   table_name: daily_market
   index_code: 000906.SH

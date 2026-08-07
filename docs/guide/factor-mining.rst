@@ -85,10 +85,21 @@
 * TEST：只复测 TRAIN 入围候选。
 * VALID：对 TEST 前几名做整段验证，可调用 ``valid_report_hook``。
 
+``RollingMiningConfig.rolling_mode`` 默认为 ``split``，保持上述兼容口径。
+设置为 ``paired`` 时，使用 ``paired_schemes`` 的
+``(train_length, test_length, step)`` 组合：每个 TRAIN 窗口后紧接一个不重叠
+TEST 窗口，两个窗口按 ``step`` 个交易日同步前移，适合动态 walk-forward。
+
 缓存
 ----
 
 挖掘会把宽表数据、PIT 股票池和元数据写入 cache 目录。默认 cache 在 ``output_dir`` 下，也可用 ``cache_dir`` 指定。
+
+当 ``FactorSpec.industry_inputs`` 非空，cache 同时保存行业标签宽表；当
+``mask_inputs_by_pit: true`` 时，行情和行业输入会在公式计算前按逐日 PIT
+成分股 mask。``use_industry`` 的后处理中性化面板也会按行业体系缓存，
+避免每个候选任务重复查询行业表。缓存元数据包含 schema 版本、输入映射、
+日期范围、指数和行业体系指纹，配置不匹配时自动重建。
 
 推荐忽略：
 
