@@ -12,9 +12,8 @@ factor_spec:
     low_wide: 最低价(元)
   industry_inputs: {}
   compute_kwargs:
-    formula_params:
-      exponent_1: 5
-      exponent_2: 5
+    open_power_exponent: 5
+    close_power_exponent: 5
   direction: positive
   table_name: daily_market
   index_code: 000906.SH
@@ -41,3 +40,14 @@ run:
   dump_excel: true
   warmup_days: null
   output_dir: outputs/runs/manual
+mining:
+  sampler: grid
+  search_space:
+    open_power_exponent:
+    - 2.5
+    - 5.0
+    - 10.0
+    close_power_exponent:
+    - 2.5
+    - 5.0
+    - 10.0

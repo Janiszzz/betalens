@@ -10,13 +10,12 @@ factor_spec:
     close_wide: 收盘价(元)
   industry_inputs: {}
   compute_kwargs:
-    formula_params:
-      lag_1: 100
-      lag_2: 100
-      threshold_1: 0.05
-      window_1: 100
-      lag_3: 3
-      window_2: 100
+    close_mean_window: 100
+    ts_mean_close_delta_lag: 100
+    close_delay_lag: 100
+    trend_threshold: 0.05
+    close_minimum_window: 100
+    close_delta_lag: 3
     stock_code: 300750.SZ
     signal_weight:
       method: rolling_z
@@ -51,3 +50,24 @@ run:
   dump_excel: true
   warmup_days: null
   output_dir: outputs/runs/manual
+mining:
+  sampler: grid
+  search_space:
+    close_mean_window:
+    - 50
+    - 100
+    - 200
+    ts_mean_close_delta_lag:
+    - 50
+    - 100
+    - 200
+    close_delay_lag:
+    - 50
+    - 100
+    - 200
+    trend_threshold:
+    - 0.05
+    close_minimum_window:
+    - 100
+    close_delta_lag:
+    - 3

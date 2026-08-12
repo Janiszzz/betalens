@@ -208,6 +208,28 @@ def _normalize_factor_values(factor_values: pd.DataFrame | None) -> pd.DataFrame
     return df[["signal_date", "date_key", "code", "factor_value", "group"]]
 
 
+def _factor_values_for_group_nav(
+    factor_values: pd.DataFrame | None,
+    n_quantiles: int,
+) -> pd.DataFrame | None:
+    """将内部 0 基分组标签转换成 group_nav 的 1 基标签。"""
+    if factor_values is None or factor_values.empty:
+        return factor_values
+    group_col = "分组" if "分组" in factor_values.columns else "group"
+    if group_col not in factor_values.columns:
+        return factor_values
+
+    groups = pd.to_numeric(factor_values[group_col], errors="coerce")
+    valid = groups.dropna()
+    if valid.empty:
+        return factor_values
+    if valid.min() >= 0 and valid.max() < int(n_quantiles) and (valid == 0).any():
+        out = factor_values.copy()
+        out[group_col] = groups + 1
+        return out
+    return factor_values
+
+
 def _filter_factor_dates(
     factor_df: pd.DataFrame,
     date_from: str | None = None,
@@ -1049,12 +1071,20 @@ def build_generated_chart_data(
     except (TypeError, ValueError):
         normalized = _normalize_factor_values(factor_values)
         groups = pd.to_numeric(normalized.get("group"), errors="coerce")
-        quantiles = int(groups.max()) if groups is not None and groups.notna().any() else 0
+        if groups is not None and groups.notna().any():
+            max_group = int(groups.max())
+            quantiles = max_group + 1 if (groups == 0).any() else max_group
+        else:
+            quantiles = 0
 
     precomputed = precomputed or {}
     group_frame = precomputed.get("group_nav")
     if group_frame is None:
-        group_frame = M.group_nav(getattr(bt, "cost_ret", None), factor_values, quantiles)
+        group_frame = M.group_nav(
+            getattr(bt, "cost_ret", None),
+            _factor_values_for_group_nav(factor_values, quantiles),
+            quantiles,
+        )
     group_records: list[dict[str, Any]] = []
     if not group_frame.empty:
         for date, row in group_frame.sort_index().iterrows():

@@ -21,6 +21,7 @@ from factor_template import (  # noqa: E402
     align_daily_wides,
     mask_wide_by_pit_universe,
     validate_weights_in_pit_universe,
+    _expand_weights_to_factor_universe,
 )
 from betalens.factor.signal import build_signal_weights, resolve_timing_start_date  # noqa: E402
 from factor_template_alpha101 import _with_timing_targets  # noqa: E402
@@ -75,6 +76,25 @@ def test_pit_weight_validation_ignores_cash_column() -> None:
 
     assert result.iloc[0]["passed"]
     assert result.iloc[0]["selected_count"] == 1
+
+
+def test_group_nav_weights_retain_unselected_factor_codes() -> None:
+    index = pd.to_datetime(["2024-01-02 15:10:01"])
+    weights = pd.DataFrame({"A": [1.0]}, index=index)
+    factor_values = pd.DataFrame(
+        {
+            "信号日": pd.to_datetime(["2024-01-02"] * 3),
+            "股票代码": ["A", "B", "C"],
+            "因子值": [3.0, 2.0, 1.0],
+            "分组": [0, 1, 2],
+        }
+    )
+
+    expanded = _expand_weights_to_factor_universe(weights, factor_values)
+
+    assert list(expanded.columns) == ["A", "B", "C"]
+    assert expanded.loc[index[0], "A"] == 1.0
+    assert expanded.loc[index[0], ["B", "C"]].tolist() == [0.0, 0.0]
 
 
 def test_timing_target_is_not_restricted_by_index_membership() -> None:

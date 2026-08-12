@@ -11,12 +11,11 @@ factor_spec:
     amount_wide: 成交金额(元)
   industry_inputs: {}
   compute_kwargs:
-    formula_params:
-      window_1: 12
-      lag_1: 3
-      window_2: 20
-      window_3: 10
-      lag_2: 10
+    close_delta_lag: 10
+    rank_delta_close_decay_window: 10
+    close_delta_lag_2: 3
+    amount_average_window: 20
+    adv_low_correlation_window: 12
   direction: positive
   table_name: daily_market
   index_code: 000906.SH
@@ -43,3 +42,22 @@ run:
   dump_excel: true
   warmup_days: null
   output_dir: outputs/runs/manual
+mining:
+  sampler: grid
+  search_space:
+    close_delta_lag:
+    - 5
+    - 10
+    - 20
+    rank_delta_close_decay_window:
+    - 5
+    - 10
+    - 20
+    close_delta_lag_2:
+    - 2
+    - 3
+    - 6
+    amount_average_window:
+    - 20
+    adv_low_correlation_window:
+    - 12

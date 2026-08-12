@@ -14,7 +14,7 @@ for _path in (_REPO_ROOT, _FACTOR_ROOT, _CLASS_DIR, _FACTOR_DIR):
         sys.path.insert(0, str(_path))
 
 from betalens.factor.config import factor_spec_options, load_yaml_config, run_parameters, section  # noqa: E402
-from alpha101_formulas import compute_alpha, required_history_bars_for_alpha  # noqa: E402
+from alpha101_formulas import compute_alpha, get_definition, required_history_bars_for_alpha  # noqa: E402
 from factor_template_alpha101 import FactorSpec, TimingFactorPipeline as FactorPipeline  # noqa: E402
 
 
@@ -26,16 +26,36 @@ def load_config(path: str | Path = _CONFIG_FILE) -> dict:
     return load_yaml_config(path, required_sections=_REQUIRED_SECTIONS)
 
 
-def compute_alpha61_timing(vwap_wide, amount_wide, **kwargs):
-    return compute_alpha(61, vwap_wide=vwap_wide, amount_wide=amount_wide, **kwargs)
+def compute_alpha61_timing(
+    vwap_wide,
+    amount_wide,
+    *,
+    vwap_minimum_window=16.1219,
+    amount_average_window=180,
+    vwap_adv_correlation_window=17.9282,
+    stock_code=None,
+    signal_weight=None,
+):
+    del stock_code, signal_weight
+    return compute_alpha(
+        61,
+        vwap_wide=vwap_wide,
+        amount_wide=amount_wide,
+        vwap_minimum_window=vwap_minimum_window,
+        amount_average_window=amount_average_window,
+        vwap_adv_correlation_window=vwap_adv_correlation_window,
+    )
 
 
 def build_spec(config: dict, config_path: str | Path = _CONFIG_FILE) -> FactorSpec:
     options = factor_spec_options(config, config_path)
-    options["required_history_bars"] = required_history_bars_for_alpha(
-        61,
-        options.get("compute_kwargs", {}).get("formula_params"),
-    )
+    parameter_names = set(get_definition(61).parameters)
+    formula_kwargs = {
+        name: value
+        for name, value in options.get("compute_kwargs", {}).items()
+        if name in parameter_names
+    }
+    options["required_history_bars"] = required_history_bars_for_alpha(61, formula_kwargs)
     return FactorSpec(
         name=str(section(config, "meta")["name"]),
         compute=compute_alpha61_timing,

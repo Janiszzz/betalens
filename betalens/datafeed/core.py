@@ -336,27 +336,58 @@ class Datafeed:
             self.conn = None
 
 
-def get_absolute_trade_days(begin_date, end_date, period, use_pmc=True):
-    """Return China A-share trading dates, optionally sampled by period end."""
+def get_absolute_trade_days(begin_date, end_date, period, exchange="SHSE"):
+    """Return locally stored exchange trading dates, sampled by period end."""
     period_map = {"D": None, "W": "W", "M": "M", "Q": "Q", "S": "2Q", "Y": "Y"}
     period_key = str(period).upper()
     if period_key not in period_map:
         raise ValueError(f"不支持的 period: {period}")
+    try:
+        begin = pd.Timestamp(begin_date)
+        end = pd.Timestamp(end_date)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("begin_date/end_date 必须是有效日期") from exc
+    if pd.isna(begin) or pd.isna(end):
+        raise ValueError("begin_date/end_date 必须是有效日期")
+    begin = begin.tz_localize(None).normalize() if begin.tzinfo else begin.normalize()
+    end = end.tz_localize(None).normalize() if end.tzinfo else end.normalize()
+    if begin > end:
+        raise ValueError("begin_date 不能晚于 end_date")
+
+    exchange_code = str(exchange).strip().upper()
+    if not exchange_code or len(exchange_code) > 32:
+        raise ValueError("exchange 必须是 1-32 位非空交易所代码")
+
+    pool = get_read_pool()
+    conn = pool.acquire()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT to_regclass('betalens.trade_calendar_day')")
+            if cur.fetchone()[0] is None:
+                raise RuntimeError(
+                    "本地交易日历尚未初始化；请先通过 betalens_db_manager 升级数据库并导入交易日"
+                )
+            cur.execute(
+                "SELECT EXISTS (SELECT 1 FROM betalens.trade_calendar_day WHERE exchange=%s)",
+                (exchange_code,),
+            )
+            if not cur.fetchone()[0]:
+                raise ValueError(f"本地交易日历不存在交易所: {exchange_code}")
+            cur.execute(
+                """
+                SELECT trade_date
+                FROM betalens.trade_calendar_day
+                WHERE exchange=%s AND trade_date BETWEEN %s AND %s
+                ORDER BY trade_date
+                """,
+                (exchange_code, begin.date(), end.date()),
+            )
+            rows = cur.fetchall()
+    finally:
+        pool.release(conn)
+
+    dates = pd.Series(pd.to_datetime([row[0] for row in rows]), dtype="datetime64[ns]")
     freq = period_map[period_key]
-    if use_pmc:
-        import pandas_market_calendars as mcal
-
-        schedule = mcal.get_calendar("XSHG").schedule(
-            start_date=begin_date, end_date=end_date, tz="Asia/Shanghai"
-        )
-        dates = pd.to_datetime(schedule.index).tz_localize(None).to_series().reset_index(drop=True)
-    else:
-        import akshare as ak
-
-        frame = ak.tool_trade_date_hist_sina()
-        dates = pd.to_datetime(frame["trade_date"])
-        mask = (dates >= pd.Timestamp(begin_date)) & (dates <= pd.Timestamp(end_date))
-        dates = dates[mask].sort_values().reset_index(drop=True)
     if freq:
         dates = dates.groupby(dates.dt.to_period(freq)).last().reset_index(drop=True)
     return [value.date() for value in dates]

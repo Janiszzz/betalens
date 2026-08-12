@@ -334,6 +334,51 @@ def _labeled_to_factor_values(labeled, name):
     ).reset_index(drop=True)
 
 
+def _expand_weights_to_factor_universe(weights, factor_values):
+    """保留全量因子股票代码，让回测收益矩阵覆盖所有分组。
+
+    未选分组的权重仍为 0，因此不会进入策略持仓；但 BacktestBase 会据此
+    查询这些股票的价格，供独立的分组净值图使用。
+    """
+    import pandas as pd
+
+    if weights is None or factor_values is None or factor_values.empty:
+        return weights
+
+    code_col = "股票代码" if "股票代码" in factor_values.columns else "code"
+    if code_col not in factor_values.columns:
+        return weights
+
+    codes = pd.Index(
+        factor_values[code_col].dropna().astype(str).drop_duplicates(),
+        name=getattr(weights.columns, "name", None),
+    )
+    expanded = weights.copy()
+    expanded.columns = expanded.columns.astype(str)
+    return expanded.reindex(columns=codes, fill_value=0.0)
+
+
+def _factor_values_for_group_nav(factor_values, n_quantiles):
+    """把内部 0 基分组标签转换为 group_nav 使用的 1 基标签。"""
+    import pandas as pd
+
+    if factor_values is None or factor_values.empty:
+        return factor_values
+    group_col = "分组" if "分组" in factor_values.columns else "group"
+    if group_col not in factor_values.columns:
+        return factor_values
+
+    groups = pd.to_numeric(factor_values[group_col], errors="coerce")
+    valid = groups.dropna()
+    if valid.empty:
+        return factor_values
+    if valid.min() >= 0 and valid.max() < int(n_quantiles) and (valid == 0).any():
+        out = factor_values.copy()
+        out[group_col] = groups + 1
+        return out
+    return factor_values
+
+
 def grouped_factor_statistics(labeled, name):
     """基于 single_characteristic 的全量分组矩阵生成统计表。"""
     label_col = f"{name}_label"
@@ -413,7 +458,11 @@ def _compute_group_nav(bt, factor_values, n_quantiles: int):
     """
     from betalens.analyst.metrics import group_nav
 
-    return group_nav(getattr(bt, 'cost_ret', None), factor_values, n_quantiles)
+    return group_nav(
+        getattr(bt, 'cost_ret', None),
+        _factor_values_for_group_nav(factor_values, n_quantiles),
+        n_quantiles,
+    )
 
 
 # ============================================================
@@ -697,10 +746,8 @@ class FactorPipeline:
         warmup = int(warmup_days) if warmup_days is not None else inferred_days
         fetch_start = (pd.Timestamp(start_date) - pd.Timedelta(days=warmup)).strftime("%Y-%m-%d")
 
-        rebalance_dates = get_absolute_trade_days(start_date, end_date,
-                                                  rebal_freq, use_pmc=False)
-        all_trade_days = get_absolute_trade_days(fetch_start, end_date,
-                                                 "D", use_pmc=False)
+        rebalance_dates = get_absolute_trade_days(start_date, end_date, rebal_freq)
+        all_trade_days = get_absolute_trade_days(fetch_start, end_date, "D")
         if verbose:
             print(f"取数起始(自动预热): {fetch_start}  调仓日数量: {len(rebalance_dates)}")
 
@@ -834,6 +881,7 @@ class FactorPipeline:
             'group_weights': sp.group_weights,
             'intra_group_allocation': sp.intra_group_allocation,
         })
+        weights = _expand_weights_to_factor_universe(weights, factor_values)
         if verbose:
             print(f"  完成生成权重: {weights.shape}", flush=True)
         pit_validation = validate_weights_in_pit_universe(weights, pit_universe)

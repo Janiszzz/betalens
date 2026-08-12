@@ -9,9 +9,9 @@ factor_spec:
     high_wide: 最高价(元)
   industry_inputs: {}
   compute_kwargs:
-    formula_params:
-      window_1: 20
-      lag_1: 2
+    high_mean_window: 20
+    high_delta_lag: 2
+    high_ts_mean_false_value: 0.0
   direction: positive
   table_name: daily_market
   index_code: 000906.SH
@@ -38,3 +38,16 @@ run:
   dump_excel: true
   warmup_days: null
   output_dir: outputs/runs/manual
+mining:
+  sampler: grid
+  search_space:
+    high_mean_window:
+    - 10
+    - 20
+    - 40
+    high_delta_lag:
+    - 1
+    - 2
+    - 4
+    high_ts_mean_false_value:
+    - 0.0

@@ -7,7 +7,7 @@ owns schema inspection, imports, local import records, and the desktop GUI.
 
 from .constants import ALLOWED_TABLES, ALLOWED_WRITE_TABLES, DEFAULT_LIMIT
 from .db import DatabaseClient, QueryRequest
-from .importers import DatabaseWriter, DeleteRequest
+from .importers import DatabaseWriter, DeleteRequest, load_trade_calendar
 from .import_adapters import (
     ADAPTERS,
     AdapterRegistry,
@@ -17,6 +17,7 @@ from .import_adapters import (
     MarketBatch,
     ObservationBatch,
     TradeStatusBatch,
+    TradeCalendarBatch,
 )
 from .import_manifest import ManifestEntry, ManifestPlan, ManifestRunner
 from .job_store import JobStore
@@ -57,5 +58,7 @@ __all__ = [
     "SchemaManager",
     "ResolvedConnection",
     "TradeStatusBatch",
+    "TradeCalendarBatch",
     "get_dataset",
+    "load_trade_calendar",
 ]

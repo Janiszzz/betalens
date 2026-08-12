@@ -194,6 +194,36 @@ class TablePagingTests(unittest.TestCase):
             {"year": "2024", "avgReturn": 0.2, "winRate": 1.0, "tradeCount": 1}
         ])
 
+    def test_generated_group_nav_converts_zero_based_factor_labels(self) -> None:
+        class FakeBacktest:
+            idx = pd.to_datetime(["2024-01-01", "2024-01-02", "2024-01-03"])
+            cost_ret = pd.DataFrame(
+                {
+                    "000001.SZ": [0.0, 0.10, 0.20],
+                    "000002.SZ": [0.0, -0.10, 0.05],
+                },
+                index=idx,
+            )
+            nav = pd.Series([1.0, 1.0, 1.0], index=idx)
+            rebalance_log = pd.DataFrame()
+
+        factor_values = pd.DataFrame(
+            {
+                "信号日": pd.to_datetime(["2024-01-01", "2024-01-01", "2024-01-02", "2024-01-02"]),
+                "股票代码": ["000001.SZ", "000002.SZ", "000002.SZ", "000001.SZ"],
+                "因子值": [1.0, -1.0, 0.5, -0.5],
+                "分组": [0, 1, 0, 1],
+            }
+        )
+
+        charts = build_generated_chart_data(FakeBacktest(), factor_values)
+        group = {(row["date"], row["group"]): row["nav"] for row in charts["groupNav"]}
+
+        self.assertEqual({group_name for _, group_name in group}, {"G1", "G2"})
+        self.assertAlmostEqual(group[("2024-01-02", "G1")], 1.1)
+        self.assertAlmostEqual(group[("2024-01-03", "G1")], 1.155)
+        self.assertAlmostEqual(group[("2024-01-03", "G2")], 1.08)
+
     def test_factor_profile_contains_all_static_panel_series(self) -> None:
         dates = pd.date_range("2024-01-01", periods=4, freq="D")
         factor_values = pd.DataFrame(

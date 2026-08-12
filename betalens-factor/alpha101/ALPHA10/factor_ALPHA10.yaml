@@ -10,9 +10,11 @@ factor_spec:
     close_wide: 收盘价(元)
   industry_inputs: {}
   compute_kwargs:
-    formula_params:
-      window_1: 4
-      window_2: 4
+    close_delta_lag: 1
+    change_minimum_window: 4
+    ts_min_change_threshold: 0
+    change_maximum_window: 4
+    ts_max_change_threshold: 0
   direction: positive
   table_name: daily_market
   index_code: 000906.SH
@@ -39,3 +41,21 @@ run:
   dump_excel: true
   warmup_days: null
   output_dir: outputs/runs/manual
+mining:
+  sampler: grid
+  search_space:
+    close_delta_lag:
+    - 1
+    - 2
+    change_minimum_window:
+    - 2
+    - 4
+    - 8
+    ts_min_change_threshold:
+    - -0.05
+    - 0.0
+    - 0.05
+    change_maximum_window:
+    - 4
+    ts_max_change_threshold:
+    - 0

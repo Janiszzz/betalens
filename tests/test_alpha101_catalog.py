@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import inspect
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -18,7 +19,7 @@ for _path in (REPO_ROOT, REPO_ROOT / "betalens-factor", CLASS_DIR):
     if str(_path) not in sys.path:
         sys.path.insert(0, str(_path))
 
-from alpha101_formulas import ALPHA_DEFINITIONS, compute_alpha  # noqa: E402
+from alpha101_formulas import ALPHA_DEFINITIONS, compute_alpha, default_compute_kwargs  # noqa: E402
 from factor_template_alpha101 import (  # noqa: E402
     clean_inf,
     decay_linear,
@@ -158,6 +159,18 @@ def test_all_101_formulas_on_synthetic_panel_without_mutation(synthetic_alpha_in
         pd.testing.assert_frame_equal(synthetic_alpha_inputs[name], original)
 
 
+def test_all_numeric_formula_positions_are_flat_and_semantically_named() -> None:
+    parameters = [spec for definition in ALPHA_DEFINITIONS.values() for spec in definition.parameters.values()]
+
+    assert len(parameters) >= 487
+    assert all(not re.match(r"^(window|lag|coefficient|threshold)_\d+$", spec.name) for spec in parameters)
+    assert all(
+        default_compute_kwargs(definition.number)
+        == {name: spec.default for name, spec in definition.parameters.items()}
+        for definition in ALPHA_DEFINITIONS.values()
+    )
+
+
 def _load_module(path: Path, ordinal: int):
     module_spec = importlib.util.spec_from_file_location(f"_alpha101_catalog_{ordinal}", path)
     assert module_spec is not None and module_spec.loader is not None
@@ -181,12 +194,22 @@ def test_generated_scripts_and_yamls_match_registry_and_import_cleanly() -> None
             ordinal += 1
             compute = getattr(module, f"compute_alpha{number}{suffix}")
             declared = [*definition.inputs, *definition.industry_inputs]
+            signature = inspect.signature(compute)
 
             assert declared == [
                 parameter.name
-                for parameter in inspect.signature(compute).parameters.values()
+                for parameter in signature.parameters.values()
                 if parameter.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
             ]
+            keyword_only = [
+                parameter.name
+                for parameter in signature.parameters.values()
+                if parameter.kind is inspect.Parameter.KEYWORD_ONLY
+            ]
+            expected_keyword_only = list(definition.parameters)
+            if timing:
+                expected_keyword_only.extend(["stock_code", "signal_weight"])
+            assert keyword_only == expected_keyword_only
             assert module.spec.name == name
             assert module.spec.required_history_bars == definition.required_history_bars
             assert module.spec.industry_inputs == dict(definition.industry_inputs)
@@ -195,6 +218,15 @@ def test_generated_scripts_and_yamls_match_registry_and_import_cleanly() -> None
             assert config["factor_spec"]["industry_inputs"] == dict(definition.industry_inputs)
             assert config["factor_spec"]["mask_inputs_by_pit"] is True
             assert config["factor_spec"]["required_history_bars"] == definition.required_history_bars
+            assert "formula_params" not in config["factor_spec"]["compute_kwargs"]
+            assert {
+                name: config["factor_spec"]["compute_kwargs"][name]
+                for name in definition.parameters
+            } == default_compute_kwargs(number)
+            search_space = config["mining"]["search_space"]
+            assert list(search_space) == list(definition.parameters)
+            assert sum(len(values) > 1 for values in search_space.values()) <= 3
+            assert np.prod([len(values) for values in search_space.values()], dtype=int) <= 256
             if timing:
                 signal = config["factor_spec"]["compute_kwargs"]["signal_weight"]
                 assert signal == {

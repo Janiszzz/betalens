@@ -11,7 +11,8 @@ LEGACY_MIGRATION_VERSION = 6
 COMPATIBILITY_VIEW_VERSION = 7
 FINALIZE_VERSION = 8
 LIFECYCLE_AUDIT_VERSION = 9
-LATEST_SCHEMA_VERSION = LIFECYCLE_AUDIT_VERSION
+TRADE_CALENDAR_VERSION = 10
+LATEST_SCHEMA_VERSION = TRADE_CALENDAR_VERSION
 
 ALL_BASE_TABLES = (
     "schema_migration",
@@ -28,7 +29,10 @@ ALL_BASE_TABLES = (
     "index_snapshot",
     "index_constituent",
     "trade_status_event",
+    "trade_calendar_day",
 )
+
+_PRE_TRADE_CALENDAR_BASE_TABLES = ALL_BASE_TABLES[:-1]
 
 ALL_COMPATIBILITY_VIEWS = (
     "daily_market",
@@ -41,7 +45,10 @@ ALL_COMPATIBILITY_VIEWS = (
     "industry",
     "index_universe",
     "trade_status",
+    "trade_calendar",
 )
+
+_PRE_TRADE_CALENDAR_COMPATIBILITY_VIEWS = ALL_COMPATIBILITY_VIEWS[:-1]
 
 TABLE_COLUMNS: dict[str, tuple[tuple[str, str], ...]] = {
     "schema_migration": (
@@ -152,6 +159,10 @@ TABLE_COLUMNS: dict[str, tuple[tuple[str, str], ...]] = {
         ("status_text", "character varying"),
         ("remark", "jsonb"),
     ),
+    "trade_calendar_day": (
+        ("exchange", "character varying"),
+        ("trade_date", "date"),
+    ),
 }
 
 REQUIRED_INDEXES: dict[str, tuple[str, ...]] = {
@@ -180,6 +191,7 @@ REQUIRED_INDEXES: dict[str, tuple[str, ...]] = {
     "index_snapshot": ("index_snapshot_pkey", "uq_index_snapshot_entity_effective"),
     "index_constituent": ("index_constituent_pkey", "idx_index_constituent_entity"),
     "trade_status_event": ("trade_status_event_pkey", "idx_trade_status_event_date_entity"),
+    "trade_calendar_day": ("trade_calendar_day_pkey",),
 }
 
 REQUIRED_CONSTRAINTS: dict[str, tuple[str, ...]] = {
@@ -204,6 +216,7 @@ REQUIRED_CONSTRAINTS: dict[str, tuple[str, ...]] = {
     "index_snapshot": ("index_snapshot_pkey", "uq_index_snapshot_entity_effective"),
     "index_constituent": ("index_constituent_pkey",),
     "trade_status_event": ("trade_status_event_pkey",),
+    "trade_calendar_day": ("trade_calendar_day_pkey",),
 }
 
 INDEX_DEFINITION_FRAGMENTS: dict[str, tuple[str, ...]] = {
@@ -248,6 +261,7 @@ NOT_NULL_COLUMNS: dict[str, tuple[str, ...]] = {
     "index_snapshot": ("snapshot_id", "index_entity_id", "effective_at", "index_name_snapshot"),
     "index_constituent": ("snapshot_id", "constituent_entity_id"),
     "trade_status_event": ("entity_id", "event_date", "status", "status_text"),
+    "trade_calendar_day": ("exchange", "trade_date"),
 }
 
 IDENTITY_COLUMNS: dict[str, tuple[str, ...]] = {
@@ -291,6 +305,7 @@ REQUIRED_CONSTRAINT_TYPES: dict[str, tuple[str, ...]] = {
     "index_snapshot": ("p", "u", "f"),
     "index_constituent": ("p", "f", "c"),
     "trade_status_event": ("p", "f", "c"),
+    "trade_calendar_day": ("p", "c"),
 }
 
 CONSTRAINT_DEFINITION_FRAGMENTS: dict[str, tuple[str, ...]] = {
@@ -304,6 +319,7 @@ CONSTRAINT_DEFINITION_FRAGMENTS: dict[str, tuple[str, ...]] = {
     "uq_index_snapshot_entity_effective": ("UNIQUE", "index_entity_id", "effective_at"),
     "index_constituent_pkey": ("PRIMARY KEY", "snapshot_id", "constituent_entity_id"),
     "trade_status_event_pkey": ("PRIMARY KEY", "entity_id", "event_date"),
+    "trade_calendar_day_pkey": ("PRIMARY KEY", "exchange", "trade_date"),
 }
 
 COMMENTED_TABLES = ALL_BASE_TABLES
@@ -327,6 +343,7 @@ VIEW_DEFINITION_FRAGMENTS: dict[str, tuple[str, ...]] = {
     "industry": ("betalens.industry_membership", "betalens.industry_dim", "betalens.industry_scheme_dim"),
     "index_universe": ("betalens.index_snapshot", "betalens.index_constituent", "jsonb_agg"),
     "trade_status": ("first_trade_date", "betalens.trade_status_event", "entity_name_at"),
+    "trade_calendar": ("betalens.trade_calendar_day", "交易日", "GROUP BY"),
 }
 
 VIEW_DEFINITION_HASHES: dict[str, str] = {
@@ -433,13 +450,25 @@ _TABLES_BY_VERSION = {
     2: ("schema_migration", "entity_dim", "entity_name_history", "metric_dim", "metric_alias"),
     3: ("schema_migration", "entity_dim", "entity_name_history", "metric_dim", "metric_alias", "market_daily_fact"),
     4: ("schema_migration", "entity_dim", "entity_name_history", "metric_dim", "metric_alias", "market_daily_fact", "observation_fact"),
-    5: ALL_BASE_TABLES,
+    5: _PRE_TRADE_CALENDAR_BASE_TABLES,
+    6: _PRE_TRADE_CALENDAR_BASE_TABLES,
+    7: _PRE_TRADE_CALENDAR_BASE_TABLES,
+    8: _PRE_TRADE_CALENDAR_BASE_TABLES,
+    9: _PRE_TRADE_CALENDAR_BASE_TABLES,
+    10: ALL_BASE_TABLES,
+}
+
+_VIEWS_BY_VERSION = {
+    7: _PRE_TRADE_CALENDAR_COMPATIBILITY_VIEWS,
+    8: _PRE_TRADE_CALENDAR_COMPATIBILITY_VIEWS,
+    9: _PRE_TRADE_CALENDAR_COMPATIBILITY_VIEWS,
+    10: ALL_COMPATIBILITY_VIEWS,
 }
 
 SCHEMA_CONTRACTS: dict[int, SchemaContract] = {}
 for _version in range(1, LATEST_SCHEMA_VERSION + 1):
     _tables = _TABLES_BY_VERSION.get(_version, ALL_BASE_TABLES)
-    _views = ALL_COMPATIBILITY_VIEWS if _version >= COMPATIBILITY_VIEW_VERSION else ()
+    _views = _VIEWS_BY_VERSION.get(_version, ())
     SCHEMA_CONTRACTS[_version] = SchemaContract(
         version=_version,
         tables=_tables,
@@ -519,6 +548,7 @@ __all__ = [
     "SCHEMA_CONTRACTS",
     "SchemaContract",
     "TABLE_COLUMNS",
+    "TRADE_CALENDAR_VERSION",
     "VIEW_COLUMNS",
     "VIEW_DEFINITION_FRAGMENTS",
     "VIEW_DEFINITION_HASHES",

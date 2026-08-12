@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 from psycopg2 import sql as psql
 
-from betalens.datafeed import industry, pool, query, universe
+from betalens.datafeed import core, industry, pool, query, universe
 from betalens.datafeed.registry import DATASETS as READ_DATASETS
 from betalens_db_manager.registry import DATASETS as MANAGER_DATASETS
 
@@ -32,6 +32,34 @@ class RecordingCursor:
 
     def fetchall(self):
         return next(self._fetchall, [])
+
+
+class CalendarCursor(RecordingCursor):
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        return None
+
+
+class CalendarConnection:
+    def __init__(self, cursor):
+        self._cursor = cursor
+
+    def cursor(self):
+        return self._cursor
+
+
+class CalendarPool:
+    def __init__(self, cursor):
+        self.connection = CalendarConnection(cursor)
+        self.released = []
+
+    def acquire(self):
+        return self.connection
+
+    def release(self, connection):
+        self.released.append(connection)
 
 
 def _sql_text(statement) -> str:
@@ -133,6 +161,74 @@ def test_read_and_write_dataset_registries_agree_on_routing_contract():
         manager_spec = MANAGER_DATASETS[name]
         assert read_spec.kind == manager_spec.storage
         assert read_spec.entity_type == manager_spec.entity_type
+
+
+@pytest.mark.parametrize(
+    ("period", "expected"),
+    [
+        ("D", [date(2024, 1, 2), date(2024, 1, 5), date(2024, 1, 8), date(2024, 1, 31), date(2024, 4, 30), date(2024, 6, 28), date(2024, 7, 1), date(2024, 12, 31)]),
+        ("W", [date(2024, 1, 5), date(2024, 1, 8), date(2024, 1, 31), date(2024, 4, 30), date(2024, 6, 28), date(2024, 7, 1), date(2024, 12, 31)]),
+        ("M", [date(2024, 1, 31), date(2024, 4, 30), date(2024, 6, 28), date(2024, 7, 1), date(2024, 12, 31)]),
+        ("Q", [date(2024, 1, 31), date(2024, 6, 28), date(2024, 7, 1), date(2024, 12, 31)]),
+        ("S", [date(2024, 1, 31), date(2024, 6, 28), date(2024, 7, 1), date(2024, 12, 31)]),
+        ("Y", [date(2024, 12, 31)]),
+    ],
+)
+def test_absolute_trade_days_reads_local_calendar_and_samples_periods(
+    monkeypatch, period, expected
+):
+    stored = [
+        date(2024, 1, 2), date(2024, 1, 5), date(2024, 1, 8),
+        date(2024, 1, 31), date(2024, 4, 30), date(2024, 6, 28),
+        date(2024, 7, 1), date(2024, 12, 31),
+    ]
+    cursor = CalendarCursor(
+        fetchone=[("betalens.trade_calendar_day",), (True,)],
+        fetchall=[[(value,) for value in stored]],
+    )
+    calendar_pool = CalendarPool(cursor)
+    monkeypatch.setattr(core, "get_read_pool", lambda: calendar_pool)
+
+    result = core.get_absolute_trade_days(
+        "2024-01-01", "2024-12-31", period, exchange="shse"
+    )
+
+    assert result == expected
+    assert cursor.calls[-1][1] == ("SHSE", date(2024, 1, 1), date(2024, 12, 31))
+    assert calendar_pool.released == [calendar_pool.connection]
+
+
+def test_absolute_trade_days_distinguishes_unknown_exchange_and_empty_range(monkeypatch):
+    unknown_cursor = CalendarCursor(
+        fetchone=[("betalens.trade_calendar_day",), (False,)]
+    )
+    unknown_pool = CalendarPool(unknown_cursor)
+    monkeypatch.setattr(core, "get_read_pool", lambda: unknown_pool)
+    with pytest.raises(ValueError, match="不存在交易所: NIB"):
+        core.get_absolute_trade_days("2024-01-01", "2024-01-31", "D", "nib")
+    assert unknown_pool.released == [unknown_pool.connection]
+
+    empty_cursor = CalendarCursor(
+        fetchone=[("betalens.trade_calendar_day",), (True,)], fetchall=[[]]
+    )
+    empty_pool = CalendarPool(empty_cursor)
+    monkeypatch.setattr(core, "get_read_pool", lambda: empty_pool)
+    assert core.get_absolute_trade_days("2024-01-01", "2024-01-31", "D") == []
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ("bad-date", "2024-01-01", "D", "SHSE"),
+        ("2024-02-01", "2024-01-01", "D", "SHSE"),
+        ("2024-01-01", "2024-02-01", "invalid", "SHSE"),
+        ("2024-01-01", "2024-02-01", "D", ""),
+    ],
+)
+def test_absolute_trade_days_rejects_invalid_parameters_before_query(monkeypatch, args):
+    monkeypatch.setattr(core, "get_read_pool", lambda: pytest.fail("database queried"))
+    with pytest.raises(ValueError):
+        core.get_absolute_trade_days(*args)
 
 
 def test_market_time_range_core_route_parameter_order_and_date_bound():

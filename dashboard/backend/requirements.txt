@@ -6,7 +6,6 @@ matplotlib>=3.4.0
 plotly>=5.0.0
 statsmodels>=0.14.0
 akshare>=1.17.0
-pandas-market-calendars>=4.4.0
 sympy>=1.10.0
 openpyxl>=3.0.0
 xlrd>=2.0.0

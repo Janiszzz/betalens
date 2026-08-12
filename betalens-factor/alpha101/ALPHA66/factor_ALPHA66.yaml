@@ -12,12 +12,11 @@ factor_spec:
     vwap_wide: 均价(元)
   industry_inputs: {}
   compute_kwargs:
-    formula_params:
-      window_1: 6.72611
-      window_2: 7.23052
-      window_3: 11.4157
-      lag_1: 3.51013
-      coefficient_1: 2
+    vwap_delta_lag: 3.51013
+    delta_vwap_decay_window: 7.23052
+    high_low_divisor: 2
+    right_base_decay_window: 11.4157
+    decay_linear_right_base_rank_window: 6.72611
   direction: positive
   table_name: daily_market
   index_code: 000906.SH
@@ -44,3 +43,22 @@ run:
   dump_excel: true
   warmup_days: null
   output_dir: outputs/runs/manual
+mining:
+  sampler: grid
+  search_space:
+    vwap_delta_lag:
+    - 1.755065
+    - 3.51013
+    - 7.02026
+    delta_vwap_decay_window:
+    - 3.61526
+    - 7.23052
+    - 14.46104
+    high_low_divisor:
+    - 2
+    right_base_decay_window:
+    - 5.70785
+    - 11.4157
+    - 22.8314
+    decay_linear_right_base_rank_window:
+    - 6.72611

@@ -1,0 +1,30 @@
+{
+  "run_id": "20260808_152222_01147b62",
+  "status": "failed_before_commit",
+  "database": "facade_unit",
+  "connection": {
+    "profile": null,
+    "config": {
+      "host": "localhost",
+      "port": "5432",
+      "dbname": "facade_unit",
+      "user": "tester",
+      "password": ""
+    },
+    "sources": {
+      "host": "runtime_override",
+      "port": "runtime_override",
+      "dbname": "runtime_override",
+      "user": "runtime_override",
+      "password": "runtime_override"
+    }
+  },
+  "report_path": "C:\\Users\\Janis\\OneDrive\\betalens\\.pytest-codex-verify-20260808\\test_facade_persists_report_wh0\\run.json",
+  "started_at": "2026-08-08 15:22:22",
+  "schema": null,
+  "manifest": null,
+  "verification": null,
+  "warnings": [],
+  "error": "migration failed before commit",
+  "finished_at": "2026-08-08 15:22:22"
+}

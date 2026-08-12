@@ -11,10 +11,9 @@ factor_spec:
     vwap_wide: 均价(元)
   industry_inputs: {}
   compute_kwargs:
-    formula_params:
-      window_1: 20.7127
-      lag_1: 4.96796
-      window_2: 15.3217
+    vwap_maximum_window: 15.3217
+    vwap_ts_max_rank_window: 20.7127
+    close_delta_lag: 4.96796
     stock_code: 300750.SZ
     signal_weight:
       method: rolling_z
@@ -49,3 +48,18 @@ run:
   dump_excel: true
   warmup_days: null
   output_dir: outputs/runs/manual
+mining:
+  sampler: grid
+  search_space:
+    vwap_maximum_window:
+    - 7.66085
+    - 15.3217
+    - 30.6434
+    vwap_ts_max_rank_window:
+    - 10.35635
+    - 20.7127
+    - 41.4254
+    close_delta_lag:
+    - 2.48398
+    - 4.96796
+    - 9.93592

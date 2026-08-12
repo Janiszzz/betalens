@@ -13,17 +13,18 @@ factor_spec:
     amount_wide: 成交金额(元)
   industry_inputs: {}
   compute_kwargs:
-    formula_params:
-      coefficient_1: 0.178404
-      window_1: 16.6208
-      coefficient_2: 0.178404
-      coefficient_3: 0.178404
-      window_2: 12.7054
-      window_3: 12.7054
-      coefficient_4: 2
-      coefficient_5: 0.178404
-      window_4: 120
-      lag_1: 3.69741
+    open_mix_weight: 0.178404
+    mixed1_complement_base: 1
+    mixed1_complement_weight: 0.178404
+    mixed1_sum_window: 12.7054
+    amount_average_window: 120
+    adv_sum_window: 12.7054
+    ts_sum_mixed1_ts_sum_adv_correlation_window: 16.6208
+    high_low_divisor: 2
+    high_low_mix_weight: 0.178404
+    mixed2_complement_base: 1
+    mixed2_complement_weight: 0.178404
+    mixed2_delta_lag: 3.69741
   direction: positive
   table_name: daily_market
   index_code: 000906.SH
@@ -50,3 +51,36 @@ run:
   dump_excel: true
   warmup_days: null
   output_dir: outputs/runs/manual
+mining:
+  sampler: grid
+  search_space:
+    open_mix_weight:
+    - 0.089202
+    - 0.178404
+    - 0.267606
+    mixed1_complement_base:
+    - 1
+    mixed1_complement_weight:
+    - 0.089202
+    - 0.178404
+    - 0.267606
+    mixed1_sum_window:
+    - 6.3527
+    - 12.7054
+    - 25.4108
+    amount_average_window:
+    - 120
+    adv_sum_window:
+    - 12.7054
+    ts_sum_mixed1_ts_sum_adv_correlation_window:
+    - 16.6208
+    high_low_divisor:
+    - 2
+    high_low_mix_weight:
+    - 0.178404
+    mixed2_complement_base:
+    - 1
+    mixed2_complement_weight:
+    - 0.178404
+    mixed2_delta_lag:
+    - 3.69741

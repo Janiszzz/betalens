@@ -21,9 +21,14 @@ for _path in (_REPO_ROOT, _FACTOR_ROOT, _CLASS_DIR):
 
 from betalens.factor.config import load_yaml_config, resolve_path, section  # noqa: E402
 from betalens.factor.mining import RollingMiningConfig, run_walk_forward  # noqa: E402
-from alpha101_formulas import get_definition  # noqa: E402
+from alpha101_formulas import default_compute_kwargs, get_definition  # noqa: E402
 from alpha101_mining import mining_warmup_days  # noqa: E402
-from alpha101_parameters import catalog_rows, formula_param_candidates  # noqa: E402
+from alpha101_parameters import (  # noqa: E402
+    catalog_rows,
+    formula_param_candidates,
+    grid_candidate_count,
+    validate_search_space,
+)
 
 
 _CONFIG_FILE = _SCRIPT_DIR / "walkforward.yaml"
@@ -65,6 +70,15 @@ def _paired_schemes(value: Any, name: str) -> list[tuple[int, int, int]]:
     return schemes
 
 
+def _date_span(value: Any, name: str) -> tuple[str, str]:
+    if not isinstance(value, (list, tuple)) or len(value) != 2:
+        raise ValueError(f"{name} must contain [start_date, end_date]")
+    start, end = (str(item) for item in value)
+    if pd.Timestamp(start) > pd.Timestamp(end):
+        raise ValueError(f"{name} start_date must not exceed end_date")
+    return start, end
+
+
 def _alpha_ids(value: Any) -> list[int]:
     if value == "all":
         return list(range(1, 102))
@@ -79,8 +93,8 @@ def _alpha_ids(value: Any) -> list[int]:
     return ids
 
 
-def _config_hash(mining: Mapping[str, Any], alpha_id: int, candidates: list[dict[str, Any]]) -> str:
-    payload = {"mining": dict(mining), "alpha_id": alpha_id, "candidates": candidates}
+def _config_hash(mining: Mapping[str, Any], alpha_id: int, search_space: Mapping[str, Any]) -> str:
+    payload = {"mining": dict(mining), "alpha_id": alpha_id, "search_space": dict(search_space)}
     encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
 
@@ -91,32 +105,55 @@ def _factor_config(
     output_dir: Path,
     cache_dir: Path,
     rebuild_cache: bool,
+    formula_search_space: Mapping[str, list[int | float]],
+    config_hash: str,
+    config_path: Path,
 ) -> RollingMiningConfig:
-    candidates = formula_param_candidates(alpha_id, max_candidates=int(mining.get("max_candidates", 256)))
     rolling_mode = str(mining.get("rolling_mode", "split")).lower()
     if rolling_mode == "paired":
         paired_schemes = _paired_schemes(mining["paired_schemes"], "paired_schemes")
+        rolling_span = _date_span(mining["rolling_span"], "rolling_span")
+        # RollingMiningConfig keeps train/test for backward compatibility;
+        # paired mode uses rolling_span as the authoritative discovery range.
+        train = rolling_span
+        test = rolling_span
         train_schemes = []
         test_schemes = []
     elif rolling_mode == "split":
         paired_schemes = None
+        rolling_span = None
+        train = _date_span(mining["train"], "train")
+        test = _date_span(mining["test"], "test")
         train_schemes = _schemes(mining["train_schemes"], "train_schemes")
         test_schemes = _schemes(mining["test_schemes"], "test_schemes")
     else:
         raise ValueError(f"unknown rolling_mode: {rolling_mode}")
-    grid = {
+    grid: dict[str, list[Any]] = {
         "alpha_id": [alpha_id],
-        "formula_params": candidates,
+        **{name: list(values) for name, values in formula_search_space.items()},
         "n_quantiles": [int(value) for value in mining["n_quantiles"]],
+    }
+    max_grid_candidates = int(mining.get("max_grid_candidates", 256))
+    if str(mining.get("sampler", "grid")).lower() == "grid":
+        count = grid_candidate_count(grid)
+        if count > max_grid_candidates:
+            raise ValueError(
+                f"{get_definition(alpha_id).name} grid has {count} candidates, "
+                f"exceeding max_grid_candidates={max_grid_candidates}"
+            )
+    paper_params = {
+        "alpha_id": alpha_id,
+        **default_compute_kwargs(alpha_id),
+        "n_quantiles": int(mining["n_quantiles"][0]),
     }
     return RollingMiningConfig(
         factor_module="alpha101_mining",
         output_dir=output_dir,
         cache_dir=cache_dir,
         grid=grid,
-        train=tuple(str(value) for value in mining["train"]),
-        test=tuple(str(value) for value in mining["test"]),
-        valid=tuple(str(value) for value in mining["valid"]),
+        train=train,
+        test=test,
+        valid=_date_span(mining["valid"], "valid"),
         train_schemes=train_schemes,
         test_schemes=test_schemes,
         spec_factory="make_mining_spec",
@@ -125,7 +162,6 @@ def _factor_config(
         warmup_days_factory=mining_warmup_days,
         objective=str(mining["objective"]),
         objective_higher_is_better=bool(mining["objective_higher_is_better"]),
-        candidate_percentile=tuple(float(value) for value in mining["candidate_percentile"]),
         report_top_n=int(mining["report_top_n"]),
         engine=str(mining["engine"]),
         workers=int(mining["workers"]),
@@ -139,7 +175,33 @@ def _factor_config(
         ),
         rolling_mode=rolling_mode,
         paired_schemes=paired_schemes,
+        rolling_span=rolling_span,
+        sampler=str(mining.get("sampler", "grid")),
+        paper_params=paper_params,
+        n_trials=int(mining.get("n_trials", 96)),
+        max_grid_candidates=max_grid_candidates,
+        trial_batch_size=(
+            None if mining.get("trial_batch_size") is None else int(mining["trial_batch_size"])
+        ),
+        random_seed=int(mining.get("random_seed", 20260810)),
+        ic_coverage_min=float(mining.get("constraints", {}).get("ic_coverage_min", 0.80)),
+        max_drawdown_max=float(mining.get("constraints", {}).get("max_drawdown_max", 0.35)),
+        turnover_max=float(mining.get("constraints", {}).get("turnover_max", 1.00)),
+        config_hash=config_hash,
+        log_level=str(mining.get("log_level", "INFO")),
+        storage_url=mining.get("storage_url"),
+        config_path=str(config_path.resolve()),
     )
+
+
+def _factor_search_space(alpha_id: int) -> dict[str, list[int | float]]:
+    definition = get_definition(alpha_id)
+    config_path = _CLASS_DIR / definition.name / f"factor_{definition.name}.yaml"
+    config = load_yaml_config(config_path, required_sections=("factor_spec", "mining"))
+    mining_section = section(config, "mining", context=str(config_path))
+    if "search_space" not in mining_section:
+        raise KeyError(f"{config_path} missing mining.search_space")
+    return validate_search_space(alpha_id, mining_section["search_space"])
 
 
 def run_from_config(config_path: str | Path = _CONFIG_FILE) -> pd.DataFrame:
@@ -161,8 +223,16 @@ def run_from_config(config_path: str | Path = _CONFIG_FILE) -> pd.DataFrame:
         name = get_definition(alpha_id).name
         factor_dir = output_root / name
         factor_dir.mkdir(parents=True, exist_ok=True)
-        candidates = formula_param_candidates(alpha_id, max_candidates=int(mining.get("max_candidates", 256)))
-        run_hash = _config_hash(mining, alpha_id, candidates)
+        search_space = _factor_search_space(alpha_id)
+        if str(mining.get("sampler", "grid")).lower() == "grid":
+            candidates = formula_param_candidates(
+                alpha_id,
+                search_space,
+                max_grid_candidates=int(mining.get("max_grid_candidates", 256)),
+            )
+        else:
+            candidates = [default_compute_kwargs(alpha_id)]
+        run_hash = _config_hash(mining, alpha_id, search_space)
         status_path = factor_dir / "status.json"
         if resume and status_path.exists():
             previous = json.loads(status_path.read_text(encoding="utf-8"))
@@ -178,6 +248,9 @@ def run_from_config(config_path: str | Path = _CONFIG_FILE) -> pd.DataFrame:
                     factor_dir,
                     cache_dir,
                     rebuild_cache=bool(mining.get("rebuild_cache", False)) and position == 0,
+                    formula_search_space=search_space,
+                    config_hash=run_hash,
+                    config_path=config_path,
                 )
             )
             status_path.write_text(

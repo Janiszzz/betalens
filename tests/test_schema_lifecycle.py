@@ -63,6 +63,10 @@ def test_packaged_migrations_and_versioned_contract_are_contiguous():
     assert get_schema_contract(5).views == ()
     assert len(get_schema_contract(7).views) == 10
     assert "betalens.assert_legacy_equivalence()" in get_schema_contract(9).functions
+    assert len(get_schema_contract(10).tables) == 15
+    assert len(get_schema_contract(10).views) == 11
+    assert "trade_calendar_day" in get_schema_contract(10).tables
+    assert "trade_calendar" in get_schema_contract(10).views
 
 
 def test_lifecycle_audit_is_advisory_and_accepts_the_prior_deployed_checksum():

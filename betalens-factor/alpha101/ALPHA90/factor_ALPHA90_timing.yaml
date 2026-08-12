@@ -13,11 +13,10 @@ factor_spec:
   industry_inputs:
     subindustry_wide: 申万三级行业
   compute_kwargs:
-    formula_params:
-      window_1: 3.21856
-      window_2: 5.38375
-      window_3: 4.66719
-      window_4: 40
+    close_maximum_window: 4.66719
+    amount_average_window: 40
+    indneutralize_subindustry_adv_low_correlation_window: 5.38375
+    correlation_low_indneutralize_rank_window: 3.21856
     stock_code: 300750.SZ
     signal_weight:
       method: rolling_z
@@ -52,3 +51,20 @@ run:
   dump_excel: true
   warmup_days: null
   output_dir: outputs/runs/manual
+mining:
+  sampler: grid
+  search_space:
+    close_maximum_window:
+    - 2.333595
+    - 4.66719
+    - 9.33438
+    amount_average_window:
+    - 20
+    - 40
+    - 80
+    indneutralize_subindustry_adv_low_correlation_window:
+    - 2.691875
+    - 5.38375
+    - 10.7675
+    correlation_low_indneutralize_rank_window:
+    - 3.21856

@@ -10,12 +10,14 @@ factor_spec:
     volume_wide: 成交量(股)
   industry_inputs: {}
   compute_kwargs:
-    formula_params:
-      window_1: 20
-      window_2: 5
-      lag_1: 2
-      lag_2: 3
-      lag_3: 2
+    close_delay_lag: 1
+    close_delay_lag_2: 1
+    close_delay_lag_3: 2
+    close_delay_lag_4: 2
+    close_delay_lag_5: 3
+    rank_direction_complement_base: 1
+    volume_sum_window: 5
+    volume_sum_window_2: 20
   direction: positive
   table_name: daily_market
   index_code: 000906.SH
@@ -42,3 +44,26 @@ run:
   dump_excel: true
   warmup_days: null
   output_dir: outputs/runs/manual
+mining:
+  sampler: grid
+  search_space:
+    close_delay_lag:
+    - 1
+    - 2
+    close_delay_lag_2:
+    - 1
+    - 2
+    close_delay_lag_3:
+    - 1
+    - 2
+    - 4
+    close_delay_lag_4:
+    - 2
+    close_delay_lag_5:
+    - 3
+    rank_direction_complement_base:
+    - 1
+    volume_sum_window:
+    - 5
+    volume_sum_window_2:
+    - 20

@@ -1,0 +1,10 @@
+version: 1
+defaults:
+  mode: insert_only
+  options:
+    chunk_rows: 123
+imports:
+  - id: market
+    path: data/*.csv
+    target: daily_market
+    adapter: standard_long

@@ -15,7 +15,6 @@ dependencies = [
     "matplotlib>=3.4.0",
     "statsmodels>=0.14.0",
     "akshare>=1.17.0",
-    "pandas-market-calendars>=4.4.0",
     "sympy>=1.10.0",
     "prettytable>=3.0.0",
     "openpyxl>=3.0.0",
@@ -27,6 +26,7 @@ viz = ["plotly>=5.0.0"]
 dashboard = ["fastapi>=0.115.0", "uvicorn[standard]>=0.30.0", "pydantic>=2.7.0", "pyarrow>=14.0.0"]
 db = ["psycopg2-binary>=2.9.0", "pyarrow>=14.0.0", "xlrd>=2.0.0"]
 gui = ["PySide6>=6.7"]
+mining = ["optuna>=4.9,<5"]
 full = [
     "plotly>=5.0.0",
     "fastapi>=0.115.0",
@@ -35,6 +35,7 @@ full = [
     "pyarrow>=14.0.0",
     "xlrd>=2.0.0",
     "PySide6>=6.7",
+    "optuna>=4.9,<5",
 ]
 
 [tool.setuptools.packages.find]

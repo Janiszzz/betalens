@@ -12,14 +12,14 @@ factor_spec:
     vwap_wide: 均价(元)
   industry_inputs: {}
   compute_kwargs:
-    formula_params:
-      window_1: 16.7411
-      window_2: 2.91864
-      coefficient_1: 0.147155
-      window_3: 3.33829
-      lag_1: 4.72775
-      coefficient_2: 0.147155
-      lag_2: 2.03608
+    vwap_delta_lag: 4.72775
+    delta_vwap_decay_window: 2.91864
+    open_mix_weight: 0.147155
+    mixed_complement_base: 1
+    mixed_complement_weight: 0.147155
+    mixed_delta_lag: 2.03608
+    mixed_delta_decay_window: 3.33829
+    decay_linear_mixed_delta_rank_window: 16.7411
     stock_code: 300750.SZ
     signal_weight:
       method: rolling_z
@@ -54,3 +54,28 @@ run:
   dump_excel: true
   warmup_days: null
   output_dir: outputs/runs/manual
+mining:
+  sampler: grid
+  search_space:
+    vwap_delta_lag:
+    - 2.363875
+    - 4.72775
+    - 9.4555
+    delta_vwap_decay_window:
+    - 1.45932
+    - 2.91864
+    - 5.83728
+    open_mix_weight:
+    - 0.0735775
+    - 0.147155
+    - 0.2207325
+    mixed_complement_base:
+    - 1
+    mixed_complement_weight:
+    - 0.147155
+    mixed_delta_lag:
+    - 2.03608
+    mixed_delta_decay_window:
+    - 3.33829
+    decay_linear_mixed_delta_rank_window:
+    - 16.7411

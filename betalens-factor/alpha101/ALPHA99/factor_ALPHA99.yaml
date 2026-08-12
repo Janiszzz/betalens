@@ -12,13 +12,12 @@ factor_spec:
     amount_wide: 成交金额(元)
   industry_inputs: {}
   compute_kwargs:
-    formula_params:
-      window_1: 8.8136
-      window_2: 6.28259
-      window_3: 19.8975
-      window_4: 19.8975
-      coefficient_1: 2
-      window_5: 60
+    high_low_divisor: 2
+    high_low_sum_window: 19.8975
+    amount_average_window: 60
+    adv_sum_window: 19.8975
+    ts_sum_high_low_ts_sum_adv_correlation_window: 8.8136
+    low_volume_correlation_window: 6.28259
   direction: positive
   table_name: daily_market
   index_code: 000906.SH
@@ -45,3 +44,24 @@ run:
   dump_excel: true
   warmup_days: null
   output_dir: outputs/runs/manual
+mining:
+  sampler: grid
+  search_space:
+    high_low_divisor:
+    - 2
+    high_low_sum_window:
+    - 9.94875
+    - 19.8975
+    - 39.795
+    amount_average_window:
+    - 30
+    - 60
+    - 120
+    adv_sum_window:
+    - 9.94875
+    - 19.8975
+    - 39.795
+    ts_sum_high_low_ts_sum_adv_correlation_window:
+    - 8.8136
+    low_volume_correlation_window:
+    - 6.28259

@@ -14,10 +14,10 @@ factor_spec:
     amount_wide: 成交金额(元)
   industry_inputs: {}
   compute_kwargs:
-    formula_params:
-      window_1: 5
-      lag_1: 5
-      window_2: 20
+    close_divisor: 1
+    amount_average_window: 20
+    high_mean_window: 5
+    vwap_delay_lag: 5
     stock_code: 300750.SZ
     signal_weight:
       method: rolling_z
@@ -52,3 +52,20 @@ run:
   dump_excel: true
   warmup_days: null
   output_dir: outputs/runs/manual
+mining:
+  sampler: grid
+  search_space:
+    close_divisor:
+    - 1
+    amount_average_window:
+    - 10
+    - 20
+    - 40
+    high_mean_window:
+    - 3
+    - 5
+    - 10
+    vwap_delay_lag:
+    - 3
+    - 5
+    - 10

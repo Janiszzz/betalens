@@ -14,7 +14,7 @@ for _path in (_REPO_ROOT, _FACTOR_ROOT, _CLASS_DIR, _FACTOR_DIR):
         sys.path.insert(0, str(_path))
 
 from betalens.factor.config import factor_spec_options, load_yaml_config, run_parameters, section  # noqa: E402
-from alpha101_formulas import compute_alpha, required_history_bars_for_alpha  # noqa: E402
+from alpha101_formulas import compute_alpha, get_definition, required_history_bars_for_alpha  # noqa: E402
 from factor_template_alpha101 import FactorSpec, FactorPipeline  # noqa: E402
 
 
@@ -26,16 +26,41 @@ def load_config(path: str | Path = _CONFIG_FILE) -> dict:
     return load_yaml_config(path, required_sections=_REQUIRED_SECTIONS)
 
 
-def compute_alpha66(open_wide, high_wide, low_wide, vwap_wide, **kwargs):
-    return compute_alpha(66, open_wide=open_wide, high_wide=high_wide, low_wide=low_wide, vwap_wide=vwap_wide, **kwargs)
+def compute_alpha66(
+    open_wide,
+    high_wide,
+    low_wide,
+    vwap_wide,
+    *,
+    vwap_delta_lag=3.51013,
+    delta_vwap_decay_window=7.23052,
+    high_low_divisor=2,
+    right_base_decay_window=11.4157,
+    decay_linear_right_base_rank_window=6.72611,
+):
+    return compute_alpha(
+        66,
+        open_wide=open_wide,
+        high_wide=high_wide,
+        low_wide=low_wide,
+        vwap_wide=vwap_wide,
+        vwap_delta_lag=vwap_delta_lag,
+        delta_vwap_decay_window=delta_vwap_decay_window,
+        high_low_divisor=high_low_divisor,
+        right_base_decay_window=right_base_decay_window,
+        decay_linear_right_base_rank_window=decay_linear_right_base_rank_window,
+    )
 
 
 def build_spec(config: dict, config_path: str | Path = _CONFIG_FILE) -> FactorSpec:
     options = factor_spec_options(config, config_path)
-    options["required_history_bars"] = required_history_bars_for_alpha(
-        66,
-        options.get("compute_kwargs", {}).get("formula_params"),
-    )
+    parameter_names = set(get_definition(66).parameters)
+    formula_kwargs = {
+        name: value
+        for name, value in options.get("compute_kwargs", {}).items()
+        if name in parameter_names
+    }
+    options["required_history_bars"] = required_history_bars_for_alpha(66, formula_kwargs)
     return FactorSpec(
         name=str(section(config, "meta")["name"]),
         compute=compute_alpha66,

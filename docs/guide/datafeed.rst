@@ -85,9 +85,12 @@ Datafeed 查询
    from betalens.datafeed import get_absolute_trade_days, trade_days_offset
 
    month_ends = get_absolute_trade_days("2024-01-01", "2024-12-31", "M")
+   nib_days = get_absolute_trade_days("2024-01-01", "2024-12-31", "D", exchange="NIB")
    next_day = trade_days_offset("2024-01-31", 1, period="D")
 
-``period`` 常用值为 ``D``、``M``、``Y``。
+``get_absolute_trade_days`` 仅从本地 ``trade_calendar`` 数据集读取，不访问在线服务；
+``exchange`` 默认 ``SHSE``。``period`` 支持 ``D``、``W``、``M``、``Q``、``S``、``Y``，
+非日频返回每个周期最后一个交易日。首次使用前，需用数据库管理器导入交易日历。
 
 行业
 ----

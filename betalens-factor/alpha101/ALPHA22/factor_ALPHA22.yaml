@@ -11,10 +11,9 @@ factor_spec:
     volume_wide: 成交量(股)
   industry_inputs: {}
   compute_kwargs:
-    formula_params:
-      lag_1: 5
-      window_1: 20
-      window_2: 5
+    high_volume_correlation_window: 5
+    correlation_high_volume_delta_lag: 5
+    close_stddev_window: 20
   direction: positive
   table_name: daily_market
   index_code: 000906.SH
@@ -41,3 +40,18 @@ run:
   dump_excel: true
   warmup_days: null
   output_dir: outputs/runs/manual
+mining:
+  sampler: grid
+  search_space:
+    high_volume_correlation_window:
+    - 3
+    - 5
+    - 10
+    correlation_high_volume_delta_lag:
+    - 3
+    - 5
+    - 10
+    close_stddev_window:
+    - 10
+    - 20
+    - 40

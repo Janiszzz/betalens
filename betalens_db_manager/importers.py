@@ -37,7 +37,7 @@ def normalize_import_frame(df: pd.DataFrame) -> pd.DataFrame:
         out["remark"] = None
     out = out[[c for c in DB_COLUMNS if c in out.columns]]
     if "datetime" in out.columns:
-        out["datetime"] = pd.to_datetime(out["datetime"], errors="coerce")
+        out["datetime"] = pd.to_datetime(out["datetime"], errors="coerce", format="mixed")
     if "value" in out.columns:
         out["value"] = pd.to_numeric(out["value"], errors="coerce")
     if "remark" in out.columns:
@@ -166,6 +166,20 @@ def load_trade_status(path: str | Path, sheet_name: str = "Sheet1") -> pd.DataFr
     return frame
 
 
+def load_trade_calendar(path: str | Path, sheet_name: str = "Sheet1") -> pd.DataFrame:
+    frame, rejected = collect_import_batches(
+        load_import_batches(
+            "trade_calendar",
+            path,
+            table="trade_calendar",
+            options={"sheet_name": sheet_name},
+        )
+    )
+    if not rejected.empty:
+        raise ValueError(rejected[["_source_row", "_errors"]].head(20).to_dict("records"))
+    return frame
+
+
 def infer_import_type(path: str | Path) -> str:
     return infer_adapter(path)
 
@@ -182,6 +196,7 @@ def load_import_frame(
         "industry": "industry",
         "index_universe": "index_universe",
         "trade_status": "trade_status",
+        "trade_calendar": "trade_calendar",
     }.get(import_type or "", "daily_market")
     frame, rejected = collect_import_batches(
         load_import_batches(
@@ -235,7 +250,7 @@ class DatabaseWriter:
         conflict_sample_limit: int = 20,
     ) -> dict[str, Any]:
         table = self.client.validate_table(table, writable=True)
-        frame = self._prepare_frame(df)
+        frame = self._prepare_frame(df, table=table)
         if frame.empty:
             return {
                 "summary": dataframe_summary(frame),
@@ -322,7 +337,7 @@ class DatabaseWriter:
                         source_frame = item.frame
                     else:
                         source_frame = item
-                    frame = self._prepare_frame(source_frame)
+                    frame = self._prepare_frame(source_frame, table=table)
                     if frame.empty:
                         continue
                     self._copy_stage(
@@ -422,7 +437,7 @@ class DatabaseWriter:
             conn.commit()
         return {"deleted": int(deleted), "total": int(deleted)}
 
-    def _prepare_frame(self, df: pd.DataFrame) -> pd.DataFrame:
+    def _prepare_frame(self, df: pd.DataFrame, *, table: str | None = None) -> pd.DataFrame:
         frame = normalize_import_frame(df)
         missing = [column for column in DB_COLUMNS[:5] if column not in frame.columns]
         if missing:
@@ -442,6 +457,10 @@ class DatabaseWriter:
         frame["metric"] = frame["metric"].astype(str).str.strip()
         if (frame[["code", "name", "metric"]] == "").any().any():
             raise ValueError("code/name/metric 不允许为空字符串")
+        if table == "trade_calendar":
+            frame["code"] = frame["code"].str.upper()
+            frame["name"] = frame["code"]
+            frame["datetime"] = frame["datetime"].dt.normalize()
         frame["_remark_key"] = frame["remark"].map(self._stable_json)
         key = ["datetime", "code", "metric"]
         conflicts = frame.groupby(key, dropna=False).agg(
@@ -576,6 +595,7 @@ class DatabaseWriter:
             "_betalens_index_member_stage",
             "_betalens_industry_status",
             "_betalens_trade_status",
+            "_betalens_trade_calendar",
             "_betalens_market_status",
             "_betalens_resolved_stage",
             "_betalens_import_stage",
@@ -584,6 +604,9 @@ class DatabaseWriter:
 
     def _prepare_dimensions(self, cur, table: str) -> None:
         spec = DATASETS[table]
+        if spec.storage == "trade_calendar":
+            self._validate_trade_calendar_stage(cur)
+            return
         cur.execute(
             """
             SELECT DISTINCT s.code, e.entity_type AS existing_type
@@ -650,6 +673,22 @@ class DatabaseWriter:
             self._prepare_index_dimensions(cur)
         elif spec.storage == "trade_status":
             self._validate_trade_status_stage(cur)
+
+    @staticmethod
+    def _validate_trade_calendar_stage(cur) -> None:
+        cur.execute(
+            """
+            SELECT row_no
+            FROM _betalens_import_stage
+            WHERE metric <> '交易日'
+               OR value <> 1
+               OR datetime <> date_trunc('day', datetime)
+               OR code <> upper(btrim(code))
+            LIMIT 1
+            """
+        )
+        if cur.fetchone():
+            raise ValueError("trade_calendar 仅接受大写交易所代码、日期和 metric='交易日'/value=1")
 
     def _prepare_industry_dimensions(self, cur) -> None:
         cur.execute(
@@ -836,6 +875,8 @@ class DatabaseWriter:
             status_table = self._inspect_industry(cur)
         elif spec.storage == "index_universe":
             status_table = self._inspect_index(cur)
+        elif spec.storage == "trade_calendar":
+            status_table = self._inspect_trade_calendar(cur)
         else:
             status_table = self._inspect_trade_status(cur)
         identifier = sql.Identifier(status_table)
@@ -1003,6 +1044,22 @@ class DatabaseWriter:
         )
         return "_betalens_trade_status"
 
+    def _inspect_trade_calendar(self, cur) -> str:
+        cur.execute(
+            """
+            CREATE TEMP TABLE _betalens_trade_calendar ON COMMIT DROP AS
+            SELECT s.datetime, s.code, s.metric, s.value AS new_value, s.row_no,
+                   CASE WHEN calendar.trade_date IS NULL THEN NULL ELSE 1::double precision END AS db_value,
+                   calendar.trade_date IS NOT NULL AS exists,
+                   FALSE AS changed
+            FROM _betalens_import_stage s
+            LEFT JOIN betalens.trade_calendar_day calendar
+              ON calendar.exchange=s.code AND calendar.trade_date=s.datetime::date
+            ORDER BY s.row_no
+            """
+        )
+        return "_betalens_trade_calendar"
+
     def _write_new_schema(self, cur, table: str, mode: str) -> None:
         storage = DATASETS[table].storage
         if storage in {"market", "observation"}:
@@ -1011,6 +1068,8 @@ class DatabaseWriter:
             self._write_industry(cur, mode)
         elif storage == "index_universe":
             self._write_index(cur, mode)
+        elif storage == "trade_calendar":
+            self._write_trade_calendar(cur)
         else:
             self._write_trade_status(cur, mode)
 
@@ -1288,6 +1347,19 @@ class DatabaseWriter:
                 """
             )
 
+    @staticmethod
+    def _write_trade_calendar(cur) -> None:
+        cur.execute(
+            """
+            INSERT INTO betalens.trade_calendar_day (exchange, trade_date)
+            SELECT s.code, s.datetime::date
+            FROM _betalens_import_stage s
+            JOIN _betalens_trade_calendar status ON status.row_no=s.row_no
+            WHERE NOT status.exists
+            ON CONFLICT (exchange, trade_date) DO NOTHING
+            """
+        )
+
     def _ensure_observation_partitions(self, cur, *, connection) -> None:
         cur.execute(
             """
@@ -1416,6 +1488,19 @@ class DatabaseWriter:
             cur.execute(
                 "DELETE FROM betalens.index_snapshot sn USING betalens.entity_dim e "
                 "WHERE e.entity_id=sn.index_entity_id AND " + " AND ".join(conditions),
+                params,
+            )
+            deleted = cur.rowcount
+            self._mark_coverage_stale(cur, table, deleted)
+            return deleted
+        if storage == "trade_calendar":
+            if request.metric and request.metric != "交易日":
+                return 0
+            conditions, params = self._delete_conditions(request, "upper(exchange)", "trade_date")
+            if request.normalized_codes():
+                params[0] = [value.upper() for value in params[0]]
+            cur.execute(
+                "DELETE FROM betalens.trade_calendar_day WHERE " + " AND ".join(conditions),
                 params,
             )
             deleted = cur.rowcount

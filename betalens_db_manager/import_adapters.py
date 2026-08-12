@@ -33,7 +33,7 @@ from .registry import DATASETS
 MARKET_TARGETS = frozenset(("daily_market", "daily_index", "daily_fund", "daily_bond"))
 OBSERVATION_TARGETS = frozenset(("fundamentals", "macro", "factors"))
 ALL_TARGETS = frozenset(DATASETS)
-SPECIAL_TARGETS = frozenset(("industry", "index_universe", "trade_status"))
+SPECIAL_TARGETS = frozenset(("industry", "index_universe", "trade_status", "trade_calendar"))
 MISSING_VALUE_MARKERS = frozenset(("n/a",))
 DAILY_WIDE_DATE_COLUMNS = frozenset(("date", "datetime", "日期", "交易日期"))
 
@@ -44,6 +44,7 @@ class BatchKind(str, Enum):
     INDUSTRY = "industry"
     INDEX = "index"
     TRADE_STATUS = "trade_status"
+    TRADE_CALENDAR = "trade_calendar"
 
 
 @dataclass
@@ -104,12 +105,18 @@ class TradeStatusBatch(ImportBatch):
     allowed_storage = frozenset(("trade_status",))
 
 
+class TradeCalendarBatch(ImportBatch):
+    kind = BatchKind.TRADE_CALENDAR
+    allowed_storage = frozenset(("trade_calendar",))
+
+
 BATCH_CLASS_BY_STORAGE: Mapping[str, type[ImportBatch]] = {
     "market": MarketBatch,
     "observation": ObservationBatch,
     "industry": IndustryBatch,
     "index_universe": IndexSnapshotBatch,
     "trade_status": TradeStatusBatch,
+    "trade_calendar": TradeCalendarBatch,
 }
 
 
@@ -300,6 +307,9 @@ def _special_errors(row: pd.Series, table: str) -> list[str]:
     elif table == "trade_status":
         if row["metric"] != "交易状态" or row["value"] not in (0.0, 1.0):
             errors.append("trade_status 仅接受 metric=交易状态 且 value 为 0/1")
+    elif table == "trade_calendar":
+        if row["metric"] != "交易日" or row["value"] != 1.0:
+            errors.append("trade_calendar 仅接受 metric=交易日 且 value=1")
     return errors
 
 
@@ -413,6 +423,10 @@ def _normalize_long(
     valid = working.loc[~rejected_mask, list(DB_COLUMNS)].copy()
     if context.table in MARKET_TARGETS and context.options.get("canonicalize_market_time", True):
         valid = _canonicalize_market_time(valid, context.table)
+    if context.table == "trade_calendar":
+        valid["code"] = valid["code"].astype(str).str.strip().str.upper()
+        valid["name"] = valid["code"]
+        valid["datetime"] = valid["datetime"].dt.normalize()
     typed_fields: dict[str, Any] = {}
     if context.table == "industry":
         typed_fields = {
@@ -778,6 +792,81 @@ def _trade_status_loader(context: AdapterContext) -> Iterator[ImportBatch]:
     yield _normalize_long(pd.DataFrame(records, columns=DB_COLUMNS), context, row_offset=0)
 
 
+def _trade_calendar_loader(context: AdapterContext) -> Iterator[ImportBatch]:
+    row_offset = 0
+    for source in _iter_source(context):
+        frame = _apply_column_map(source, context.options)
+        records: list[dict[str, Any]] = []
+        rejected: list[dict[str, Any]] = []
+        source_rows = 0
+        for column in frame.columns:
+            raw_exchange = str(column).strip()
+            exchange = raw_exchange.upper()
+            blank_header = not raw_exchange or raw_exchange.casefold().startswith("unnamed:")
+            invalid_header = blank_header or len(exchange) > 32
+            for position, value in enumerate(frame[column].tolist()):
+                if value is None or (not isinstance(value, (list, dict)) and pd.isna(value)):
+                    continue
+                if isinstance(value, str) and not value.strip():
+                    continue
+                source_rows += 1
+                source_row = row_offset + position + 2
+                reason = None
+                parsed = pd.NaT
+                if invalid_header:
+                    reason = "交易所列标题为空或超过 32 个字符"
+                elif isinstance(value, (bool, int, float, np.number)):
+                    reason = "trade_date 无法解析"
+                else:
+                    parsed = pd.to_datetime(value, errors="coerce")
+                    if pd.isna(parsed):
+                        reason = "trade_date 无法解析"
+                if reason is not None:
+                    rejected.append(
+                        {
+                            "exchange": None if blank_header else exchange,
+                            "trade_date": value,
+                            "source_file": str(context.path),
+                            "source_row": source_row,
+                            "field": "exchange" if invalid_header else "trade_date",
+                            "raw_value": raw_exchange if invalid_header else value,
+                            "reason": reason,
+                            "_source_row": source_row,
+                            "_errors": reason,
+                        }
+                    )
+                    continue
+                timestamp = pd.Timestamp(parsed)
+                if timestamp.tzinfo is not None:
+                    timestamp = timestamp.tz_localize(None)
+                records.append(
+                    {
+                        "datetime": timestamp.normalize(),
+                        "code": exchange,
+                        "name": exchange,
+                        "metric": "交易日",
+                        "value": 1.0,
+                        "remark": None,
+                    }
+                )
+        row_offset += len(frame)
+        valid = pd.DataFrame(records, columns=DB_COLUMNS)
+        rejected_frame = pd.DataFrame(rejected)
+        if rejected_frame.empty:
+            rejected_frame = pd.DataFrame(
+                columns=(
+                    "exchange", "trade_date", "source_file", "source_row",
+                    "field", "raw_value", "reason", "_source_row", "_errors",
+                )
+            )
+        yield TradeCalendarBatch(
+            table=context.table,
+            frame=valid,
+            rejected=rejected_frame,
+            source_rows=source_rows,
+        )
+
+
 def _register_defaults() -> None:
     ADAPTERS.register(
         AdapterSpec(
@@ -857,6 +946,14 @@ def _register_defaults() -> None:
             _COMMON_OPTIONS | frozenset(("layout", "normal_values", "sheet_name")),
         )
     )
+    ADAPTERS.register(
+        AdapterSpec(
+            "trade_calendar",
+            _trade_calendar_loader,
+            frozenset(("trade_calendar",)),
+            _COMMON_OPTIONS | frozenset(("sheet_name",)),
+        )
+    )
 
 
 _register_defaults()
@@ -868,6 +965,8 @@ def infer_adapter(path: str | Path) -> str:
     name = Path(path).name.lower()
     if "交易状态" in name or "trade_status" in name:
         return "trade_status"
+    if "交易日" in name or "trade_calendar" in name:
+        return "trade_calendar"
     if "成分" in name or "constituent" in name or "index_universe" in name:
         return "index_universe"
     if "行业" in name or "industry" in name:
@@ -930,6 +1029,7 @@ __all__ = [
     "MarketBatch",
     "ObservationBatch",
     "TradeStatusBatch",
+    "TradeCalendarBatch",
     "collect_import_batches",
     "infer_adapter",
     "load_import_batches",

@@ -11,16 +11,15 @@ factor_spec:
     amount_wide: 成交金额(元)
   industry_inputs: {}
   compute_kwargs:
-    formula_params:
-      window_1: 20.8187
-      window_2: 7.18088
-      window_3: 8.07206
-      window_4: 4.58418
-      window_5: 15
-      window_6: 6.95668
-      window_7: 26.4719
-      window_8: 8.62571
-      window_9: 5
+    amount_average_window: 5
+    adv_sum_window: 26.4719
+    vwap_ts_sum_adv_correlation_window: 4.58418
+    correlation_vwap_ts_sum_decay_window: 7.18088
+    amount_average_window_2: 15
+    rank_open_rank_adv_correlation_window: 20.8187
+    corr_argmin_window: 8.62571
+    ts_argmin_corr_rank_window: 6.95668
+    ts_rank_ts_argmin_corr_decay_window: 8.07206
   direction: positive
   table_name: daily_market
   index_code: 000906.SH
@@ -47,3 +46,30 @@ run:
   dump_excel: true
   warmup_days: null
   output_dir: outputs/runs/manual
+mining:
+  sampler: grid
+  search_space:
+    amount_average_window:
+    - 3
+    - 5
+    - 10
+    adv_sum_window:
+    - 13.23595
+    - 26.4719
+    - 52.9438
+    vwap_ts_sum_adv_correlation_window:
+    - 2.29209
+    - 4.58418
+    - 9.16836
+    correlation_vwap_ts_sum_decay_window:
+    - 7.18088
+    amount_average_window_2:
+    - 15
+    rank_open_rank_adv_correlation_window:
+    - 20.8187
+    corr_argmin_window:
+    - 8.62571
+    ts_argmin_corr_rank_window:
+    - 6.95668
+    ts_rank_ts_argmin_corr_decay_window:
+    - 8.07206

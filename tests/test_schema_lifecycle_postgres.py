@@ -93,13 +93,13 @@ def test_lifecycle_audit_warns_on_same_count_wrong_value_and_allows_cutover(
         )
 
     completed = manager.bootstrap_local(report_path=tmp_path / "completed-cutover.json")
-    assert completed["schema_version"] == 9
+    assert completed["schema_version"] == 10
     assert completed["precommit_verification"]["ok"]
     assert completed["verification"]["ok"]
 
     with manager.connect() as conn, conn.cursor() as cur:
         cur.execute("SELECT max(version) FROM betalens.schema_migration")
-        assert cur.fetchone()[0] == 9
+        assert cur.fetchone()[0] == 10
         cur.execute(
             "SELECT c.relkind FROM pg_class c WHERE c.oid=to_regclass('public.industry')"
         )

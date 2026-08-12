@@ -12,13 +12,13 @@ factor_spec:
   industry_inputs:
     industry_wide: 申万二级行业
   compute_kwargs:
-    formula_params:
-      window_1: 5.53756
-      coefficient_1: 0.868128
-      window_2: 5.11456
-      coefficient_2: 0.868128
-      lag_1: 4.04545
-      window_3: 10
+    open_mix_weight: 0.868128
+    mixed_complement_base: 1
+    mixed_complement_weight: 0.868128
+    indneutralize_mixed_industry_delta_lag: 4.04545
+    amount_average_window: 10
+    high_adv_correlation_window: 5.11456
+    correlation_high_adv_rank_window: 5.53756
   direction: positive
   table_name: daily_market
   index_code: 000906.SH
@@ -45,3 +45,26 @@ run:
   dump_excel: true
   warmup_days: null
   output_dir: outputs/runs/manual
+mining:
+  sampler: grid
+  search_space:
+    open_mix_weight:
+    - 0.434064
+    - 0.868128
+    - 1.0
+    mixed_complement_base:
+    - 1
+    mixed_complement_weight:
+    - 0.434064
+    - 0.868128
+    - 1.0
+    indneutralize_mixed_industry_delta_lag:
+    - 2.022725
+    - 4.04545
+    - 8.0909
+    amount_average_window:
+    - 10
+    high_adv_correlation_window:
+    - 5.11456
+    correlation_high_adv_rank_window:
+    - 5.53756

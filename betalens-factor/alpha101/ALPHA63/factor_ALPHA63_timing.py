@@ -14,7 +14,7 @@ for _path in (_REPO_ROOT, _FACTOR_ROOT, _CLASS_DIR, _FACTOR_DIR):
         sys.path.insert(0, str(_path))
 
 from betalens.factor.config import factor_spec_options, load_yaml_config, run_parameters, section  # noqa: E402
-from alpha101_formulas import compute_alpha, required_history_bars_for_alpha  # noqa: E402
+from alpha101_formulas import compute_alpha, get_definition, required_history_bars_for_alpha  # noqa: E402
 from factor_template_alpha101 import FactorSpec, TimingFactorPipeline as FactorPipeline  # noqa: E402
 
 
@@ -26,16 +26,54 @@ def load_config(path: str | Path = _CONFIG_FILE) -> dict:
     return load_yaml_config(path, required_sections=_REQUIRED_SECTIONS)
 
 
-def compute_alpha63_timing(open_wide, close_wide, vwap_wide, amount_wide, industry_wide, **kwargs):
-    return compute_alpha(63, open_wide=open_wide, close_wide=close_wide, vwap_wide=vwap_wide, amount_wide=amount_wide, industry_wide=industry_wide, **kwargs)
+def compute_alpha63_timing(
+    open_wide,
+    close_wide,
+    vwap_wide,
+    amount_wide,
+    industry_wide,
+    *,
+    indneutralize_close_industry_delta_lag=2.25164,
+    delta_indneutralize_close_decay_window=8.22237,
+    vwap_mix_weight=0.318108,
+    mixed_complement_base=1,
+    mixed_complement_weight=0.318108,
+    amount_average_window=180,
+    adv_sum_window=37.2467,
+    mixed_ts_sum_adv_correlation_window=13.557,
+    correlation_mixed_ts_sum_decay_window=12.2883,
+    stock_code=None,
+    signal_weight=None,
+):
+    del stock_code, signal_weight
+    return compute_alpha(
+        63,
+        open_wide=open_wide,
+        close_wide=close_wide,
+        vwap_wide=vwap_wide,
+        amount_wide=amount_wide,
+        industry_wide=industry_wide,
+        indneutralize_close_industry_delta_lag=indneutralize_close_industry_delta_lag,
+        delta_indneutralize_close_decay_window=delta_indneutralize_close_decay_window,
+        vwap_mix_weight=vwap_mix_weight,
+        mixed_complement_base=mixed_complement_base,
+        mixed_complement_weight=mixed_complement_weight,
+        amount_average_window=amount_average_window,
+        adv_sum_window=adv_sum_window,
+        mixed_ts_sum_adv_correlation_window=mixed_ts_sum_adv_correlation_window,
+        correlation_mixed_ts_sum_decay_window=correlation_mixed_ts_sum_decay_window,
+    )
 
 
 def build_spec(config: dict, config_path: str | Path = _CONFIG_FILE) -> FactorSpec:
     options = factor_spec_options(config, config_path)
-    options["required_history_bars"] = required_history_bars_for_alpha(
-        63,
-        options.get("compute_kwargs", {}).get("formula_params"),
-    )
+    parameter_names = set(get_definition(63).parameters)
+    formula_kwargs = {
+        name: value
+        for name, value in options.get("compute_kwargs", {}).items()
+        if name in parameter_names
+    }
+    options["required_history_bars"] = required_history_bars_for_alpha(63, formula_kwargs)
     return FactorSpec(
         name=str(section(config, "meta")["name"]),
         compute=compute_alpha63_timing,

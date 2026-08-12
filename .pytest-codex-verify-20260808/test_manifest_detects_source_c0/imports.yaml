@@ -1,0 +1,6 @@
+version: 1
+imports:
+  - id: market
+    path: market.csv
+    target: daily_market
+    adapter: standard_long

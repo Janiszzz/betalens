@@ -10,11 +10,12 @@ factor_spec:
     vwap_wide: 均价(元)
   industry_inputs: {}
   compute_kwargs:
-    formula_params:
-      coefficient_1: 2.0
-      threshold_1: 0.5
-      window_1: 2
-      window_2: 6
+    rank_volume_rank_vwap_correlation_window: 6
+    correlation_rank_volume_sum_window: 2
+    ts_sum_correlation_rank_divisor: 2.0
+    value_threshold: 0.5
+    value_true_value: -1.0
+    value_false_value: 1.0
   direction: positive
   table_name: daily_market
   index_code: 000906.SH
@@ -41,3 +42,24 @@ run:
   dump_excel: true
   warmup_days: null
   output_dir: outputs/runs/manual
+mining:
+  sampler: grid
+  search_space:
+    rank_volume_rank_vwap_correlation_window:
+    - 3
+    - 6
+    - 12
+    correlation_rank_volume_sum_window:
+    - 1
+    - 2
+    - 4
+    ts_sum_correlation_rank_divisor:
+    - 2.0
+    value_threshold:
+    - 0.25
+    - 0.5
+    - 0.75
+    value_true_value:
+    - -1.0
+    value_false_value:
+    - 1.0

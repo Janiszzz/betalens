@@ -307,13 +307,29 @@ class DatabaseClient:
                     (list(spec.physical_tables),),
                 )
                 constraints = [dict(row) for row in cur.fetchall()]
-        logical_columns = [
-            {"column_name": name, "data_type": data_type, "is_nullable": "YES", "comment": "兼容长表字段"}
-            for name, data_type in zip(
-                _LONG_COLUMNS,
-                ("timestamp without time zone", "character varying", "character varying", "character varying", "double precision", "jsonb"),
-            )
-        ]
+        if spec.storage == "trade_calendar":
+            logical_columns = [
+                {
+                    "column_name": "exchange",
+                    "data_type": "character varying",
+                    "is_nullable": "NO",
+                    "comment": "交易所代码",
+                },
+                {
+                    "column_name": "trade_date",
+                    "data_type": "date",
+                    "is_nullable": "NO",
+                    "comment": "交易日",
+                },
+            ]
+        else:
+            logical_columns = [
+                {"column_name": name, "data_type": data_type, "is_nullable": "YES", "comment": "兼容长表字段"}
+                for name, data_type in zip(
+                    _LONG_COLUMNS,
+                    ("timestamp without time zone", "character varying", "character varying", "character varying", "double precision", "jsonb"),
+                )
+            ]
         return {
             "logical_table": table,
             "storage": spec.storage,
@@ -493,6 +509,21 @@ class DatabaseClient:
                             JOIN betalens.entity_dim entity ON entity.entity_id = snapshot.index_entity_id
                             WHERE snapshot.remark IS NOT NULL
                               AND jsonb_typeof(snapshot.remark) <> 'object'
+                            """,
+                            [],
+                            limit,
+                        )
+                    )
+                elif spec.storage == "trade_calendar":
+                    checks.extend(
+                        self._diagnose_query(
+                            cur,
+                            "交易所代码未规范化",
+                            """
+                            SELECT exchange AS code, trade_date AS datetime,
+                                   '交易日'::text AS metric
+                            FROM betalens.trade_calendar_day
+                            WHERE exchange <> upper(btrim(exchange))
                             """,
                             [],
                             limit,
@@ -752,6 +783,16 @@ class DatabaseClient:
                 FROM betalens.trade_status_event t
                 JOIN betalens.entity_dim e ON e.entity_id = t.entity_id
             """, []
+        if spec.storage == "trade_calendar":
+            return """
+                SELECT calendar.trade_date::timestamp AS datetime,
+                       calendar.exchange AS code,
+                       calendar.exchange AS name,
+                       '交易日'::varchar AS metric,
+                       1::double precision AS value,
+                       NULL::jsonb AS remark
+                FROM betalens.trade_calendar_day calendar
+            """, []
         raise AssertionError(f"未实现的存储路由: {spec.storage}")
 
     def _query_legacy(self, cur, request: QueryRequest, limit: int) -> pd.DataFrame:
@@ -812,6 +853,10 @@ class DatabaseClient:
                 return [row[0] for row in cur.fetchall()]
 
     def _distinct_query(self, spec: DatasetSpec, column: str) -> tuple[str, list[Any]]:
+        if spec.storage == "trade_calendar":
+            if column == "code":
+                return "SELECT DISTINCT exchange FROM betalens.trade_calendar_day ORDER BY exchange", []
+            return "SELECT '交易日'::text", []
         if column == "code":
             entity_type = "index" if spec.storage == "index_universe" else spec.entity_type
             return "SELECT code FROM betalens.entity_dim WHERE entity_type=%s ORDER BY code", [entity_type]

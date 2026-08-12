@@ -90,6 +90,11 @@ DATASETS: Mapping[str, DatasetSpec] = MappingProxyType(
             ("entity_dim", "trade_status_event"),
             "stock",
         ),
+        "trade_calendar": DatasetSpec(
+            "trade_calendar",
+            "trade_calendar",
+            ("trade_calendar_day",),
+        ),
     }
 )
 

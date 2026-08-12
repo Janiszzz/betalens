@@ -33,24 +33,31 @@ def _alpha_id(params: Mapping[str, Any]) -> int:
     return get_definition(int(value)).number
 
 
+def _formula_kwargs(params: Mapping[str, Any]) -> dict[str, Any]:
+    definition = get_definition(_alpha_id(params))
+    missing = [name for name in definition.parameters if name not in params]
+    if missing:
+        raise KeyError(f"mining params missing formula keys: {', '.join(missing)}")
+    return {name: params[name] for name in definition.parameters}
+
+
 def compute_alpha_mining(**kwargs):
     alpha_id = kwargs.pop("alpha_id")
-    formula_params = kwargs.pop("formula_params", None)
-    return compute_alpha(alpha_id, formula_params=formula_params, **kwargs)
+    return compute_alpha(alpha_id, **kwargs)
 
 
 def make_mining_spec(params: Mapping[str, Any]) -> FactorSpec:
     """Declare the class-wide cache contract and one candidate's formula settings."""
     alpha_id = _alpha_id(params)
-    formula_params = dict(_require(params, "formula_params"))
+    formula_kwargs = _formula_kwargs(params)
     return FactorSpec(
         name=get_definition(alpha_id).name,
         inputs=dict(_ALL_MARKET_INPUTS),
         industry_inputs=dict(_ALL_INDUSTRY_INPUTS),
         compute=compute_alpha_mining,
-        compute_kwargs={"alpha_id": alpha_id, "formula_params": formula_params},
+        compute_kwargs={"alpha_id": alpha_id, **formula_kwargs},
         strategy_type="cross_section",
-        required_history_bars=required_history_bars_for_alpha(alpha_id, formula_params),
+        required_history_bars=required_history_bars_for_alpha(alpha_id, formula_kwargs),
         mask_inputs_by_pit=True,
         direction="positive",
         table_name="daily_market",
@@ -66,27 +73,27 @@ def make_mining_spec(params: Mapping[str, Any]) -> FactorSpec:
 def mining_gid(params: Mapping[str, Any]) -> str:
     alpha_id = _alpha_id(params)
     n_quantiles = int(_require(params, "n_quantiles"))
-    return f"{formula_param_gid(alpha_id, _require(params, 'formula_params'))}_q{n_quantiles}"
+    return f"{formula_param_gid(alpha_id, _formula_kwargs(params))}_q{n_quantiles}"
 
 
 def mining_warmup_days(params: Mapping[str, Any]) -> int:
     alpha_id = _alpha_id(params)
-    bars = required_history_bars_for_alpha(alpha_id, _require(params, "formula_params"))
+    bars = required_history_bars_for_alpha(alpha_id, _formula_kwargs(params))
     return max(30, int(bars) * 2 + 30)
 
 
 def _validation_spec(params: Mapping[str, Any], rank: int) -> FactorSpec:
     alpha_id = _alpha_id(params)
     definition = get_definition(alpha_id)
-    formula_params = dict(_require(params, "formula_params"))
+    formula_kwargs = _formula_kwargs(params)
     return FactorSpec(
         name=f"{definition.name}_valid{rank}",
         inputs=dict(definition.inputs),
         industry_inputs=dict(definition.industry_inputs),
         compute=compute_alpha_mining,
-        compute_kwargs={"alpha_id": alpha_id, "formula_params": formula_params},
+        compute_kwargs={"alpha_id": alpha_id, **formula_kwargs},
         strategy_type="cross_section",
-        required_history_bars=required_history_bars_for_alpha(alpha_id, formula_params),
+        required_history_bars=required_history_bars_for_alpha(alpha_id, formula_kwargs),
         mask_inputs_by_pit=True,
         direction="positive",
         table_name="daily_market",
@@ -106,7 +113,7 @@ def mining_valid_report(params, rank, output_dir, start_date, end_date):
     target_dir.mkdir(parents=True, exist_ok=True)
     factor_config = _CLASS_DIR / get_definition(alpha_id).name / f"factor_{get_definition(alpha_id).name}.yaml"
     config = yaml.safe_load(factor_config.read_text(encoding="utf-8"))
-    config["factor_spec"]["compute_kwargs"]["formula_params"] = dict(_require(params, "formula_params"))
+    config["factor_spec"]["compute_kwargs"] = _formula_kwargs(params)
     config["run"].update({
         "start_date": str(start_date),
         "end_date": str(end_date),

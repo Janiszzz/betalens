@@ -13,11 +13,10 @@ factor_spec:
     volume_wide: 成交量(股)
   industry_inputs: {}
   compute_kwargs:
-    formula_params:
-      window_1: 6
-      window_2: 12
-      window_3: 12
-      window_4: 12
+    low_minimum_window: 12
+    high_maximum_window: 12
+    low_minimum_window_2: 12
+    rank_stochastic_rank_volume_correlation_window: 6
     stock_code: 300750.SZ
     signal_weight:
       method: rolling_z
@@ -52,3 +51,20 @@ run:
   dump_excel: true
   warmup_days: null
   output_dir: outputs/runs/manual
+mining:
+  sampler: grid
+  search_space:
+    low_minimum_window:
+    - 6
+    - 12
+    - 24
+    high_maximum_window:
+    - 6
+    - 12
+    - 24
+    low_minimum_window_2:
+    - 6
+    - 12
+    - 24
+    rank_stochastic_rank_volume_correlation_window:
+    - 6

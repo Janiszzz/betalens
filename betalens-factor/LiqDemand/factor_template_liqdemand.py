@@ -61,6 +61,7 @@ from factor_template import (  # noqa: E402  re-export 通用主干
     fetch_daily_wide, wide_to_prequery, build_pit_universe,
     filter_long_by_pit_universe, infer_warmup_days,
     validate_weights_in_pit_universe, _labeled_to_factor_values,
+    _expand_weights_to_factor_universe,
     append_grouped_profiling_excel,
 )
 from betalens.datafeed import get_absolute_trade_days  # noqa: E402
@@ -92,7 +93,7 @@ def get_pretom_dates(start_date: str, end_date: str,
         `or None`  = 当 hi==1 时 -(0)==0 会取空，需退化为 None 取到末尾
     返回 set[date]，供权重表掩码使用（窗口内保留、窗口外清零）。
     """
-    all_days = get_absolute_trade_days(start_date, end_date, "D", use_pmc=False)
+    all_days = get_absolute_trade_days(start_date, end_date, "D")
     by_month: dict[tuple[int, int], list[date]] = defaultdict(list)
     for d in sorted(all_days):
         by_month[(d.year, d.month)].append(d)
@@ -136,8 +137,8 @@ class LiqDemandPipeline(FactorPipeline):
         fetch_start = (pd.Timestamp(start_date) - pd.Timedelta(days=effective_warmup)).strftime("%Y-%m-%d")
 
         # 调仓日 / 信号日：始终落在 [start_date, end_date]（不含预热期）
-        rebalance_dates = get_absolute_trade_days(start_date, end_date, rebal_freq, use_pmc=False)
-        all_trade_days = get_absolute_trade_days(fetch_start, end_date, "D", use_pmc=False)
+        rebalance_dates = get_absolute_trade_days(start_date, end_date, rebal_freq)
+        all_trade_days = get_absolute_trade_days(fetch_start, end_date, "D")
         if verbose:
             print(f"取数起始(含预热): {fetch_start}  warmup_days={effective_warmup}  调仓日数量: {len(rebalance_dates)}")
 
@@ -226,6 +227,7 @@ class LiqDemandPipeline(FactorPipeline):
             'group_weights': sp.group_weights,
             'intra_group_allocation': sp.intra_group_allocation,
         })
+        weights = _expand_weights_to_factor_universe(weights, factor_values)
         pit_validation = validate_weights_in_pit_universe(weights, pit_universe)
         if verbose and pit_universe is not None and not pit_validation.empty:
             bad = int((~pit_validation['passed']).sum())

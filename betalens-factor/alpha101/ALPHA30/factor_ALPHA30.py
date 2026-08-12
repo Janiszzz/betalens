@@ -14,7 +14,7 @@ for _path in (_REPO_ROOT, _FACTOR_ROOT, _CLASS_DIR, _FACTOR_DIR):
         sys.path.insert(0, str(_path))
 
 from betalens.factor.config import factor_spec_options, load_yaml_config, run_parameters, section  # noqa: E402
-from alpha101_formulas import compute_alpha, required_history_bars_for_alpha  # noqa: E402
+from alpha101_formulas import compute_alpha, get_definition, required_history_bars_for_alpha  # noqa: E402
 from factor_template_alpha101 import FactorSpec, FactorPipeline  # noqa: E402
 
 
@@ -26,16 +26,43 @@ def load_config(path: str | Path = _CONFIG_FILE) -> dict:
     return load_yaml_config(path, required_sections=_REQUIRED_SECTIONS)
 
 
-def compute_alpha30(close_wide, volume_wide, **kwargs):
-    return compute_alpha(30, close_wide=close_wide, volume_wide=volume_wide, **kwargs)
+def compute_alpha30(
+    close_wide,
+    volume_wide,
+    *,
+    close_delay_lag=1,
+    close_delay_lag_2=1,
+    close_delay_lag_3=2,
+    close_delay_lag_4=2,
+    close_delay_lag_5=3,
+    rank_direction_complement_base=1,
+    volume_sum_window=5,
+    volume_sum_window_2=20,
+):
+    return compute_alpha(
+        30,
+        close_wide=close_wide,
+        volume_wide=volume_wide,
+        close_delay_lag=close_delay_lag,
+        close_delay_lag_2=close_delay_lag_2,
+        close_delay_lag_3=close_delay_lag_3,
+        close_delay_lag_4=close_delay_lag_4,
+        close_delay_lag_5=close_delay_lag_5,
+        rank_direction_complement_base=rank_direction_complement_base,
+        volume_sum_window=volume_sum_window,
+        volume_sum_window_2=volume_sum_window_2,
+    )
 
 
 def build_spec(config: dict, config_path: str | Path = _CONFIG_FILE) -> FactorSpec:
     options = factor_spec_options(config, config_path)
-    options["required_history_bars"] = required_history_bars_for_alpha(
-        30,
-        options.get("compute_kwargs", {}).get("formula_params"),
-    )
+    parameter_names = set(get_definition(30).parameters)
+    formula_kwargs = {
+        name: value
+        for name, value in options.get("compute_kwargs", {}).items()
+        if name in parameter_names
+    }
+    options["required_history_bars"] = required_history_bars_for_alpha(30, formula_kwargs)
     return FactorSpec(
         name=str(section(config, "meta")["name"]),
         compute=compute_alpha30,

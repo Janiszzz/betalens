@@ -188,13 +188,29 @@ class ImportJobRunner:
                     raise ImportCancelled("导入任务已取消；当前文件已回滚")
 
             writer = DatabaseWriter(self.client)
+
+            def log_write_progress(event: dict[str, Any]) -> None:
+                if event.get("phase") == "stage":
+                    logger.info(
+                        "staged batch %s: %s rows; total=%s",
+                        event.get("batch"),
+                        event.get("rows"),
+                        event.get("total_rows"),
+                    )
+                    return
+                logger.info(
+                    "write completed: rows=%s; inserted=%s; updated=%s; skipped=%s",
+                    event.get("rows"),
+                    event.get("inserted"),
+                    event.get("updated"),
+                    event.get("skipped"),
+                )
+
             result = writer.write_batches(
                 table,
                 valid_frames(),
                 mode=mode,
-                progress=lambda event: logger.info(
-                    "wrote batch %(batch)s: %(rows)s rows; total=%(total_rows)s", event
-                ),
+                progress=log_write_progress,
             )
             summary = self._finalize_stats(state)
             record.update(summary)
@@ -243,6 +259,7 @@ class ImportJobRunner:
             "industry": "industry",
             "index_universe": "index_universe",
             "trade_status": "trade_status",
+            "trade_calendar": "trade_calendar",
         }.get(import_type, "daily_market")
 
     @staticmethod

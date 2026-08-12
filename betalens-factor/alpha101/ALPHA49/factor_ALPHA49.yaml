@@ -10,8 +10,14 @@ factor_spec:
     close_wide: 收盘价(元)
   industry_inputs: {}
   compute_kwargs:
-    formula_params:
-      coefficient_1: 0.1
+    trend_long_delay_lag: 20
+    trend_first_short_delay_lag: 10
+    trend_first_slope_divisor: 10
+    trend_second_short_delay_lag: 10
+    trend_second_slope_divisor: 10
+    alpha_trend_threshold: -0.1
+    alpha_trend_true_value: 1.0
+    close_delay_lag: 1
   direction: positive
   table_name: daily_market
   index_code: 000906.SH
@@ -38,3 +44,28 @@ run:
   dump_excel: true
   warmup_days: null
   output_dir: outputs/runs/manual
+mining:
+  sampler: grid
+  search_space:
+    trend_long_delay_lag:
+    - 10
+    - 20
+    - 40
+    trend_first_short_delay_lag:
+    - 5
+    - 10
+    - 20
+    trend_first_slope_divisor:
+    - 10
+    trend_second_short_delay_lag:
+    - 5
+    - 10
+    - 20
+    trend_second_slope_divisor:
+    - 10
+    alpha_trend_threshold:
+    - -0.1
+    alpha_trend_true_value:
+    - 1.0
+    close_delay_lag:
+    - 1

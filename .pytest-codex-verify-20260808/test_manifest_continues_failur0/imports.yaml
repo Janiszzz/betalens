@@ -1,0 +1,10 @@
+version: 1
+imports:
+  - id: bad
+    path: bad.csv
+    target: daily_market
+    adapter: standard_long
+  - id: good
+    path: good.csv
+    target: daily_market
+    adapter: standard_long

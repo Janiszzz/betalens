@@ -11,10 +11,9 @@ factor_spec:
     cap_wide: 总市值(元)
   industry_inputs: {}
   compute_kwargs:
-    formula_params:
-      window_1: 10
-      window_2: 3
-      window_3: 2
+    returns_sum_window: 10
+    returns_sum_window_2: 2
+    ts_sum_returns_sum_window: 3
     stock_code: 300750.SZ
     signal_weight:
       method: rolling_z
@@ -49,3 +48,18 @@ run:
   dump_excel: true
   warmup_days: null
   output_dir: outputs/runs/manual
+mining:
+  sampler: grid
+  search_space:
+    returns_sum_window:
+    - 5
+    - 10
+    - 20
+    returns_sum_window_2:
+    - 1
+    - 2
+    - 4
+    ts_sum_returns_sum_window:
+    - 2
+    - 3
+    - 6

@@ -12,12 +12,11 @@ factor_spec:
   industry_inputs:
     sector_wide: 申万一级行业
   compute_kwargs:
-    formula_params:
-      window_1: 17.4842
-      window_2: 13.4283
-      window_3: 14.8717
-      window_4: 6.92131
-      lag_1: 1.46063
+    open_delta_lag: 1.46063
+    delta_open_decay_window: 14.8717
+    indneutralize_volume_sector_open_correlation_window: 17.4842
+    corr_decay_window: 6.92131
+    decay_linear_corr_rank_window: 13.4283
     stock_code: 300750.SZ
     signal_weight:
       method: rolling_z
@@ -52,3 +51,22 @@ run:
   dump_excel: true
   warmup_days: null
   output_dir: outputs/runs/manual
+mining:
+  sampler: grid
+  search_space:
+    open_delta_lag:
+    - 1.0
+    - 1.46063
+    - 2.92126
+    delta_open_decay_window:
+    - 7.43585
+    - 14.8717
+    - 29.7434
+    indneutralize_volume_sector_open_correlation_window:
+    - 8.7421
+    - 17.4842
+    - 34.9684
+    corr_decay_window:
+    - 6.92131
+    decay_linear_corr_rank_window:
+    - 13.4283

@@ -11,11 +11,10 @@ factor_spec:
     vwap_wide: 均价(元)
   industry_inputs: {}
   compute_kwargs:
-    formula_params:
-      coefficient_1: 20
-      window_1: 7
-      window_2: 230
-      lag_1: 5
+    close_mean_window: 7
+    scale_correlation_vwap_coefficient: 20
+    close_delay_lag: 5
+    vwap_delay_close_correlation_window: 230
     stock_code: 300750.SZ
     signal_weight:
       method: rolling_z
@@ -50,3 +49,20 @@ run:
   dump_excel: true
   warmup_days: null
   output_dir: outputs/runs/manual
+mining:
+  sampler: grid
+  search_space:
+    close_mean_window:
+    - 4
+    - 7
+    - 14
+    scale_correlation_vwap_coefficient:
+    - 20
+    close_delay_lag:
+    - 3
+    - 5
+    - 10
+    vwap_delay_close_correlation_window:
+    - 115
+    - 230
+    - 460

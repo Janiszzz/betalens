@@ -88,7 +88,64 @@
 ``RollingMiningConfig.rolling_mode`` 默认为 ``split``，保持上述兼容口径。
 设置为 ``paired`` 时，使用 ``paired_schemes`` 的
 ``(train_length, test_length, step)`` 组合：每个 TRAIN 窗口后紧接一个不重叠
-TEST 窗口，两个窗口按 ``step`` 个交易日同步前移，适合动态 walk-forward。
+TEST 窗口，两个窗口在 ``rolling_span`` 内按 ``step`` 个交易日同步前移，
+``valid`` 继续作为独立留出区间。旧 ``train`` / ``test`` 字段只在
+``rolling_mode: split`` 时使用。
+
+Optuna 因果 Walk-Forward
+------------------------
+
+设置 ``RollingMiningConfig.sampler="grid"`` 或 ``"motpe"`` 会启用 Optuna
+多目标协调器。该模式要求 ``rolling_mode="paired"``：每个 TRAIN 窗拥有独立
+study，只为紧随其后的 TEST 锁定参数；TEST 结果不写回 sampler。最终 VALID
+候选取自结束日期最近的完整 TRAIN 窗，锁定后仅用 ``exact`` 引擎报告。
+
+``grid`` 使用 ``GridSampler`` 穷举 YAML 明列的值。组合数超过
+``max_grid_candidates`` 时在运行任务前失败，不截断。``motpe`` 使用多目标
+``TPESampler``，预算由 ``n_trials`` 控制，``paper_params`` 会作为首个 trial
+入队。两种 sampler 都由主进程串行调用 ``study.ask()`` / ``study.tell()``；
+worker 只收到普通字典，不连接 Optuna storage。并行只由一个
+``ProcessPoolExecutor`` 管理。
+
+两个最大化目标为稳健 Rank IC 和 TRAIN Sharpe。Rank IC 使用前一交易日信号，
+对应本次至下次调仓成交价收益；先计算月度 IC 均值，再计算
+``median - 0.25 * 1.4826 * MAD``。默认可行约束为 IC 覆盖率不低于 80%、
+最大回撤不高于 35%、平均单边调仓换手不高于 100%。锁参时先取可行 Pareto
+前沿中稳健 IC 前 20%，再按 Sharpe、较小回撤、较低换手、较早 trial 排序。
+无可行解时先最小化标准化约束违约，再执行同一排序。
+
+SQLite 与恢复
+-------------
+
+默认每个因子在自身 ``output_dir`` 创建 ``study.sqlite3`` 和原子
+``.study.lock``。只有协调主进程写库；连接使用 ``busy_timeout=30s``、
+``journal_mode=DELETE``、``synchronous=FULL``，活动连接池收紧为
+``pool_size=1``、``max_overflow=0``。数据库锁按 1、2、4 秒退避重试。
+每批 trial 及每个 TRAIN/TEST 对结束后，通过 SQLite online backup 生成
+``study.snapshot.sqlite3``。重启时遗留 RUNNING trial 标记为
+``FAIL/stale_after_restart``，相同参数重新入队。
+
+``storage_url`` 可显式改为本地 scratch SQLite URL 或 PostgreSQL URL；框架
+不会因 OneDrive 锁错误自动改变 storage。``Ctrl+C`` 会停止提交、取消未开始
+任务、刷新审计和快照、释放协调锁，并以退出码 130 结束。
+
+审计输出
+--------
+
+Optuna 模式同时写终端和 UTF-8 ``run.log``。``audit/`` 包含：
+
+* ``events.jsonl``、``errors.jsonl``：逐事件结构化日志和异常路径。
+* ``candidate_manifest.csv``：Grid 完整候选，或 MOTPE 已 ask 候选。
+* ``trials.partial.csv``、``pareto_front.partial.csv``：每批原子刷新。
+* ``oos_parameter_path.partial.csv``：各 TEST 锁参、样本外指标和参数变化。
+* ``status.json``：PID、配置哈希、当前窗口、进度、快照和退出原因。
+* ``task_logs/<trial>/``：worker 独立 stdout、stderr 和 traceback。
+
+正常完成后输出 ``trials.csv``、``pareto_front.csv``、sklearn 风格
+``cv_results.csv``、``oos_parameter_path.csv`` 和 ``final_candidates.yaml``；
+partial 文件保留用于中断对账。
+不创建 ``GridSearchCV`` estimator 适配层；``cv_results.csv`` 仅采用 sklearn
+常用列名，避免把 PIT 缓存和回测对象伪装成 estimator。
 
 缓存
 ----
@@ -130,7 +187,10 @@ TEST 窗口，两个窗口按 ``step`` 个交易日同步前移，适合动态 w
 结果指标
 --------
 
-``metrics_from_nav`` 默认输出 ``ann_ret``、``sharpe``、``mdd`` 等指标。``objective`` 指定排序字段，``objective_higher_is_better`` 控制升降序。
+``metrics_from_nav`` 默认输出 ``ann_ret``、``sharpe``、``mdd`` 等指标。
+worker 还输出 ``robust_rank_ic``、``mean_rank_ic``、``ic_coverage`` 和
+``turnover``。旧扫描路径由 ``objective`` 指定排序字段；Optuna 路径固定使用
+稳健 Rank IC 与 Sharpe 两个目标。
 
 实践建议
 --------

@@ -7,7 +7,7 @@
 
 ## 特性
 
-- **Datafeed**：PostgreSQL 数据访问、Excel/EDE/Wind 数据入库、交易日、行业、指数成分、交易状态。
+- **Datafeed**：PostgreSQL 数据访问、本地交易日历、行业、指数成分、交易状态。
 - **Factor**：可交易池、单/双/多因子分组、因子预处理、IC/回归/择时统计、参数挖掘。
 - **Backtest**：目标权重到日频净值，整数手成交，停牌状态处理，调仓审计日志。
 - **Analyst**：从回测实例生成指标表、Excel 报告和 plotly 交互 HTML。

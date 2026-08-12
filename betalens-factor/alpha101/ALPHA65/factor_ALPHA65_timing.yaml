@@ -12,13 +12,13 @@ factor_spec:
     amount_wide: 成交金额(元)
   industry_inputs: {}
   compute_kwargs:
-    formula_params:
-      coefficient_1: 0.00817205
-      window_1: 6.40374
-      coefficient_2: 0.00817205
-      window_2: 8.6911
-      window_3: 60
-      window_4: 13.635
+    open_mix_weight: 0.00817205
+    mixed_complement_base: 1
+    mixed_complement_weight: 0.00817205
+    amount_average_window: 60
+    adv_sum_window: 8.6911
+    mixed_ts_sum_adv_correlation_window: 6.40374
+    open_minimum_window: 13.635
     stock_code: 300750.SZ
     signal_weight:
       method: rolling_z
@@ -53,3 +53,26 @@ run:
   dump_excel: true
   warmup_days: null
   output_dir: outputs/runs/manual
+mining:
+  sampler: grid
+  search_space:
+    open_mix_weight:
+    - 0.004086025
+    - 0.00817205
+    - 0.012258075
+    mixed_complement_base:
+    - 1
+    mixed_complement_weight:
+    - 0.004086025
+    - 0.00817205
+    - 0.012258075
+    amount_average_window:
+    - 30
+    - 60
+    - 120
+    adv_sum_window:
+    - 8.6911
+    mixed_ts_sum_adv_correlation_window:
+    - 6.40374
+    open_minimum_window:
+    - 13.635

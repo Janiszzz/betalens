@@ -14,14 +14,13 @@ factor_spec:
   industry_inputs:
     industry_wide: 申万二级行业
   compute_kwargs:
-    formula_params:
-      window_1: 9.74928
-      window_2: 4.8667
-      window_3: 3.83219
-      window_4: 2.6809
-      window_5: 16.398
-      window_6: 4.01303
-      window_7: 30
+    indneutralize_close_industry_volume_correlation_window: 9.74928
+    corr1_decay_window: 16.398
+    decay_linear_corr1_decay_window: 3.83219
+    decay_linear_corr1_rank_window: 4.8667
+    amount_average_window: 30
+    vwap_adv_correlation_window: 4.01303
+    correlation_vwap_adv_decay_window: 2.6809
     stock_code: 300750.SZ
     signal_weight:
       method: rolling_z
@@ -56,3 +55,26 @@ run:
   dump_excel: true
   warmup_days: null
   output_dir: outputs/runs/manual
+mining:
+  sampler: grid
+  search_space:
+    indneutralize_close_industry_volume_correlation_window:
+    - 4.87464
+    - 9.74928
+    - 19.49856
+    corr1_decay_window:
+    - 8.199
+    - 16.398
+    - 32.796
+    decay_linear_corr1_decay_window:
+    - 1.916095
+    - 3.83219
+    - 7.66438
+    decay_linear_corr1_rank_window:
+    - 4.8667
+    amount_average_window:
+    - 30
+    vwap_adv_correlation_window:
+    - 4.01303
+    correlation_vwap_adv_decay_window:
+    - 2.6809

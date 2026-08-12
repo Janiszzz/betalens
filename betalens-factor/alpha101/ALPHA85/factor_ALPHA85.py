@@ -14,7 +14,7 @@ for _path in (_REPO_ROOT, _FACTOR_ROOT, _CLASS_DIR, _FACTOR_DIR):
         sys.path.insert(0, str(_path))
 
 from betalens.factor.config import factor_spec_options, load_yaml_config, run_parameters, section  # noqa: E402
-from alpha101_formulas import compute_alpha, required_history_bars_for_alpha  # noqa: E402
+from alpha101_formulas import compute_alpha, get_definition, required_history_bars_for_alpha  # noqa: E402
 from factor_template_alpha101 import FactorSpec, FactorPipeline  # noqa: E402
 
 
@@ -26,16 +26,51 @@ def load_config(path: str | Path = _CONFIG_FILE) -> dict:
     return load_yaml_config(path, required_sections=_REQUIRED_SECTIONS)
 
 
-def compute_alpha85(close_wide, high_wide, low_wide, volume_wide, amount_wide, **kwargs):
-    return compute_alpha(85, close_wide=close_wide, high_wide=high_wide, low_wide=low_wide, volume_wide=volume_wide, amount_wide=amount_wide, **kwargs)
+def compute_alpha85(
+    close_wide,
+    high_wide,
+    low_wide,
+    volume_wide,
+    amount_wide,
+    *,
+    high_mix_weight=0.876703,
+    mixed_complement_base=1,
+    mixed_complement_weight=0.876703,
+    amount_average_window=30,
+    mixed_adv_correlation_window=9.61331,
+    high_low_divisor=2,
+    high_low_rank_window=3.70596,
+    volume_rank_window=10.1595,
+    ts_rank_high_low_ts_rank_volume_correlation_window=7.11408,
+):
+    return compute_alpha(
+        85,
+        close_wide=close_wide,
+        high_wide=high_wide,
+        low_wide=low_wide,
+        volume_wide=volume_wide,
+        amount_wide=amount_wide,
+        high_mix_weight=high_mix_weight,
+        mixed_complement_base=mixed_complement_base,
+        mixed_complement_weight=mixed_complement_weight,
+        amount_average_window=amount_average_window,
+        mixed_adv_correlation_window=mixed_adv_correlation_window,
+        high_low_divisor=high_low_divisor,
+        high_low_rank_window=high_low_rank_window,
+        volume_rank_window=volume_rank_window,
+        ts_rank_high_low_ts_rank_volume_correlation_window=ts_rank_high_low_ts_rank_volume_correlation_window,
+    )
 
 
 def build_spec(config: dict, config_path: str | Path = _CONFIG_FILE) -> FactorSpec:
     options = factor_spec_options(config, config_path)
-    options["required_history_bars"] = required_history_bars_for_alpha(
-        85,
-        options.get("compute_kwargs", {}).get("formula_params"),
-    )
+    parameter_names = set(get_definition(85).parameters)
+    formula_kwargs = {
+        name: value
+        for name, value in options.get("compute_kwargs", {}).items()
+        if name in parameter_names
+    }
+    options["required_history_bars"] = required_history_bars_for_alpha(85, formula_kwargs)
     return FactorSpec(
         name=str(section(config, "meta")["name"]),
         compute=compute_alpha85,

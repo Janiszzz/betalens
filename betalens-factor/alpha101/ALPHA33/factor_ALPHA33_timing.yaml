@@ -11,7 +11,8 @@ factor_spec:
     close_wide: 收盘价(元)
   industry_inputs: {}
   compute_kwargs:
-    formula_params: {}
+    open_close_coefficient: -1
+    open_close_complement_base: 1
     stock_code: 300750.SZ
     signal_weight:
       method: rolling_z
@@ -46,3 +47,10 @@ run:
   dump_excel: true
   warmup_days: null
   output_dir: outputs/runs/manual
+mining:
+  sampler: grid
+  search_space:
+    open_close_coefficient:
+    - -1
+    open_close_complement_base:
+    - 1

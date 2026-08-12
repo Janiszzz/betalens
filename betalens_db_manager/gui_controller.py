@@ -206,11 +206,13 @@ class GuiController:
 
     def table_metadata(self, table: str) -> dict[str, Any]:
         spec = get_dataset(table)
-        contract = {
-            "logical_table": table,
-            "storage": spec.storage,
-            "physical_tables": list(spec.physical_tables),
-            "columns": [
+        if spec.storage == "trade_calendar":
+            columns = [
+                {"column_name": "exchange", "data_type": "varchar"},
+                {"column_name": "trade_date", "data_type": "date"},
+            ]
+        else:
+            columns = [
                 {"column_name": name, "data_type": data_type}
                 for name, data_type in (
                     ("datetime", "timestamp"),
@@ -220,7 +222,12 @@ class GuiController:
                     ("value", "double precision"),
                     ("remark", "jsonb object"),
                 )
-            ],
+            ]
+        contract = {
+            "logical_table": table,
+            "storage": spec.storage,
+            "physical_tables": list(spec.physical_tables),
+            "columns": columns,
         }
         if not self.is_online():
             return contract

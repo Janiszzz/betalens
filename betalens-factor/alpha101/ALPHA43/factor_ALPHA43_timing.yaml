@@ -12,11 +12,10 @@ factor_spec:
     amount_wide: 成交金额(元)
   industry_inputs: {}
   compute_kwargs:
-    formula_params:
-      window_1: 20
-      window_2: 8
-      window_3: 20
-      lag_1: 7
+    amount_average_window: 20
+    volume_adv_rank_window: 20
+    close_delta_lag: 7
+    delta_close_rank_window: 8
     stock_code: 300750.SZ
     signal_weight:
       method: rolling_z
@@ -51,3 +50,20 @@ run:
   dump_excel: true
   warmup_days: null
   output_dir: outputs/runs/manual
+mining:
+  sampler: grid
+  search_space:
+    amount_average_window:
+    - 10
+    - 20
+    - 40
+    volume_adv_rank_window:
+    - 10
+    - 20
+    - 40
+    close_delta_lag:
+    - 4
+    - 7
+    - 14
+    delta_close_rank_window:
+    - 8

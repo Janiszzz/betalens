@@ -8,7 +8,6 @@ matplotlib>=3.4.0
 plotly>=5.0.0
 statsmodels>=0.14.0
 akshare>=1.17.0
-pandas-market-calendars>=4.4.0
 sympy>=1.10.0
 
 # Dashboard (optional)
@@ -25,6 +24,9 @@ xlrd>=2.0.0
 # CLI output
 prettytable>=3.0.0
 PyYAML>=6.0
+
+# Parameter mining
+optuna>=4.9,<5
 
 # Documentation (optional)
 sphinx>=5.0.0

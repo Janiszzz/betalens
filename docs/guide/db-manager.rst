@@ -68,18 +68,20 @@ schema、单文件和 Manifest 任务统一保存到
 物理结构
 --------
 
-``betalens`` schema 包含 14 张基础物理表：
+``betalens`` schema 包含 15 张基础物理表：
 
 * 维度：``entity_dim``、``entity_name_history``、``metric_dim``、``metric_alias``、
   ``industry_scheme_dim``、``industry_dim``。
 * 事实/PIT：``market_daily_fact``、``observation_fact``、``industry_membership``、
   ``index_snapshot``、``index_constituent``、``trade_status_event``。
 * 管理：``schema_migration``、``dataset_coverage``。
+* 日历：``trade_calendar_day``，以 ``(exchange, trade_date)`` 保存每个交易所的交易日序列。
 
 ``market_daily_fact`` 以 ``(entity_id, trade_date)`` 为主键且不分区；
-``observation_fact`` 按 ``available_at`` 年度分区。``public`` 下提供十个只读兼容视图：
+``observation_fact`` 按 ``available_at`` 年度分区。``public`` 下提供十一个只读兼容视图：
 ``daily_market``、``daily_index``、``daily_fund``、``daily_bond``、``fundamentals``、
-``macro``、``factors``、``industry``、``index_universe`` 和 ``trade_status``。
+``macro``、``factors``、``industry``、``index_universe``、``trade_status`` 和
+``trade_calendar``。
 
 Manifest 批量导入
 -----------------
@@ -134,11 +136,16 @@ Manifest 当前版本是 ``version: 1``。路径相对清单目录解析；文�
 
 GUI 默认使用 ``auto``：六列文件走 ``standard_long``，日期/代码/名称宽表走
 ``wind_wide``，其余普通行情或观测宽表按 ``ede`` 规则预处理。正式 adapter 还包括
-``standard_long``、``wind_wide``、``ede``、``industry``、``index_universe`` 和
-``trade_status``；``wind_long`` 是 ``wind_wide`` 的兼容别名。CSV/XLSX/Parquet 可通过
+``standard_long``、``wind_wide``、``ede``、``industry``、``index_universe``、
+``trade_status`` 和 ``trade_calendar``；``wind_long`` 是 ``wind_wide`` 的兼容别名。CSV/XLSX/Parquet 可通过
 ``options.column_map`` 显式映射输入列。EDE 和行情 adapter 会按
 逻辑目标及核心指标可用时间对齐：核心 OHLCV 写入 ``market_daily_fact``，扩展指标写入
 ``observation_fact``。
+
+``trade_calendar`` 接受宽表：首行每个非空列标题为交易所代码，列值为交易日。例如
+``SHSE``、``NIB`` 两列的 Excel 可直接通过 GUI 选择 ``trade_calendar``，或在 Manifest 中
+使用 ``target: trade_calendar`` 和 ``adapter: trade_calendar`` 导入。重复
+``(exchange, trade_date)`` 会幂等跳过。
 
 查询、写入和删除
 ----------------

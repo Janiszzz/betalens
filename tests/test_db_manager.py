@@ -13,6 +13,7 @@ from betalens_db_manager.adapters import (
 from betalens_db_manager.adapters.files import _detect_csv_encoding
 from betalens_db_manager.importers import load_ede, normalize_import_frame
 from betalens_db_manager.import_adapters import collect_import_batches, infer_adapter, load_import_batches
+from betalens_db_manager.constants import IMPORT_TYPES
 from betalens_db_manager.jobs import ImportJobRunner
 from betalens_db_manager.records import ImportRecordStore
 from betalens_db_manager.utils import clean_database_config
@@ -99,6 +100,32 @@ def test_auto_adapter_reuses_first_chunk_for_standard_long(tmp_path, monkeypatch
     assert reads() == 1
     assert rejected.empty
     assert len(frame) == 1
+
+
+def test_trade_calendar_adapter_reads_exchange_columns_and_rejects_bad_dates(tmp_path):
+    path = tmp_path / "交易日.xlsx"
+    pd.DataFrame(
+        {
+            "shse": [pd.Timestamp("2024-01-02"), pd.Timestamp("2024-01-03"), "bad"],
+            "NIB": [pd.Timestamp("2024-01-06"), pd.NaT, pd.NaT],
+            "": [pd.NaT, pd.NaT, pd.NaT],
+        }
+    ).to_excel(path, index=False)
+
+    frame, rejected = collect_import_batches(
+        load_import_batches("trade_calendar", path, table="trade_calendar")
+    )
+
+    assert infer_adapter(path) == "trade_calendar"
+    assert "trade_calendar" in IMPORT_TYPES
+    assert frame[["code", "datetime"]].to_dict("records") == [
+        {"code": "SHSE", "datetime": pd.Timestamp("2024-01-02")},
+        {"code": "SHSE", "datetime": pd.Timestamp("2024-01-03")},
+        {"code": "NIB", "datetime": pd.Timestamp("2024-01-06")},
+    ]
+    assert rejected[["source_row", "field", "reason"]].to_dict("records") == [
+        {"source_row": 4, "field": "trade_date", "reason": "trade_date 无法解析"}
+    ]
 
 
 def test_standard_long_skips_na_value_marker_without_rejecting_file(tmp_path):

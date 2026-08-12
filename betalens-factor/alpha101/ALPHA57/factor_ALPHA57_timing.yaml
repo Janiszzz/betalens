@@ -11,9 +11,8 @@ factor_spec:
     vwap_wide: 均价(元)
   industry_inputs: {}
   compute_kwargs:
-    formula_params:
-      window_1: 2
-      window_2: 30
+    close_argmax_window: 30
+    rank_ts_argmax_close_decay_window: 2
     stock_code: 300750.SZ
     signal_weight:
       method: rolling_z
@@ -48,3 +47,14 @@ run:
   dump_excel: true
   warmup_days: null
   output_dir: outputs/runs/manual
+mining:
+  sampler: grid
+  search_space:
+    close_argmax_window:
+    - 15
+    - 30
+    - 60
+    rank_ts_argmax_close_decay_window:
+    - 1
+    - 2
+    - 4

@@ -349,8 +349,8 @@ class TimingFactorPipeline:
         required_bars = max(1, int(sp.required_history_bars)) + int(signal_bars)
         warmup = int(warmup_days) if warmup_days is not None else required_bars * 2 + 30
         fetch_start = (pd.Timestamp(start_date) - pd.Timedelta(days=warmup)).strftime("%Y-%m-%d")
-        trade_days = sorted(get_absolute_trade_days(fetch_start, end_date, "D", use_pmc=False))
-        rebalance_dates = get_absolute_trade_days(start_date, end_date, rebal_freq, use_pmc=False)
+        trade_days = sorted(get_absolute_trade_days(fetch_start, end_date, "D"))
+        rebalance_dates = get_absolute_trade_days(start_date, end_date, rebal_freq)
         day_position = {day: i for i, day in enumerate(trade_days)}
         signal_dates = [trade_days[day_position[day] - 1] for day in rebalance_dates if day_position.get(day, 0) > 0]
         if not signal_dates:

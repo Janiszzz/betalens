@@ -12,8 +12,7 @@ factor_spec:
     low_wide: 最低价(元)
   industry_inputs: {}
   compute_kwargs:
-    formula_params:
-      epsilon_1: 0.001
+    high_low_epsilon: 0.001
   direction: positive
   table_name: daily_market
   index_code: 000906.SH
@@ -40,3 +39,8 @@ run:
   dump_excel: true
   warmup_days: null
   output_dir: outputs/runs/manual
+mining:
+  sampler: grid
+  search_space:
+    high_low_epsilon:
+    - 0.001

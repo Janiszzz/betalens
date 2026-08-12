@@ -10,10 +10,9 @@ factor_spec:
     returns_wide: 涨跌幅(%)
   industry_inputs: {}
   compute_kwargs:
-    formula_params:
-      window_1: 5
-      window_2: 5
-      lag_1: 10
+    open_sum_window: 5
+    returns_sum_window: 5
+    base_delay_lag: 10
   direction: positive
   table_name: daily_market
   index_code: 000906.SH
@@ -40,3 +39,18 @@ run:
   dump_excel: true
   warmup_days: null
   output_dir: outputs/runs/manual
+mining:
+  sampler: grid
+  search_space:
+    open_sum_window:
+    - 3
+    - 5
+    - 10
+    returns_sum_window:
+    - 3
+    - 5
+    - 10
+    base_delay_lag:
+    - 5
+    - 10
+    - 20

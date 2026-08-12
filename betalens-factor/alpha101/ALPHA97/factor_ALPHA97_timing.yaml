@@ -13,18 +13,18 @@ factor_spec:
   industry_inputs:
     industry_wide: 申万二级行业
   compute_kwargs:
-    formula_params:
-      window_1: 4.97547
-      window_2: 6.71659
-      coefficient_1: 0.721001
-      window_3: 20.4523
-      window_4: 7.87871
-      window_5: 17.255
-      window_6: 15.7152
-      coefficient_2: 0.721001
-      lag_1: 3.3705
-      window_7: 60
-      window_8: 18.5925
+    low_mix_weight: 0.721001
+    mixed_complement_base: 1
+    mixed_complement_weight: 0.721001
+    indneutralize_mixed_industry_delta_lag: 3.3705
+    delta_indneutralize_mixed_decay_window: 20.4523
+    low_rank_window: 7.87871
+    amount_average_window: 60
+    adv_rank_window: 17.255
+    ts_rank_low_ts_rank_adv_correlation_window: 4.97547
+    corr_rank_window: 18.5925
+    ts_rank_corr_decay_window: 15.7152
+    decay_linear_ts_rank_corr_rank_window: 6.71659
     stock_code: 300750.SZ
     signal_weight:
       method: rolling_z
@@ -59,3 +59,36 @@ run:
   dump_excel: true
   warmup_days: null
   output_dir: outputs/runs/manual
+mining:
+  sampler: grid
+  search_space:
+    low_mix_weight:
+    - 0.3605005
+    - 0.721001
+    - 1.0
+    mixed_complement_base:
+    - 1
+    mixed_complement_weight:
+    - 0.3605005
+    - 0.721001
+    - 1.0
+    indneutralize_mixed_industry_delta_lag:
+    - 1.68525
+    - 3.3705
+    - 6.741
+    delta_indneutralize_mixed_decay_window:
+    - 20.4523
+    low_rank_window:
+    - 7.87871
+    amount_average_window:
+    - 60
+    adv_rank_window:
+    - 17.255
+    ts_rank_low_ts_rank_adv_correlation_window:
+    - 4.97547
+    corr_rank_window:
+    - 18.5925
+    ts_rank_corr_decay_window:
+    - 15.7152
+    decay_linear_ts_rank_corr_rank_window:
+    - 6.71659

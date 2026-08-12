@@ -1,0 +1,69 @@
+{
+  "run_id": "20260808_152222_71865557",
+  "status": "completed_with_errors",
+  "database": "facade_unit",
+  "connection": {
+    "profile": null,
+    "config": {
+      "host": "localhost",
+      "port": "5432",
+      "dbname": "facade_unit",
+      "user": "tester",
+      "password": ""
+    },
+    "sources": {
+      "host": "runtime_override",
+      "port": "runtime_override",
+      "dbname": "runtime_override",
+      "user": "runtime_override",
+      "password": "runtime_override"
+    }
+  },
+  "report_path": "C:\\Users\\Janis\\OneDrive\\betalens\\.pytest-codex-verify-20260808\\test_facade_combines_schema_ma0\\combined.json",
+  "started_at": "2026-08-08 15:22:22",
+  "schema": {
+    "status": "completed",
+    "schema_version": 9,
+    "warnings": [],
+    "verification": {
+      "ok": true
+    },
+    "report_path": "C:\\Users\\Janis\\OneDrive\\betalens\\.pytest-codex-verify-20260808\\test_facade_combines_schema_ma0\\combined.schema.json"
+  },
+  "manifest": {
+    "status": "completed_with_errors",
+    "items": [
+      {
+        "item_id": "one",
+        "position": 1,
+        "path": "one.csv",
+        "target": "daily_market",
+        "adapter": "standard_long",
+        "mode": "insert_only",
+        "sha256": "abc",
+        "status": "failed",
+        "record": {
+          "status": "failed",
+          "error": "bad file"
+        }
+      }
+    ]
+  },
+  "verification": {
+    "ok": true,
+    "database_exists": true,
+    "errors": [],
+    "warnings": []
+  },
+  "warnings": [],
+  "manifest_plan": {
+    "version": 1,
+    "path": "C:\\Users\\Janis\\OneDrive\\betalens\\.pytest-codex-verify-20260808\\test_facade_combines_schema_ma0\\imports.yaml",
+    "token": "token",
+    "target_database": "facade_unit",
+    "schema_version": 9,
+    "on_error": "continue",
+    "entries": []
+  },
+  "finished_at": "2026-08-08 15:22:22"
+}

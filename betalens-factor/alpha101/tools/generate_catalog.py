@@ -16,22 +16,34 @@ for path in (REPO_ROOT, CLASS_DIR):
 
 from alpha101_formulas import (  # noqa: E402
     ALPHA_DEFINITIONS,
-    default_formula_params,
+    default_compute_kwargs,
     required_history_bars_for_alpha,
 )
+from alpha101_parameters import default_search_space  # noqa: E402
 
 
 SOURCE = "WorldQuant 101 Formulaic Alphas (Kakushadze 2016)"
 
 
-def _signature(definition) -> str:
+def _signature(definition, *, timing: bool) -> str:
     names = [*definition.inputs, *definition.industry_inputs]
-    return ", ".join([*names, "**kwargs"])
+    parameters = [f"{name}={spec.default!r}" for name, spec in definition.parameters.items()]
+    timing_parameters = ["stock_code=None", "signal_weight=None"] if timing else []
+    keyword_only = [*parameters, *timing_parameters]
+    lines = [*(f"    {name}," for name in names)]
+    if keyword_only:
+        lines.append("    *,")
+        lines.extend(f"    {parameter}," for parameter in keyword_only)
+    return "\n" + "\n".join(lines) + "\n"
 
 
 def _forward_args(definition) -> str:
     names = [*definition.inputs, *definition.industry_inputs]
-    return ", ".join([f"{name}={name}" for name in names] + ["**kwargs"])
+    parameters = list(definition.parameters)
+    return "\n".join(
+        f"        {name}={name},"
+        for name in [*names, *parameters]
+    )
 
 
 def render_script(definition, *, timing: bool) -> str:
@@ -39,6 +51,7 @@ def render_script(definition, *, timing: bool) -> str:
     compute_name = f"compute_alpha{definition.number}{'_timing' if timing else ''}"
     pipeline_import = "TimingFactorPipeline as FactorPipeline" if timing else "FactorPipeline"
     strategy = "timing" if timing else "cross_section"
+    timing_ignore = "    del stock_code, signal_weight\n" if timing else ""
     return f'''"""{definition.name} {'single-stock timing strategy' if timing else 'cross-sectional factor'}."""
 from __future__ import annotations
 
@@ -55,7 +68,7 @@ for _path in (_REPO_ROOT, _FACTOR_ROOT, _CLASS_DIR, _FACTOR_DIR):
         sys.path.insert(0, str(_path))
 
 from betalens.factor.config import factor_spec_options, load_yaml_config, run_parameters, section  # noqa: E402
-from alpha101_formulas import compute_alpha, required_history_bars_for_alpha  # noqa: E402
+from alpha101_formulas import compute_alpha, get_definition, required_history_bars_for_alpha  # noqa: E402
 from factor_template_alpha101 import FactorSpec, {pipeline_import}  # noqa: E402
 
 
@@ -67,16 +80,22 @@ def load_config(path: str | Path = _CONFIG_FILE) -> dict:
     return load_yaml_config(path, required_sections=_REQUIRED_SECTIONS)
 
 
-def {compute_name}({_signature(definition)}):
-    return compute_alpha({definition.number}, {_forward_args(definition)})
+def {compute_name}({_signature(definition, timing=timing)}):
+{timing_ignore}    return compute_alpha(
+        {definition.number},
+{_forward_args(definition)}
+    )
 
 
 def build_spec(config: dict, config_path: str | Path = _CONFIG_FILE) -> FactorSpec:
     options = factor_spec_options(config, config_path)
-    options["required_history_bars"] = required_history_bars_for_alpha(
-        {definition.number},
-        options.get("compute_kwargs", {{}}).get("formula_params"),
-    )
+    parameter_names = set(get_definition({definition.number}).parameters)
+    formula_kwargs = {{
+        name: value
+        for name, value in options.get("compute_kwargs", {{}}).items()
+        if name in parameter_names
+    }}
+    options["required_history_bars"] = required_history_bars_for_alpha({definition.number}, formula_kwargs)
     return FactorSpec(
         name=str(section(config, "meta")["name"]),
         compute={compute_name},
@@ -129,7 +148,7 @@ def factor_config(definition, *, timing: bool) -> dict:
         "industry_inputs": dict(definition.industry_inputs),
         "compute_kwargs": (
             {
-                "formula_params": default_formula_params(definition.number),
+                **default_compute_kwargs(definition.number),
                 "stock_code": "300750.SZ",
                 "signal_weight": {
                     "method": "rolling_z",
@@ -141,7 +160,7 @@ def factor_config(definition, *, timing: bool) -> dict:
                 },
             }
             if timing
-            else {"formula_params": default_formula_params(definition.number)}
+            else default_compute_kwargs(definition.number)
         ),
         "direction": "positive",
         "table_name": "daily_market",
@@ -172,7 +191,11 @@ def factor_config(definition, *, timing: bool) -> dict:
         "warmup_days": None,
         "output_dir": "outputs/runs/manual",
     }
-    return {"meta": meta, "factor_spec": factor_spec, "weight": weight, "run": run}
+    mining = {
+        "sampler": "grid",
+        "search_space": default_search_space(definition.number, max_dimensions=3),
+    }
+    return {"meta": meta, "factor_spec": factor_spec, "weight": weight, "run": run, "mining": mining}
 
 
 def render_yaml(definition, *, timing: bool) -> str:

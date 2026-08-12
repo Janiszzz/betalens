@@ -1,0 +1,24 @@
+{
+  "schema_version": 2,
+  "cache_signature": "07301ca2fc03521ee0dc1a0d5fc6e961ef59863554a46ba49c150b716251302d",
+  "cache_payload_memory_bytes": 2156,
+  "pickle_bytes": 2113,
+  "input_shapes": {
+    "close_wide": [
+      4,
+      2
+    ],
+    "sector_wide": [
+      4,
+      2
+    ]
+  },
+  "price_shape": [
+    4,
+    2
+  ],
+  "industry_schemes": [
+    "申万一级行业"
+  ],
+  "universe_size": 1
+}

@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "active": "local",
+  "profiles": [
+    {
+      "name": "local",
+      "host": "127.0.0.1",
+      "port": "5433",
+      "dbname": "unit_test",
+      "user": "tester"
+    }
+  ]
+}

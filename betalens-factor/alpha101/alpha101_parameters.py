@@ -1,108 +1,135 @@
-"""Parameter catalog and geometric candidate generation for Alpha101 mining."""
+"""Explicit Alpha101 parameter catalogs and bounded grid expansion."""
 from __future__ import annotations
 
 import itertools
 import json
-from typing import Any, Mapping
+import math
+from typing import Any, Mapping, Sequence
 
-from alpha101_formulas import AlphaParameter, default_formula_params, get_definition
-
-
-# Search ratios are deliberately multiplicative.  They cover several scales
-# around the paper default without assuming that an additive step has the
-# same meaning for a 3-day lookback and a 250-day lookback.
-_GEOMETRIC_RATIOS = (0.125, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0)
+from alpha101_formulas import AlphaParameter, default_compute_kwargs, get_definition
 
 
 def parameter_catalog(alpha_id: str | int) -> dict[str, AlphaParameter]:
-    """Return the stable parameter catalog for one Alpha formula."""
+    """Return the ordered parameter catalog for one Alpha formula."""
     return dict(get_definition(alpha_id).parameters)
 
 
-def _unique(values) -> list[int | float]:
-    output = []
+def _unique(values: Sequence[int | float]) -> list[int | float]:
+    output: list[int | float] = []
     for value in values:
         if value not in output:
             output.append(value)
     return output
 
 
-def _geometric(default: float, *, minimum: float = 0.0) -> list[float]:
-    sign = -1.0 if default < 0 else 1.0
-    magnitude = abs(float(default))
-    if magnitude == 0:
-        return [0.0]
-    return _unique(
-        [sign * max(minimum, magnitude * ratio) for ratio in _GEOMETRIC_RATIOS]
-    )
-
-
-def _bounded_weight(default: float) -> list[float]:
-    """Search a [0, 1] mixing weight on a geometric odds scale."""
-    value = min(1.0 - 1e-6, max(1e-6, float(default)))
-    odds = value / (1.0 - value)
-    values = []
-    for ratio in _GEOMETRIC_RATIOS:
-        scaled_odds = odds * ratio
-        values.append(scaled_odds / (1.0 + scaled_odds))
-    return _unique(values)
-
-
 def candidate_values(spec: AlphaParameter) -> list[int | float]:
-    """Return deterministic values spanning multiple multiplicative scales."""
+    """Return a compact, auditable three-point range around a paper default."""
     default = spec.default
     if spec.kind in {"window", "lag"}:
-        return _unique(max(1, int(value + 0.5)) for value in _geometric(float(default), minimum=1.0))
-    if spec.kind == "exponent":
-        return _geometric(float(default), minimum=0.05)
+        if isinstance(default, float):
+            center = float(default)
+            return _unique([max(1.0, center * 0.5), center, max(1.0, center * 2.0)])
+        center = max(1, int(default))
+        return _unique([max(1, int(math.floor(center * 0.5 + 0.5))), center, max(1, center * 2)])
+    if spec.kind == "weight":
+        center = float(default)
+        return _unique([max(0.0, center * 0.5), center, min(1.0, center * 1.5)])
     if spec.kind == "threshold":
-        return _geometric(float(default), minimum=1e-8)
-    center = float(default)
-    if 0.1 <= center <= 0.9:
-        return _bounded_weight(center)
-    return _geometric(center, minimum=1e-8)
+        center = float(default)
+        spread = max(abs(center) * 0.5, 0.05)
+        return _unique([center - spread, center, center + spread])
+    if spec.kind == "exponent":
+        center = float(default)
+        return _unique([center * 0.5, center, center * 2.0])
+    return [default]
 
 
-def formula_param_candidates(alpha_id: str | int, max_candidates: int = 256) -> list[dict[str, Any]]:
-    """Build baseline, one-at-a-time, then pairwise candidates within a hard cap."""
-    if int(max_candidates) < 1:
-        raise ValueError("max_candidates must be >= 1")
-    baseline = default_formula_params(alpha_id)
-    specs = [spec for spec in parameter_catalog(alpha_id).values() if spec.searchable]
-    candidates = [baseline]
-    seen = {json.dumps(baseline, ensure_ascii=False, sort_keys=True, default=str)}
+def default_search_space(alpha_id: str | int, max_dimensions: int = 3) -> dict[str, list[int | float]]:
+    """Build the explicit YAML search space, varying at most three parameters."""
+    if int(max_dimensions) < 0:
+        raise ValueError("max_dimensions must be >= 0")
+    remaining = int(max_dimensions)
+    search_space: dict[str, list[int | float]] = {}
+    for name, spec in parameter_catalog(alpha_id).items():
+        values = [spec.default]
+        if spec.searchable and remaining > 0:
+            proposed = candidate_values(spec)
+            if len(proposed) > 1:
+                values = proposed
+                remaining -= 1
+        search_space[name] = values
+    return search_space
 
-    def add(values: Mapping[str, Any]) -> bool:
-        if len(candidates) >= int(max_candidates):
-            return False
-        candidate = dict(baseline)
-        candidate.update(values)
-        key = json.dumps(candidate, ensure_ascii=False, sort_keys=True, default=str)
-        if key not in seen:
-            seen.add(key)
-            candidates.append(candidate)
-        return len(candidates) < int(max_candidates)
 
-    deviations: dict[str, list[int | float]] = {}
-    for spec in specs:
-        values = [value for value in candidate_values(spec) if value != spec.default]
-        deviations[spec.name] = values
-        for value in values:
-            if not add({spec.name: value}):
-                return candidates
+def validate_search_space(
+    alpha_id: str | int,
+    search_space: Mapping[str, Sequence[Any]],
+) -> dict[str, list[int | float]]:
+    """Require one non-empty, numeric value list for every formula parameter."""
+    definition = get_definition(alpha_id)
+    expected = set(definition.parameters)
+    supplied = set(search_space)
+    missing = sorted(expected - supplied)
+    unknown = sorted(supplied - expected)
+    if missing or unknown:
+        details = []
+        if missing:
+            details.append(f"missing={missing}")
+        if unknown:
+            details.append(f"unknown={unknown}")
+        raise ValueError(f"{definition.name} search_space mismatch: {'; '.join(details)}")
 
-    for left, right in itertools.combinations(specs, 2):
-        for left_value, right_value in itertools.product(deviations[left.name], deviations[right.name]):
-            if not add({left.name: left_value, right.name: right_value}):
-                return candidates
-    return candidates
+    validated: dict[str, list[int | float]] = {}
+    for name, spec in definition.parameters.items():
+        raw_values = search_space[name]
+        if not isinstance(raw_values, (list, tuple)) or not raw_values:
+            raise ValueError(f"{definition.name}.{name} must be a non-empty YAML list")
+        values: list[int | float] = []
+        for raw in raw_values:
+            if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+                raise TypeError(f"{definition.name}.{name} values must be numeric")
+            value = float(raw) if isinstance(spec.default, float) or isinstance(raw, float) else int(raw)
+            if not math.isfinite(float(value)):
+                raise ValueError(f"{definition.name}.{name} values must be finite")
+            if spec.kind in {"window", "lag"} and value < 1:
+                raise ValueError(f"{definition.name}.{name} values must be >= 1")
+            if spec.kind == "exponent" and value == 0:
+                raise ValueError(f"{definition.name}.{name} values must be non-zero")
+            if value not in values:
+                values.append(value)
+        validated[name] = values
+    return validated
+
+
+def grid_candidate_count(search_space: Mapping[str, Sequence[Any]]) -> int:
+    return math.prod(len(values) for values in search_space.values())
+
+
+def formula_param_candidates(
+    alpha_id: str | int,
+    search_space: Mapping[str, Sequence[Any]],
+    *,
+    max_grid_candidates: int = 256,
+) -> list[dict[str, Any]]:
+    """Expand the complete grid and fail before execution if it exceeds the cap."""
+    validated = validate_search_space(alpha_id, search_space)
+    count = grid_candidate_count(validated)
+    if count > int(max_grid_candidates):
+        raise ValueError(
+            f"{get_definition(alpha_id).name} grid has {count} candidates, "
+            f"exceeding max_grid_candidates={int(max_grid_candidates)}"
+        )
+    names = list(validated)
+    return [
+        dict(zip(names, values, strict=True))
+        for values in itertools.product(*(validated[name] for name in names))
+    ]
 
 
 def formula_param_gid(alpha_id: str | int, params: Mapping[str, Any]) -> str:
     """Create a deterministic, filesystem-safe candidate identifier."""
     name = get_definition(alpha_id).name
     encoded = json.dumps(dict(params), ensure_ascii=True, sort_keys=True, separators=(",", ":"))
-    # The full JSON remains in result rows; the compact id keeps filenames usable.
     import hashlib
 
     return f"{name}_{hashlib.sha1(encoded.encode('utf-8')).hexdigest()[:12]}"
@@ -126,7 +153,11 @@ def catalog_rows(alpha_id: str | int) -> list[dict[str, Any]]:
 __all__ = [
     "candidate_values",
     "catalog_rows",
+    "default_compute_kwargs",
+    "default_search_space",
     "formula_param_candidates",
     "formula_param_gid",
+    "grid_candidate_count",
     "parameter_catalog",
+    "validate_search_space",
 ]

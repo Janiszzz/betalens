@@ -34,6 +34,7 @@ DATASETS = {
     "industry": DatasetSpec("industry", "industry", "stock"),
     "index_universe": DatasetSpec("index_universe", "index_universe", "index"),
     "trade_status": DatasetSpec("trade_status", "trade_status", "stock"),
+    "trade_calendar": DatasetSpec("trade_calendar", "trade_calendar"),
 }
 
 

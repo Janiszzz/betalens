@@ -38,5 +38,6 @@ IMPORT_TYPES = (
     "industry",
     "index_universe",
     "trade_status",
+    "trade_calendar",
 )
 

@@ -26,13 +26,14 @@ def _frame(values=(10.0,)) -> pd.DataFrame:
     )
 
 
-def test_registry_exposes_ten_logical_datasets_and_physical_routes():
-    assert len(ALLOWED_TABLES) == 10
+def test_registry_exposes_eleven_logical_datasets_and_physical_routes():
+    assert len(ALLOWED_TABLES) == 11
     assert tuple(DATASETS) == ALLOWED_TABLES
     assert DATASETS["daily_market"].storage == "market"
     assert "market_daily_fact" in DATASETS["daily_market"].physical_tables
     assert DATASETS["fundamentals"].storage == "observation"
     assert DATASETS["industry"].storage == "industry"
+    assert DATASETS["trade_calendar"].physical_tables == ("trade_calendar_day",)
 
 
 def test_query_request_page_token_roundtrip():
@@ -89,6 +90,29 @@ def test_new_schema_market_source_reads_wide_and_observation_fallback():
     assert "betalens.observation_fact" in query
     assert "UNION ALL" in query
     assert params == ["daily_market", "stock", "daily_market", "stock"]
+
+
+def test_trade_calendar_source_and_writer_normalize_exchange_dates():
+    client = object.__new__(DatabaseClient)
+    source, params = client._logical_source(DATASETS["trade_calendar"])
+    assert "betalens.trade_calendar_day" in source
+    assert params == []
+
+    writer = object.__new__(DatabaseWriter)
+    frame = pd.DataFrame(
+        {
+            "datetime": ["2024-01-02 12:34:00", "2024-01-02"],
+            "code": [" shse ", "SHSE"],
+            "name": ["ignored", "SHSE"],
+            "metric": ["交易日", "交易日"],
+            "value": [1.0, 1.0],
+            "remark": [None, None],
+        }
+    )
+    normalized = writer._prepare_frame(frame, table="trade_calendar")
+    assert normalized[["datetime", "code", "name"]].to_dict("records") == [
+        {"datetime": pd.Timestamp("2024-01-02"), "code": "SHSE", "name": "SHSE"}
+    ]
 
 
 def test_writer_streams_copy_in_batches():

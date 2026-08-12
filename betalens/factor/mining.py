@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import importlib
 import itertools
 import hashlib
@@ -8,6 +9,7 @@ import os
 import pickle
 import shutil
 import time
+import traceback
 import warnings
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from dataclasses import dataclass
@@ -24,7 +26,9 @@ __all__ = [
     "build_grid_combos",
     "gen_rolling_windows",
     "gen_rolling_train_test_windows",
+    "mean_one_way_turnover",
     "metrics_from_nav",
+    "robust_rank_ic_metrics",
     "run_parameter_sweep",
     "run_walk_forward",
     "tally_champions",
@@ -112,7 +116,21 @@ class RollingMiningConfig:
     # advances both together, which is the usual walk-forward protocol.
     rolling_mode: str = "split"
     paired_schemes: Sequence[tuple[int, int, int]] | None = None
+    rolling_span: tuple[str, str] | None = None
     universe: Sequence[str] | None = None
+    sampler: str | None = None
+    paper_params: Mapping[str, Any] | None = None
+    n_trials: int = 96
+    max_grid_candidates: int = 256
+    trial_batch_size: int | None = None
+    random_seed: int = 20260810
+    ic_coverage_min: float = 0.80
+    max_drawdown_max: float = 0.35
+    turnover_max: float = 1.00
+    config_hash: str = ""
+    log_level: str = "INFO"
+    storage_url: str | None = None
+    config_path: str | None = None
 
 
 _CACHE_DATA: dict[str, Any] | None = None
@@ -390,7 +408,7 @@ def gen_rolling_windows(
 ) -> list[tuple[str, str]]:
     from betalens.datafeed import get_absolute_trade_days
 
-    days = sorted(get_absolute_trade_days(start, end, "D", use_pmc=False))
+    days = sorted(get_absolute_trade_days(start, end, "D"))
     windows = []
     i = 0
     while i + win_len <= len(days):
@@ -425,7 +443,7 @@ def gen_rolling_train_test_windows(
     step = int(step)
     if train_len < 1 or test_len < 1 or step < 1:
         raise ValueError("train_len, test_len and step must be positive")
-    days = sorted(get_absolute_trade_days(start, end, "D", use_pmc=False))
+    days = sorted(get_absolute_trade_days(start, end, "D"))
     windows = []
     i = 0
     while i + train_len + test_len <= len(days):
@@ -812,15 +830,99 @@ def _init_worker(cache_data_path: str, pit_path: str):
 
 
 def _task_signal_dates(start: str, end: str, fetch_start: str, rebal_freq: str):
+    return [signal for signal, _rebalance in _task_signal_rebalance_pairs(start, end, fetch_start, rebal_freq)]
+
+
+def _task_signal_rebalance_pairs(start: str, end: str, fetch_start: str, rebal_freq: str):
     from betalens.datafeed import get_absolute_trade_days
 
-    rebalance_dates = get_absolute_trade_days(start, end, rebal_freq, use_pmc=False)
-    all_trade_days = sorted(get_absolute_trade_days(fetch_start, end, "D", use_pmc=False))
+    rebalance_dates = get_absolute_trade_days(start, end, rebal_freq)
+    all_trade_days = sorted(get_absolute_trade_days(fetch_start, end, "D"))
     idx = {d: i for i, d in enumerate(all_trade_days)}
-    return [all_trade_days[idx[d] - 1] for d in rebalance_dates if idx.get(d, 0) > 0]
+    return [
+        (all_trade_days[idx[day] - 1], day)
+        for day in rebalance_dates
+        if idx.get(day, 0) > 0
+    ]
 
 
-def _run_one_task(task: dict[str, Any]) -> dict[str, Any]:
+def _daily_last(frame: pd.DataFrame) -> pd.DataFrame:
+    daily = frame.copy()
+    daily.index = pd.DatetimeIndex(daily.index).normalize()
+    return daily.groupby(level=0, sort=True).last()
+
+
+def robust_rank_ic_metrics(
+    factor_wide: pd.DataFrame,
+    execution_price: pd.DataFrame,
+    signal_rebalance_pairs: Sequence[tuple[Any, Any]],
+) -> dict[str, Any]:
+    """Measure prior-day signal IC against current-to-next execution returns."""
+    factor = _daily_last(factor_wide)
+    price = _daily_last(execution_price)
+    observations: list[tuple[pd.Timestamp, float]] = []
+    possible = max(0, len(signal_rebalance_pairs) - 1)
+    for index in range(possible):
+        signal_day, rebalance_day = signal_rebalance_pairs[index]
+        _next_signal, next_rebalance_day = signal_rebalance_pairs[index + 1]
+        signal_ts = pd.Timestamp(signal_day).normalize()
+        rebalance_ts = pd.Timestamp(rebalance_day).normalize()
+        next_ts = pd.Timestamp(next_rebalance_day).normalize()
+        if signal_ts not in factor.index or rebalance_ts not in price.index or next_ts not in price.index:
+            continue
+        future_return = price.loc[next_ts] / price.loc[rebalance_ts] - 1.0
+        section = pd.concat(
+            [factor.loc[signal_ts].rename("signal"), future_return.rename("future_return")],
+            axis=1,
+        ).replace([np.inf, -np.inf], np.nan).dropna()
+        if len(section) < 3 or section["signal"].nunique() < 2 or section["future_return"].nunique() < 2:
+            continue
+        value = section["signal"].corr(section["future_return"], method="spearman")
+        if pd.notna(value):
+            observations.append((rebalance_ts, float(value)))
+
+    coverage = len(observations) / possible if possible else 0.0
+    if not observations:
+        return {
+            "robust_rank_ic": float("nan"),
+            "mean_rank_ic": float("nan"),
+            "ic_coverage": float(coverage),
+            "valid_ic_sections": 0,
+            "possible_ic_sections": int(possible),
+        }
+    monthly = (
+        pd.Series(
+            [value for _date, value in observations],
+            index=pd.DatetimeIndex([date for date, _value in observations]),
+            dtype=float,
+        )
+        .groupby(lambda value: value.to_period("M"))
+        .mean()
+    )
+    median = float(monthly.median())
+    mad = float((monthly - median).abs().median())
+    robust = median - 0.25 * 1.4826 * mad
+    return {
+        "robust_rank_ic": float(robust),
+        "mean_rank_ic": float(np.mean([value for _date, value in observations])),
+        "ic_coverage": float(coverage),
+        "valid_ic_sections": int(len(observations)),
+        "possible_ic_sections": int(possible),
+    }
+
+
+def mean_one_way_turnover(weights: pd.DataFrame) -> float:
+    """Average 0.5 * absolute non-cash weight change at each rebalance."""
+    columns = [column for column in weights.columns if str(column).lower() != "cash"]
+    if not columns or weights.empty:
+        return 0.0
+    values = weights.loc[:, columns].fillna(0.0).sort_index()
+    previous = pd.DataFrame([np.zeros(len(columns))], columns=columns)
+    stacked = pd.concat([previous, values.reset_index(drop=True)], ignore_index=True)
+    return float((0.5 * stacked.diff().abs().sum(axis=1).iloc[1:]).mean())
+
+
+def _run_one_task_impl(task: dict[str, Any]) -> dict[str, Any]:
     from betalens.backtest import BacktestBase
     from betalens.factor.factor import get_single_factor_weight, single_characteristic
 
@@ -836,6 +938,9 @@ def _run_one_task(task: dict[str, Any]) -> dict[str, Any]:
         "phase": task["phase"],
         "gid": task["gid"],
     })
+    for key in ("trial_number", "study_name", "train_start", "train_end", "test_start", "test_end"):
+        if key in task:
+            out[key] = task[key]
     if "rank" in task:
         out["rank"] = task["rank"]
 
@@ -845,7 +950,8 @@ def _run_one_task(task: dict[str, Any]) -> dict[str, Any]:
         fetch_start = (
             pd.Timestamp(start) - pd.Timedelta(days=int(task["warmup_days"]))
         ).strftime("%Y-%m-%d")
-        signal_dates = _task_signal_dates(start, end, fetch_start, task["rebal_freq"])
+        signal_rebalance_pairs = _task_signal_rebalance_pairs(start, end, fetch_start, task["rebal_freq"])
+        signal_dates = [signal for signal, _rebalance in signal_rebalance_pairs]
         if not signal_dates:
             out["error"] = "no signal dates"
             return out
@@ -921,6 +1027,7 @@ def _run_one_task(task: dict[str, Any]) -> dict[str, Any]:
 
         if task["engine"] == "vector":
             nav = _vector_backtest(weights, _CACHE_DATA["price"])
+            turnover_weights = weights
         else:
             bt = BacktestBase(
                 weights,
@@ -928,13 +1035,45 @@ def _run_one_task(task: dict[str, Any]) -> dict[str, Any]:
                 symbol=spec.name,
                 amount=task["initial_amount"],
                 time_tolerance=task["time_tolerance"],
+                table_name=getattr(spec, "table_name", "daily_market"),
                 verbose=False,
             )
             nav = bt.nav
+            turnover_weights = getattr(bt, "actual_weight", weights)
         out.update(metrics_from_nav(nav))
+        out.update(robust_rank_ic_metrics(factor_wide, _CACHE_DATA["price"], signal_rebalance_pairs))
+        out["turnover"] = mean_one_way_turnover(turnover_weights)
+        out["worker_pid"] = os.getpid()
+        out["wide_rows"] = int(len(factor_wide))
+        out["wide_columns"] = int(factor_wide.shape[1])
+        out["weight_rows"] = int(len(turnover_weights))
+        out["weight_columns"] = int(turnover_weights.shape[1])
     except Exception as exc:
         out["error"] = f"{type(exc).__name__}: {exc}"
+        traceback.print_exc()
     return out
+
+
+def _run_one_task(task: dict[str, Any]) -> dict[str, Any]:
+    log_path = task.get("task_log_path")
+    if not log_path:
+        return _run_one_task_impl(task)
+    path = Path(str(log_path))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8", buffering=1) as stream:
+        with contextlib.redirect_stdout(stream), contextlib.redirect_stderr(stream):
+            started = time.perf_counter()
+            print(
+                f"worker_pid={os.getpid()} phase={task.get('phase')} "
+                f"window={task.get('win_start')}~{task.get('win_end')} "
+                f"engine={task.get('engine')} params={json.dumps(task.get('params', {}), ensure_ascii=False, sort_keys=True)}",
+                flush=True,
+            )
+            result = _run_one_task_impl(task)
+            result["task_log_path"] = str(path.resolve())
+            result["elapsed_seconds"] = round(time.perf_counter() - started, 6)
+            print(f"result={json.dumps(result, ensure_ascii=False, sort_keys=True, default=str)}", flush=True)
+            return result
 
 
 def _cache_paths(cache_dir: str | Path) -> CachePaths:
@@ -983,7 +1122,7 @@ def build_cache_for_config(config: Any, spans: Sequence[tuple[str, str]], sample
             return paths
 
     print(f"[cache] fetch range: {fetch_start} ~ {end}")
-    all_days = sorted(get_absolute_trade_days(fetch_start, end, "D", use_pmc=False))
+    all_days = sorted(get_absolute_trade_days(fetch_start, end, "D"))
     pit_days = all_days if getattr(spec, "mask_inputs_by_pit", False) else [
         d for d in all_days if d >= pd.Timestamp(start).date()
     ]
@@ -1191,7 +1330,13 @@ def build_sweep_tasks(config: ParameterSweepConfig, combos: Sequence[Mapping[str
     return tasks
 
 
-def run_tasks(config: Any, tasks: Sequence[dict[str, Any]], cache_paths: CachePaths) -> pd.DataFrame:
+def run_tasks(
+    config: Any,
+    tasks: Sequence[dict[str, Any]],
+    cache_paths: CachePaths,
+    *,
+    executor: ProcessPoolExecutor | None = None,
+) -> pd.DataFrame:
     rows = []
     total = len(tasks)
     if total == 0:
@@ -1201,21 +1346,28 @@ def run_tasks(config: Any, tasks: Sequence[dict[str, Any]], cache_paths: CachePa
     t0 = time.time()
     _render_progress_bar(0, total, t0, submitted=0, active=0)
     if effective_workers <= 1:
-        _init_worker(str(cache_paths.data), str(cache_paths.pit))
+        if executor is None:
+            _init_worker(str(cache_paths.data), str(cache_paths.pit))
         for i, task in enumerate(tasks, 1):
             _log_task_start(task, i, total)
             _render_progress_bar(i - 1, total, t0, submitted=i, active=1)
-            rows.append(_run_one_task(task))
+            if executor is None:
+                rows.append(_run_one_task(task))
+            else:
+                rows.append(executor.submit(_run_one_task, task).result())
             _render_progress_bar(i, total, t0, submitted=i, active=0, final=i == total)
         return pd.DataFrame(rows)
 
     done = 0
     submitted = 0
-    with ProcessPoolExecutor(
-        max_workers=effective_workers,
-        initializer=_init_worker,
-        initargs=(str(cache_paths.data), str(cache_paths.pit)),
-    ) as executor:
+    owns_executor = executor is None
+    if executor is None:
+        executor = ProcessPoolExecutor(
+            max_workers=effective_workers,
+            initializer=_init_worker,
+            initargs=(str(cache_paths.data), str(cache_paths.pit)),
+        )
+    try:
         futures = set()
         future_meta = {}
 
@@ -1252,6 +1404,13 @@ def run_tasks(config: Any, tasks: Sequence[dict[str, Any]], cache_paths: CachePa
                     final=done == total,
                 )
             _submit_until_full()
+    except BaseException:
+        for future in futures:
+            future.cancel()
+        raise
+    finally:
+        if owns_executor:
+            executor.shutdown(wait=True, cancel_futures=True)
     return pd.DataFrame(rows)
 
 
@@ -1328,10 +1487,12 @@ def _run_paired_walk_forward(
     paired_schemes = list(config.paired_schemes or [])
     if not paired_schemes:
         raise ValueError("rolling_mode='paired' requires paired_schemes")
+    rolling_span = config.rolling_span or (config.train[0], config.test[1])
+    rolling_start, rolling_end = rolling_span
 
     cache_paths = build_cache_for_config(
         config,
-        [config.train, config.test, config.valid],
+        [rolling_span, config.valid],
         combos[0]["params"],
     )
     train_frames = []
@@ -1340,8 +1501,8 @@ def _run_paired_walk_forward(
     for train_len, test_len, step in paired_schemes:
         scheme = f"paired/{train_len}/{test_len}/{step}"
         pairs = gen_rolling_train_test_windows(
-            config.train[0],
-            config.test[1],
+            rolling_start,
+            rolling_end,
             train_len,
             test_len,
             step,
@@ -1475,6 +1636,10 @@ def _run_paired_walk_forward(
 def run_walk_forward(config: RollingMiningConfig) -> dict[str, pd.DataFrame]:
     output_dir = _as_path(config.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    if config.sampler:
+        from betalens.factor.mining_optuna import run_optuna_walk_forward
+
+        return run_optuna_walk_forward(config)
     combos = build_grid_combos(
         config.grid,
         factor_module=config.factor_module,

@@ -13,10 +13,9 @@ factor_spec:
     amount_wide: 成交金额(元)
   industry_inputs: {}
   compute_kwargs:
-    formula_params:
-      window_1: 5
-      coefficient_1: 2
-      window_2: 20
+    amount_average_window: 20
+    adv_low_correlation_window: 5
+    high_low_divisor: 2
     stock_code: 300750.SZ
     signal_weight:
       method: rolling_z
@@ -51,3 +50,16 @@ run:
   dump_excel: true
   warmup_days: null
   output_dir: outputs/runs/manual
+mining:
+  sampler: grid
+  search_space:
+    amount_average_window:
+    - 10
+    - 20
+    - 40
+    adv_low_correlation_window:
+    - 3
+    - 5
+    - 10
+    high_low_divisor:
+    - 2

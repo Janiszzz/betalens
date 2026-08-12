@@ -14,10 +14,11 @@ factor_spec:
     returns_wide: 涨跌幅(%)
   industry_inputs: {}
   compute_kwargs:
-    formula_params:
-      window_1: 32
-      window_2: 32
-      window_3: 16
+    volume_rank_window: 32
+    ts_rank_low_close_complement_base: 1
+    low_close_high_rank_window: 16
+    ts_rank_returns_complement_base: 1
+    returns_rank_window: 32
     stock_code: 300750.SZ
     signal_weight:
       method: rolling_z
@@ -52,3 +53,22 @@ run:
   dump_excel: true
   warmup_days: null
   output_dir: outputs/runs/manual
+mining:
+  sampler: grid
+  search_space:
+    volume_rank_window:
+    - 16
+    - 32
+    - 64
+    ts_rank_low_close_complement_base:
+    - 1
+    low_close_high_rank_window:
+    - 8
+    - 16
+    - 32
+    ts_rank_returns_complement_base:
+    - 1
+    returns_rank_window:
+    - 16
+    - 32
+    - 64
