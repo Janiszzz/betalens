@@ -6,7 +6,6 @@ import itertools
 import hashlib
 import json
 import os
-import pickle
 import shutil
 import time
 import traceback
@@ -39,7 +38,7 @@ DEFAULT_WORKERS = min(10, max(1, (os.cpu_count() or 4) - 2))
 DEFAULT_MAX_MEMORY_RATIO = 0.50
 DEFAULT_CACHE_MEMORY_MULTIPLIER = 3.0
 DEFAULT_WORKER_MEMORY_OVERHEAD_BYTES = 512 * 1024 * 1024
-CACHE_SCHEMA_VERSION = 2
+CACHE_SCHEMA_VERSION = 3
 
 
 @dataclass
@@ -122,15 +121,46 @@ class RollingMiningConfig:
     paper_params: Mapping[str, Any] | None = None
     n_trials: int = 96
     max_grid_candidates: int = 256
-    trial_batch_size: int | None = None
     random_seed: int = 20260810
     ic_coverage_min: float = 0.80
     max_drawdown_max: float = 0.35
     turnover_max: float = 1.00
+    pruning_enabled: bool = False
+    pruning_stages: Sequence[float] = (1.0,)
+    pruning_reduction_factor: int = 3
+    pruning_min_full_candidates: int = 3
+    pruning_keep_paper: bool = True
     config_hash: str = ""
     log_level: str = "INFO"
     storage_url: str | None = None
     config_path: str | None = None
+    runtime_root: str | Path | None = None
+    min_workers: int = 10
+    max_workers: int = 12
+    max_active_windows: int = 12
+    max_inflight_batches: int = 12
+    grid_batch_max_candidates: int = 8
+    grid_batch_target_seconds: float = 10.0
+    grid_prefetch_batches: int = 24
+    storage_queue_max_batches: int = 24
+    audit_queue_max_events: int = 20_000
+    console_trial_events: bool = False
+    scheduler_schema_version: int = 3
+    max_persist_overlap_batches: int = 1
+    sqlite_batch_transactions: bool = True
+    scheduler_wait_seconds: float = 0.25
+    audit_incremental: bool = True
+    resource_check_seconds: int = 15
+    resource_wait_minutes: int = 30
+    memory_low_watermark_ratio: float = 0.15
+    memory_resume_watermark_ratio: float = 0.20
+    audit_mirror_seconds: int = 60
+    partial_refresh_seconds: int = 60
+    partial_refresh_trials: int = 250
+    snapshot_seconds: int = 300
+    blas_threads: int = 1
+    search_hash: str = ""
+    runtime_hash: str = ""
 
 
 _CACHE_DATA: dict[str, Any] | None = None
@@ -153,8 +183,8 @@ def _format_bytes(value: int | float | None) -> str:
     return f"{value:.1f}TB"
 
 
-def _system_memory_snapshot() -> tuple[int | None, int | None]:
-    """Return (total_physical_bytes, available_physical_bytes)."""
+def _system_resource_snapshot() -> dict[str, int | None]:
+    """Return physical and commit/pagefile capacity without opening a data source."""
     if os.name == "nt":
         try:
             import ctypes
@@ -176,18 +206,38 @@ def _system_memory_snapshot() -> tuple[int | None, int | None]:
             status.dwLength = ctypes.sizeof(status)
             ok = ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status))
             if ok:
-                return int(status.ullTotalPhys), int(status.ullAvailPhys)
+                return {
+                    "physical_total": int(status.ullTotalPhys),
+                    "physical_available": int(status.ullAvailPhys),
+                    "commit_total": int(status.ullTotalPageFile),
+                    "commit_available": int(status.ullAvailPageFile),
+                }
         except Exception:
-            return None, None
+            pass
     else:
         try:
             page_size = int(os.sysconf("SC_PAGE_SIZE"))
             total_pages = int(os.sysconf("SC_PHYS_PAGES"))
             avail_pages = int(os.sysconf("SC_AVPHYS_PAGES"))
-            return page_size * total_pages, page_size * avail_pages
+            return {
+                "physical_total": page_size * total_pages,
+                "physical_available": page_size * avail_pages,
+                "commit_total": None,
+                "commit_available": None,
+            }
         except (AttributeError, OSError, ValueError):
-            return None, None
-    return None, None
+            pass
+    return {
+        "physical_total": None,
+        "physical_available": None,
+        "commit_total": None,
+        "commit_available": None,
+    }
+
+
+def _system_memory_snapshot() -> tuple[int | None, int | None]:
+    resources = _system_resource_snapshot()
+    return resources["physical_total"], resources["physical_available"]
 
 
 def _memory_budget_bytes(config: Any) -> int | None:
@@ -290,27 +340,20 @@ def _pit_memory_estimate_bytes(pit: Any) -> int:
 
 
 def _read_cache_memory_estimate(cache_paths: CachePaths) -> int:
-    if cache_paths.meta.exists():
+    if cache_paths.data.exists():
         try:
-            with open(cache_paths.meta, "r", encoding="utf-8") as f:
-                meta = json.load(f)
-            payload = int(meta.get("cache_payload_memory_bytes", 0))
-            pickle_size = int(meta.get("pickle_bytes", 0))
-            return max(payload, pickle_size)
+            from betalens.factor.mining_cache import estimated_resident_bytes
+
+            return estimated_resident_bytes(cache_paths.data)
         except Exception:
             pass
-    size = 0
-    for path in (cache_paths.data, cache_paths.pit):
-        if path.exists():
-            size += path.stat().st_size
-    return int(size)
+    return 0
 
 
 def _estimate_worker_memory_bytes(config: Any, cache_paths: CachePaths) -> int:
     cache_bytes = _read_cache_memory_estimate(cache_paths)
-    multiplier = float(getattr(config, "cache_memory_multiplier", DEFAULT_CACHE_MEMORY_MULTIPLIER))
     overhead = int(getattr(config, "worker_memory_overhead_bytes", DEFAULT_WORKER_MEMORY_OVERHEAD_BYTES))
-    return max(1, int(cache_bytes * max(multiplier, 1.0) + max(overhead, 0)))
+    return max(1, int(cache_bytes + max(overhead, 0)))
 
 
 def _effective_workers_for_memory(config: Any, cache_paths: CachePaths) -> int:
@@ -606,6 +649,39 @@ def fetch_industry_wide(
     return out
 
 
+def fetch_trade_status_wide(
+    universe: Sequence[str],
+    dates: Sequence[Any],
+    *,
+    chunk_size: int = 120,
+) -> pd.DataFrame:
+    """Fetch full PIT trade status in bounded date chunks."""
+    from betalens.datafeed import Datafeed
+
+    normalized = pd.DatetimeIndex(sorted({pd.Timestamp(value).normalize() for value in dates}))
+    columns = [str(code) for code in universe]
+    result = pd.DataFrame(-1, index=normalized, columns=columns, dtype=np.int8)
+    data = Datafeed("trade_status")
+    try:
+        for offset in range(0, len(normalized), max(1, int(chunk_size))):
+            block = normalized[offset:offset + max(1, int(chunk_size))]
+            status = data.query_trade_status({
+                "codes": columns,
+                "dates": [day.strftime("%Y-%m-%d") for day in block],
+            })
+            if status is None or status.empty:
+                continue
+            status = status.copy()
+            status["day"] = pd.to_datetime(status["datetime"]).dt.normalize()
+            wide = status.pivot_table(index="day", columns="code", values="value", aggfunc="first")
+            common_dates = result.index.intersection(wide.index)
+            common_codes = result.columns.intersection(wide.columns)
+            result.loc[common_dates, common_codes] = wide.loc[common_dates, common_codes].astype(np.int8)
+    finally:
+        data.close()
+    return result
+
+
 def mask_wide_by_pit_universe(wide_df: pd.DataFrame, pit_universe) -> pd.DataFrame:
     """Mask a wide panel to the PIT universe effective on each calendar date."""
     if wide_df is None or wide_df.empty or not pit_universe:
@@ -623,6 +699,7 @@ def mask_wide_by_pit_universe(wide_df: pd.DataFrame, pit_universe) -> pd.DataFra
 def _cache_signature(config: Any, spec: Any, fetch_start: str, end: str) -> str:
     payload = {
         "schema": CACHE_SCHEMA_VERSION,
+        "search_hash": str(getattr(config, "search_hash", "")),
         "fetch_start": fetch_start,
         "end": end,
         "table_name": getattr(spec, "table_name", "daily_market"),
@@ -693,6 +770,7 @@ def _preprocess_if_needed(
     universe: Sequence[str],
     fetch_start: str,
     end_date: str,
+    prepared: Mapping[str, Any] | None = None,
 ) -> pd.DataFrame:
     use_industry = bool(getattr(spec, "use_industry", False))
     use_mktcap = bool(getattr(spec, "use_mktcap", False))
@@ -712,7 +790,12 @@ def _preprocess_if_needed(
     industry_scheme = getattr(spec, "industry_scheme", "申万一级行业") if use_industry else None
     industry_panel = None
     if industry_scheme:
-        cached = (_CACHE_DATA or {}).get("industry_by_scheme", {}).get(industry_scheme)
+        prepared = prepared or {}
+        cached = (prepared.get("industry_by_scheme") or {}).get(industry_scheme)
+        if cached is None:
+            cached = (_CACHE_DATA or {}).get("industry_by_scheme", {}).get(industry_scheme)
+        if isinstance(cached, Mapping) and "values" in cached:
+            cached = _cache_frame(cached, fetch_start, end_date)
         if cached is not None and not cached.empty:
             cached_long = wide_to_prequery(cached, "__mining_industry", signal_dates)
             if not cached_long.empty:
@@ -823,27 +906,158 @@ def _vector_backtest(weights: pd.DataFrame, price_wide: pd.DataFrame) -> pd.Seri
 def _init_worker(cache_data_path: str, pit_path: str):
     global _CACHE_DATA, _PIT_UNIVERSE
     warnings.filterwarnings("ignore")
-    with open(cache_data_path, "rb") as f:
-        _CACHE_DATA = pickle.load(f)
-    with open(pit_path, "rb") as f:
-        _PIT_UNIVERSE = pickle.load(f)
+    from betalens.factor.mining_cache import open_manifest
+
+    _CACHE_DATA = open_manifest(cache_data_path)
+    _PIT_UNIVERSE = None
+
+
+def _worker_private_bytes_probe(cache_data_path: str, pit_path: str) -> int:
+    """Map the real cache in a short-lived worker and report private bytes."""
+    _init_worker(cache_data_path, pit_path)
+    materialized = []
+    groups = [
+        (_CACHE_DATA or {}).get("inputs", {}),
+        (_CACHE_DATA or {}).get("industry_by_scheme", {}),
+    ]
+    descriptors = [
+        (_CACHE_DATA or {}).get("price"),
+        (_CACHE_DATA or {}).get("execution_price"),
+        (_CACHE_DATA or {}).get("trade_status"),
+        (_CACHE_DATA or {}).get("pit"),
+    ]
+    for group in groups:
+        descriptors.extend(group.values())
+    for descriptor in descriptors:
+        if not isinstance(descriptor, Mapping) or "values" not in descriptor:
+            continue
+        dates = np.asarray(descriptor["dates"])
+        if not len(dates):
+            continue
+        end = pd.Timestamp(int(dates[min(len(dates), 64) - 1]))
+        materialized.append(_cache_frame(descriptor, end=end).copy())
+    if os.name == "nt":
+        try:
+            import ctypes
+
+            class PROCESS_MEMORY_COUNTERS_EX(ctypes.Structure):
+                _fields_ = [
+                    ("cb", ctypes.c_ulong),
+                    ("PageFaultCount", ctypes.c_ulong),
+                    ("PeakWorkingSetSize", ctypes.c_size_t),
+                    ("WorkingSetSize", ctypes.c_size_t),
+                    ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                    ("PagefileUsage", ctypes.c_size_t),
+                    ("PeakPagefileUsage", ctypes.c_size_t),
+                    ("PrivateUsage", ctypes.c_size_t),
+                ]
+
+            counters = PROCESS_MEMORY_COUNTERS_EX()
+            counters.cb = ctypes.sizeof(counters)
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            psapi = ctypes.WinDLL("psapi", use_last_error=True)
+            kernel32.GetCurrentProcess.restype = ctypes.c_void_p
+            psapi.GetProcessMemoryInfo.argtypes = [
+                ctypes.c_void_p,
+                ctypes.POINTER(PROCESS_MEMORY_COUNTERS_EX),
+                ctypes.c_ulong,
+            ]
+            psapi.GetProcessMemoryInfo.restype = ctypes.c_int
+            ok = psapi.GetProcessMemoryInfo(
+                kernel32.GetCurrentProcess(),
+                ctypes.byref(counters),
+                counters.cb,
+            )
+            if ok:
+                return int(counters.PrivateUsage)
+        except Exception:
+            pass
+    try:
+        import psutil
+
+        memory = psutil.Process(os.getpid()).memory_full_info()
+        return int(getattr(memory, "private", getattr(memory, "uss", memory.rss)))
+    except Exception:
+        return 0
+
+
+def _cache_frame(descriptor: Any, start: Any = None, end: Any = None, columns=None) -> pd.DataFrame:
+    if isinstance(descriptor, pd.DataFrame):
+        result = descriptor
+        if start is not None:
+            result = result.loc[result.index >= pd.Timestamp(start)]
+        if end is not None:
+            result = result.loc[result.index <= pd.Timestamp(end)]
+        if columns is not None:
+            result = result.loc[:, [column for column in columns if column in result.columns]]
+        return result
+    from betalens.factor.mining_cache import frame
+
+    return frame(descriptor, start=start, end=end, columns=columns)
 
 
 def _task_signal_dates(start: str, end: str, fetch_start: str, rebal_freq: str):
     return [signal for signal, _rebalance in _task_signal_rebalance_pairs(start, end, fetch_start, rebal_freq)]
 
 
-def _task_signal_rebalance_pairs(start: str, end: str, fetch_start: str, rebal_freq: str):
-    from betalens.datafeed import get_absolute_trade_days
+def _sample_trade_days(days: Sequence[Any], period: str) -> list[Any]:
+    period_key = str(period).upper()
+    if period_key == "D":
+        return list(days)
+    period_map = {"W": "W", "M": "M", "Q": "Q", "S": "2Q", "Y": "Y"}
+    if period_key not in period_map:
+        raise ValueError(f"unsupported rebalance frequency: {period}")
+    values = pd.Series(pd.to_datetime(list(days)))
+    return [value.date() for value in values.groupby(values.dt.to_period(period_map[period_key])).last()]
 
-    rebalance_dates = get_absolute_trade_days(start, end, rebal_freq)
-    all_trade_days = sorted(get_absolute_trade_days(fetch_start, end, "D"))
+
+def _task_signal_rebalance_pairs(
+    start: str,
+    end: str,
+    fetch_start: str,
+    rebal_freq: str,
+    trade_days: Sequence[Any] | None = None,
+):
+    if trade_days is None:
+        from betalens.datafeed import get_absolute_trade_days
+
+        all_trade_days = sorted(get_absolute_trade_days(fetch_start, end, "D"))
+    else:
+        all_trade_days = sorted({pd.Timestamp(value).date() for value in trade_days})
+        fetch_day = pd.Timestamp(fetch_start).date()
+        end_day = pd.Timestamp(end).date()
+        all_trade_days = [day for day in all_trade_days if fetch_day <= day <= end_day]
+    start_day = pd.Timestamp(start).date()
+    rebalance_dates = _sample_trade_days(
+        [day for day in all_trade_days if start_day <= day <= pd.Timestamp(end).date()],
+        rebal_freq,
+    )
     idx = {d: i for i, d in enumerate(all_trade_days)}
     return [
         (all_trade_days[idx[day] - 1], day)
         for day in rebalance_dates
         if idx.get(day, 0) > 0
     ]
+
+
+def _weights_on_rebalance_days(
+    weights: pd.DataFrame,
+    signal_rebalance_pairs: Sequence[tuple[Any, Any]],
+) -> pd.DataFrame:
+    mapping = {
+        pd.Timestamp(signal).normalize(): pd.Timestamp(rebalance).normalize()
+        for signal, rebalance in signal_rebalance_pairs
+    }
+    normalized = pd.DatetimeIndex(weights.index).normalize()
+    keep = normalized.isin(mapping)
+    result = weights.loc[keep].copy()
+    result.index = pd.DatetimeIndex(
+        [mapping[day] + pd.Timedelta(minutes=10) for day in normalized[keep]]
+    )
+    return result.sort_index()
 
 
 def _daily_last(frame: pd.DataFrame) -> pd.DataFrame:
@@ -922,7 +1136,10 @@ def mean_one_way_turnover(weights: pd.DataFrame) -> float:
     return float((0.5 * stacked.diff().abs().sum(axis=1).iloc[1:]).mean())
 
 
-def _run_one_task_impl(task: dict[str, Any]) -> dict[str, Any]:
+def _run_one_task_impl(
+    task: dict[str, Any],
+    prepared: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     from betalens.backtest import BacktestBase
     from betalens.factor.factor import get_single_factor_weight, single_characteristic
 
@@ -950,7 +1167,28 @@ def _run_one_task_impl(task: dict[str, Any]) -> dict[str, Any]:
         fetch_start = (
             pd.Timestamp(start) - pd.Timedelta(days=int(task["warmup_days"]))
         ).strftime("%Y-%m-%d")
-        signal_rebalance_pairs = _task_signal_rebalance_pairs(start, end, fetch_start, task["rebal_freq"])
+        prepared = prepared or {}
+        trade_status_descriptor = prepared.get("trade_status", _CACHE_DATA.get("trade_status"))
+        cached_trade_days = (
+            pd.DatetimeIndex(np.asarray(trade_status_descriptor["dates"], dtype=np.int64))
+            if isinstance(trade_status_descriptor, Mapping) and "dates" in trade_status_descriptor
+            else None
+        )
+        if cached_trade_days is None:
+            first_input = next(iter((_CACHE_DATA.get("inputs") or {}).values()), None)
+            if isinstance(first_input, pd.DataFrame):
+                cached_trade_days = pd.DatetimeIndex(first_input.index)
+            elif isinstance(first_input, Mapping) and "dates" in first_input:
+                cached_trade_days = pd.DatetimeIndex(
+                    np.asarray(first_input["dates"], dtype=np.int64)
+                )
+        signal_rebalance_pairs = _task_signal_rebalance_pairs(
+            start,
+            end,
+            fetch_start,
+            task["rebal_freq"],
+            cached_trade_days,
+        )
         signal_dates = [signal for signal, _rebalance in signal_rebalance_pairs]
         if not signal_dates:
             out["error"] = "no signal dates"
@@ -962,11 +1200,11 @@ def _run_one_task_impl(task: dict[str, Any]) -> dict[str, Any]:
             *getattr(spec, "industry_inputs", {}),
         ]))
         for arg_name in input_names:
-            wide = _CACHE_DATA["inputs"][arg_name]
-            wides[arg_name] = wide.loc[
-                (wide.index >= pd.Timestamp(fetch_start)) &
-                (wide.index <= pd.Timestamp(end) + pd.Timedelta(days=1))
-            ]
+            wides[arg_name] = _cache_frame(
+                (prepared.get("inputs") or {}).get(arg_name, _CACHE_DATA["inputs"][arg_name]),
+                fetch_start,
+                pd.Timestamp(end) + pd.Timedelta(days=1),
+            )
 
         factor_wide = spec.compute(**wides, **getattr(spec, "compute_kwargs", {}))
         weight_mode = getattr(spec, "weight_mode", "freeplay")
@@ -983,7 +1221,9 @@ def _run_one_task_impl(task: dict[str, Any]) -> dict[str, Any]:
                 out["error"] = "empty prequery"
                 return out
 
-            prequery = _preprocess_if_needed(prequery, spec, signal_dates, universe, fetch_start, end)
+            prequery = _preprocess_if_needed(
+                prequery, spec, signal_dates, universe, fetch_start, end, prepared
+            )
             if prequery.empty:
                 out["error"] = "empty after preprocessing"
                 return out
@@ -1000,14 +1240,18 @@ def _run_one_task_impl(task: dict[str, Any]) -> dict[str, Any]:
                 "long": long_groups,
                 "short": short_groups,
             })
-            weights.index = weights.index + pd.Timedelta(minutes=10)
 
         if task.get("weight_hook"):
+            cached_price = _cache_frame(
+                prepared.get("price", _CACHE_DATA["price"]),
+                fetch_start,
+                pd.Timestamp(end) + pd.Timedelta(days=40),
+            )
             hook_task = dict(task)
             hook_task["context"] = {
                 "factor_wide": factor_wide,
                 "input_wides": wides,
-                "price_wide": _CACHE_DATA["price"],
+                "price_wide": cached_price,
                 "signal_dates": signal_dates,
                 "fetch_start": fetch_start,
                 "win_start": start,
@@ -1021,14 +1265,50 @@ def _run_one_task_impl(task: dict[str, Any]) -> dict[str, Any]:
                 weights,
                 hook_task,
             )
+        weights = _weights_on_rebalance_days(weights, signal_rebalance_pairs)
         if weights.empty:
             out["error"] = "empty weights"
             return out
 
+        active_codes = [
+            column for column in weights.columns
+            if column != "cash" and weights[column].fillna(0.0).abs().sum() > 0
+        ]
+        weights = weights.loc[:, active_codes + (["cash"] if "cash" in weights.columns else [])]
+
+        price_wide = _cache_frame(
+            prepared.get("price", _CACHE_DATA["price"]),
+            fetch_start,
+            pd.Timestamp(end) + pd.Timedelta(days=40),
+        )
+        execution_wide = _cache_frame(
+            prepared.get("execution_price", _CACHE_DATA.get("execution_price", _CACHE_DATA["price"])),
+            fetch_start,
+            pd.Timestamp(end) + pd.Timedelta(days=40),
+        )
         if task["engine"] == "vector":
-            nav = _vector_backtest(weights, _CACHE_DATA["price"])
+            nav = _vector_backtest(weights, price_wide)
             turnover_weights = weights
         else:
+            stock_codes = [column for column in weights.columns if column != "cash"]
+            execution_price = _cache_frame(
+                prepared.get("execution_price", _CACHE_DATA["execution_price"]),
+                weights.index.min(),
+                weights.index.max() + pd.Timedelta(hours=task["time_tolerance"]),
+                stock_codes,
+            )
+            trade_status = _cache_frame(
+                prepared.get("trade_status", _CACHE_DATA["trade_status"]),
+                weights.index.min().normalize(),
+                weights.index.max().normalize() + pd.Timedelta(days=1),
+                stock_codes,
+            )
+            close_price = _cache_frame(
+                prepared.get("price", _CACHE_DATA["price"]),
+                weights.index.min().normalize(),
+                weights.index.max().normalize(),
+                stock_codes,
+            )
             bt = BacktestBase(
                 weights,
                 metric=getattr(spec, "backtest_metric", "收盘价(元)"),
@@ -1037,17 +1317,21 @@ def _run_one_task_impl(task: dict[str, Any]) -> dict[str, Any]:
                 time_tolerance=task["time_tolerance"],
                 table_name=getattr(spec, "table_name", "daily_market"),
                 verbose=False,
+                preloaded_cost_price=execution_price,
+                preloaded_close_price=close_price,
+                preloaded_trade_status=trade_status,
             )
             nav = bt.nav
             turnover_weights = getattr(bt, "actual_weight", weights)
         out.update(metrics_from_nav(nav))
-        out.update(robust_rank_ic_metrics(factor_wide, _CACHE_DATA["price"], signal_rebalance_pairs))
+        out.update(robust_rank_ic_metrics(factor_wide, execution_wide, signal_rebalance_pairs))
         out["turnover"] = mean_one_way_turnover(turnover_weights)
         out["worker_pid"] = os.getpid()
         out["wide_rows"] = int(len(factor_wide))
         out["wide_columns"] = int(factor_wide.shape[1])
         out["weight_rows"] = int(len(turnover_weights))
         out["weight_columns"] = int(turnover_weights.shape[1])
+        out["data_sources"] = getattr(bt, "data_sources", {}) if task["engine"] != "vector" else {"price": "memmap"}
     except Exception as exc:
         out["error"] = f"{type(exc).__name__}: {exc}"
         traceback.print_exc()
@@ -1076,12 +1360,141 @@ def _run_one_task(task: dict[str, Any]) -> dict[str, Any]:
             return result
 
 
+def _prepare_task_batch(tasks: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    if _CACHE_DATA is None:
+        raise RuntimeError("mining cache is not initialized")
+    if not tasks:
+        return {}
+    first = tasks[0]
+    identity = (
+        first.get("window_id"), first.get("phase"), first.get("stage_index"),
+        first.get("win_start"), first.get("win_end"), first.get("engine"),
+    )
+    for task in tasks[1:]:
+        current = (
+            task.get("window_id"), task.get("phase"), task.get("stage_index"),
+            task.get("win_start"), task.get("win_end"), task.get("engine"),
+        )
+        if current != identity:
+            raise ValueError("a mining batch must contain one window, phase, stage, and engine")
+
+    fetch_start = min(
+        pd.Timestamp(task["win_start"]) - pd.Timedelta(days=int(task["warmup_days"]))
+        for task in tasks
+    )
+    compute_end = pd.Timestamp(first["win_end"]) + pd.Timedelta(days=1)
+    price_end = pd.Timestamp(first["win_end"]) + pd.Timedelta(days=40)
+    input_names: set[str] = set()
+    industry_schemes: set[str] = set()
+    for task in tasks:
+        spec = _load_spec(task["factor_module"], task["spec_factory"], task["params"])
+        input_names.update(getattr(spec, "inputs", {}))
+        input_names.update(getattr(spec, "industry_inputs", {}))
+        if bool(getattr(spec, "use_industry", False)):
+            industry_schemes.add(getattr(spec, "industry_scheme", "申万一级行业"))
+    inputs = {
+        name: _cache_frame(_CACHE_DATA["inputs"][name], fetch_start, compute_end)
+        for name in sorted(input_names)
+    }
+    cached_industries = (_CACHE_DATA or {}).get("industry_by_scheme", {})
+    industry_by_scheme = {
+        scheme: _cache_frame(cached_industries[scheme], fetch_start, compute_end)
+        for scheme in sorted(industry_schemes)
+        if scheme in cached_industries
+    }
+    return {
+        "inputs": inputs,
+        "industry_by_scheme": industry_by_scheme,
+        "price": _cache_frame(_CACHE_DATA["price"], fetch_start, price_end),
+        "execution_price": _cache_frame(
+            _CACHE_DATA.get("execution_price", _CACHE_DATA["price"]), fetch_start, price_end
+        ),
+        "trade_status": _CACHE_DATA.get("trade_status"),
+    }
+
+
+def _run_task_batch(tasks: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Evaluate a homogeneous Grid micro-batch in one worker process."""
+    if not tasks:
+        return []
+    batch_started = time.perf_counter()
+    try:
+        prepared = _prepare_task_batch(tasks)
+    except Exception as exc:
+        results = []
+        for task in tasks:
+            result = {
+                **task,
+                "error": f"{type(exc).__name__}: {exc}",
+                "worker_pid": os.getpid(),
+            }
+            log_path = task.get("task_log_path")
+            if log_path:
+                path = Path(str(log_path))
+                path.parent.mkdir(parents=True, exist_ok=True)
+                with path.open("a", encoding="utf-8", buffering=1) as stream:
+                    stream.write(
+                        f"worker_pid={os.getpid()} batch_id={task.get('batch_id')} "
+                        f"stage={task.get('stage_index')} "
+                        f"params={json.dumps(task.get('params', {}), ensure_ascii=False, sort_keys=True)}\n"
+                    )
+                    traceback.print_exception(type(exc), exc, exc.__traceback__, file=stream)
+                    stream.write(f"result={json.dumps(result, ensure_ascii=False, default=str)}\n")
+                result["task_log_path"] = str(path.resolve())
+            results.append(result)
+        return results
+    results = []
+    for task in tasks:
+        log_path = task.get("task_log_path")
+        started = time.perf_counter()
+        try:
+            if log_path:
+                path = Path(str(log_path))
+                path.parent.mkdir(parents=True, exist_ok=True)
+                with path.open("a", encoding="utf-8", buffering=1) as stream:
+                    with contextlib.redirect_stdout(stream), contextlib.redirect_stderr(stream):
+                        print(
+                            f"worker_pid={os.getpid()} phase={task.get('phase')} "
+                            f"window={task.get('win_start')}~{task.get('win_end')} "
+                            f"stage={task.get('stage_index')} engine={task.get('engine')} "
+                            f"batch_id={task.get('batch_id')} "
+                            f"params={json.dumps(task.get('params', {}), ensure_ascii=False, sort_keys=True)}",
+                            flush=True,
+                        )
+                        result = _run_one_task_impl(task, prepared)
+                        print(
+                            f"result={json.dumps(result, ensure_ascii=False, sort_keys=True, default=str)}",
+                            flush=True,
+                        )
+                result["task_log_path"] = str(path.resolve())
+            else:
+                result = _run_one_task_impl(task, prepared)
+        except Exception as exc:
+            result = {**task, "error": f"{type(exc).__name__}: {exc}"}
+        result["elapsed_seconds"] = round(time.perf_counter() - started, 6)
+        result["worker_pid"] = os.getpid()
+        results.append(result)
+    batch_elapsed = round(time.perf_counter() - batch_started, 6)
+    for result in results:
+        result["batch_elapsed_seconds"] = batch_elapsed
+        result["batch_size"] = len(tasks)
+    return results
+
+
 def _cache_paths(cache_dir: str | Path) -> CachePaths:
     cache = _as_path(cache_dir)
+    ready = cache / "READY.json"
+    manifest = cache / "manifest.json"
+    if ready.exists():
+        try:
+            pointer = json.loads(ready.read_text(encoding="utf-8"))
+            manifest = cache / str(pointer["manifest"])
+        except Exception:
+            pass
     return CachePaths(
-        data=cache / "mining_cache.pkl",
-        pit=cache / "pit_universe.pkl",
-        meta=cache / "mining_cache_meta.json",
+        data=manifest,
+        pit=manifest,
+        meta=ready,
     )
 
 
@@ -1103,7 +1516,6 @@ def build_cache_for_config(config: Any, spans: Sequence[tuple[str, str]], sample
 
     cache_dir = _cache_dir(config)
     cache_dir.mkdir(parents=True, exist_ok=True)
-    paths = _cache_paths(cache_dir)
     spec = _load_spec(config.factor_module, config.spec_factory, sample_params)
     start = _date_min(*spans)
     end = _date_max(*spans)
@@ -1111,15 +1523,27 @@ def build_cache_for_config(config: Any, spans: Sequence[tuple[str, str]], sample
         pd.Timestamp(start) - pd.Timedelta(days=int(config.max_warmup_days))
     ).strftime("%Y-%m-%d")
     signature = _cache_signature(config, spec, fetch_start, end)
-
-    if paths.data.exists() and paths.pit.exists() and paths.meta.exists() and not config.rebuild_cache:
+    ready_path = cache_dir / "READY.json"
+    if ready_path.exists() and not config.rebuild_cache:
         try:
-            meta = json.loads(paths.meta.read_text(encoding="utf-8"))
+            pointer = json.loads(ready_path.read_text(encoding="utf-8"))
+            pointed_manifest = cache_dir / str(pointer["manifest"])
+            pointed = json.loads(pointed_manifest.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError, KeyError):
+            pointed_manifest = None
+            pointed = {}
+        if pointed_manifest is not None and pointed.get("cache_signature") == signature:
+            print(f"[cache] hit: {pointed_manifest}")
+            return CachePaths(data=pointed_manifest, pit=pointed_manifest, meta=ready_path)
+    existing_manifest = cache_dir / signature / "manifest.json"
+    if existing_manifest.exists() and not config.rebuild_cache:
+        try:
+            meta = json.loads(existing_manifest.read_text(encoding="utf-8"))
         except (OSError, ValueError, TypeError):
             meta = {}
         if meta.get("schema_version") == CACHE_SCHEMA_VERSION and meta.get("cache_signature") == signature:
-            print(f"[cache] hit: {paths.data.name}, {paths.pit.name}")
-            return paths
+            print(f"[cache] hit: {existing_manifest}")
+            return CachePaths(data=existing_manifest, pit=existing_manifest, meta=cache_dir / "READY.json")
 
     print(f"[cache] fetch range: {fetch_start} ~ {end}")
     all_days = sorted(get_absolute_trade_days(fetch_start, end, "D"))
@@ -1153,28 +1577,48 @@ def build_cache_for_config(config: Any, spans: Sequence[tuple[str, str]], sample
         raw_inputs[arg_name] = wide
         print(f"[cache] {arg_name} ({metric}): {wide.shape}, {time.time() - t0:.1f}s")
 
-    price_metric = getattr(spec, "backtest_metric", "收盘价(元)")
-    price = next(
-        (wide for arg, metric in metrics_by_arg.items() if metric == price_metric for wide in [raw_inputs[arg]]),
+    execution_metric = getattr(spec, "backtest_metric", "收盘价(元)")
+    input_price = next(
+        (wide for arg, metric in metrics_by_arg.items() if metric == execution_metric for wide in [raw_inputs[arg]]),
         None,
     )
-    if price is None:
+    if input_price is None:
         t0 = time.time()
-        price = fetch_daily_wide(
-            price_metric,
+        execution_price = fetch_daily_wide(
+            execution_metric,
             universe=universe,
             start_date=fetch_start,
             end_date=end,
             table_name=getattr(spec, "table_name", "daily_market"),
         )
-        print(f"[cache] price ({price_metric}): {price.shape}, {time.time() - t0:.1f}s")
+        print(f"[cache] execution price ({execution_metric}): {execution_price.shape}, {time.time() - t0:.1f}s")
+    else:
+        execution_price = input_price.copy()
+
+    close_metric = "收盘价(元)"
+    input_close = next(
+        (wide for arg, metric in metrics_by_arg.items() if metric == close_metric for wide in [raw_inputs[arg]]),
+        None,
+    )
+    if input_close is None:
+        t0 = time.time()
+        close_price = fetch_daily_wide(
+            close_metric,
+            universe=universe,
+            start_date=fetch_start,
+            end_date=end,
+            table_name=getattr(spec, "table_name", "daily_market"),
+        )
+        print(f"[cache] valuation price ({close_metric}): {close_price.shape}, {time.time() - t0:.1f}s")
+    else:
+        close_price = input_close.copy()
 
     # Market metrics can have different intraday timestamps.  Align them
     # before deriving the reference index, PIT masks, or the cached price
     # panel so every formula receives identically labelled daily wides.
-    aligned_market = align_daily_wides({**raw_inputs, "__price__": price})
+    aligned_market = align_daily_wides(raw_inputs)
     raw_inputs = {arg_name: aligned_market[arg_name] for arg_name in metrics_by_arg}
-    price = aligned_market["__price__"]
+    price = close_price
     for arg_name, wide in raw_inputs.items():
         inputs[arg_name] = (
             mask_wide_by_pit_universe(wide, pit)
@@ -1201,34 +1645,32 @@ def build_cache_for_config(config: Any, spans: Sequence[tuple[str, str]], sample
             inputs[arg_name] = mask_wide_by_pit_universe(wide, pit) if getattr(spec, "mask_inputs_by_pit", False) else wide
         print(f"[cache] {arg_name} ({scheme}): {wide.shape}, {time.time() - t0:.1f}s")
 
-    payload = {
-        "inputs": inputs,
-        "price": price,
-        "universe": universe,
-        "industry_by_scheme": industry_by_scheme,
-    }
-    with open(paths.data, "wb") as f:
-        pickle.dump(payload, f)
-    with open(paths.pit, "wb") as f:
-        pickle.dump(pit, f)
-    meta = {
-        "schema_version": CACHE_SCHEMA_VERSION,
-        "cache_signature": signature,
-        "cache_payload_memory_bytes": int(
-            _cache_payload_memory_bytes(inputs, price)
-            + sum(_dataframe_memory_bytes(wide) for wide in industry_by_scheme.values())
-            + _pit_memory_estimate_bytes(pit)
-        ),
-        "pickle_bytes": int(paths.data.stat().st_size + paths.pit.stat().st_size),
+    t0 = time.time()
+    trade_status = fetch_trade_status_wide(universe or [], all_days)
+    print(f"[cache] trade_status: {trade_status.shape}, {time.time() - t0:.1f}s")
+    from betalens.factor.mining_cache import publish
+
+    manifest = publish(
+        cache_dir,
+        signature,
+        inputs=inputs,
+        price=price,
+        execution_price=execution_price,
+        trade_status=trade_status,
+        industry_by_scheme=industry_by_scheme,
+        pit=pit,
+        universe=list(universe or []),
+        metadata={
         "input_shapes": {name: list(wide.shape) for name, wide in inputs.items()},
         "price_shape": list(price.shape) if isinstance(price, pd.DataFrame) else None,
+        "execution_price_shape": list(execution_price.shape),
         "industry_schemes": sorted(industry_by_scheme),
         "universe_size": len(universe or []),
-    }
-    with open(paths.meta, "w", encoding="utf-8") as f:
-        json.dump(meta, f, ensure_ascii=False, indent=2)
+        },
+        rebuild=bool(config.rebuild_cache),
+    )
     print(f"[cache] saved: {cache_dir}")
-    return paths
+    return CachePaths(data=manifest, pit=manifest, meta=cache_dir / "READY.json")
 
 
 def build_tasks(

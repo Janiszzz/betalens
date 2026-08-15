@@ -2,9 +2,11 @@ mining:
   # all 表示依次挖掘 ALPHA1~ALPHA101；也可写成 [1, 58, 65]。
   factors: [1]
 
-  # 路径相对于本 YAML 所在目录；101 个 Alpha 共用同一份缓存。
+  # OneDrive 输出目录只接收异步审计镜像和最终结果。活动缓存、SQLite、日志
+  # 默认位于 %LOCALAPPDATA%/Betalens/mining/<ALPHA>/<search_hash>。
   output_dir: outputs/_walkforward
-  cache_dir: outputs/_walkforward/_cache
+  cache_dir: null
+  runtime_root: null
 
   # 2010~2022 只用于动态 TRAIN -> TEST；2023~2025 是最终独立留出集，
   # 不参与候选重新选择。
@@ -12,7 +14,7 @@ mining:
   valid: ['2023-01-01', '2025-12-31']
 
   # 周频调仓、10 分组；截面最高组做多、最低组做空。
-  n_quantiles: [10]
+  n_quantiles: [40]
   rebal_freq: W
   initial_amount: 100000000
 
@@ -22,7 +24,6 @@ mining:
   max_grid_candidates: 256
   n_trials: 96
   random_seed: 20260810
-  trial_batch_size: null
 
   # paired 为真实 walk-forward：每个 TRAIN 后立即衔接一个 TEST，二者不重叠。
   # 下列三个数组做笛卡尔积，单位均为交易日；step 控制整对窗口前移距离。
@@ -36,9 +37,9 @@ mining:
   objective: robust_rank_ic
   objective_higher_is_better: true
   constraints:
-    ic_coverage_min: 0.80
+    ic_coverage_min: null
     max_drawdown_max: 0.35
-    turnover_max: 1.00
+    turnover_max: null
 
   # 每个 TRAIN 窗独立锁定唯一参数，只用于紧随其后的 TEST。
   # 最后一个完整 TRAIN 窗的前 3 个锁参候选进入整段 VALID，由 exact 引擎生成报告。
@@ -47,6 +48,22 @@ mining:
   # 滚动粗筛使用 vector；VALID 前三名仍会调用标准 FactorPipeline exact 回测。
   engine: vector
   workers: 12
+  min_workers: 10
+  max_workers: 12
+  max_active_windows: 12
+  max_inflight_batches: 12
+  grid_batch_max_candidates: 8
+  grid_batch_target_seconds: 10
+  grid_prefetch_batches: 24
+  storage_queue_max_batches: 24
+  audit_queue_max_events: 20000
+  console_trial_events: false
+  scheduler_schema_version: 3
+  max_persist_overlap_batches: 1
+  sqlite_batch_transactions: true
+  scheduler_wait_seconds: 0.25
+  audit_incremental: true
+  blas_threads: 1
   log_level: INFO
 
   # null 表示在当前 Alpha 输出目录使用 study.sqlite3。也可显式设置
@@ -60,10 +77,21 @@ mining:
   resume: true
   fail_fast: false
 
-  # worker 数会按 50% 物理内存上限自动收缩。max_warmup_days 是共享缓存
+  # worker 数受物理内存、commit 余量和 10-worker 硬下限共同约束；资源不足时
+  # 最多等待 30 分钟，不会静默降到 10 以下。max_warmup_days 是共享缓存
   # 最早向前扩展的日历天数，用于覆盖放大后的长周期候选。
   max_memory_ratio: 0.5
   max_warmup_days: 5000
+  resource_check_seconds: 15
+  resource_wait_minutes: 30
+  memory_low_watermark_ratio: 0.15
+  memory_resume_watermark_ratio: 0.20
+
+  # JSONL 在本地逐事件 flush；partial CSV 和 OneDrive 镜像按时间/数量节流。
+  audit_mirror_seconds: 60
+  partial_refresh_seconds: 60
+  partial_refresh_trials: 250
+  snapshot_seconds: 300
 
   # null 表示运行每种 paired scheme 的全部可用窗口；整数可用于调试限量。
   max_windows_per_scheme: null

@@ -363,7 +363,10 @@ class BacktestBase(object):
                  check_trade_status=True,
                  trade_status_mode='to_cash',
                  trade_status_table='trade_status',
-                 lot_size=100):
+                 lot_size=100, *,
+                 preloaded_cost_price=None,
+                 preloaded_close_price=None,
+                 preloaded_trade_status=None):
         # === 输入验证：weight ===
         try:
             validate_weight_input(weight)
@@ -402,6 +405,20 @@ class BacktestBase(object):
         self.trade_status_mode = trade_status_mode
         self.trade_status_table = trade_status_table
         self.lot_size = int(lot_size)
+        self._preloaded_cost_price = (
+            None if preloaded_cost_price is None else preloaded_cost_price.copy()
+        )
+        self._preloaded_close_price = (
+            None if preloaded_close_price is None else preloaded_close_price.copy()
+        )
+        self._preloaded_trade_status = (
+            None if preloaded_trade_status is None else preloaded_trade_status.copy()
+        )
+        self.data_sources = {
+            'trade_status': 'preloaded' if preloaded_trade_status is not None else 'database',
+            'cost_price': 'preloaded' if preloaded_cost_price is not None else 'database',
+            'daily_price': 'preloaded' if preloaded_close_price is not None else 'database',
+        }
         if self.lot_size < 1:
             raise BacktestDataError(
                 f"lot_size 必须为正整数，当前: {lot_size}")
@@ -498,19 +515,24 @@ class BacktestBase(object):
             return
         dates = [pd.Timestamp(d).strftime('%Y-%m-%d') for d in self.weight.index]
 
-        # === 数据库查询 ===
-        try:
-            ts_db = Datafeed(self.trade_status_table)
+        if self._preloaded_trade_status is not None:
+            status = self._normalize_preloaded_trade_status(
+                self._preloaded_trade_status, weight_codes
+            )
+        else:
+            # === 数据库查询 ===
             try:
-                status = ts_db.query_trade_status(
-                    {'codes': weight_codes, 'dates': dates})
-            finally:
-                ts_db.close()
-        except Exception as e:
-            if self.verbose:
-                warnings.warn(
-                    f"交易状态提取失败（已跳过，按正常交易处理）: {e}", UserWarning)
-            return
+                ts_db = Datafeed(self.trade_status_table)
+                try:
+                    status = ts_db.query_trade_status(
+                        {'codes': weight_codes, 'dates': dates})
+                finally:
+                    ts_db.close()
+            except Exception as e:
+                if self.verbose:
+                    warnings.warn(
+                        f"交易状态提取失败（已跳过，按正常交易处理）: {e}", UserWarning)
+                return
 
         if status is None or status.empty:
             if self.verbose:
@@ -541,6 +563,69 @@ class BacktestBase(object):
 
         # === 按模式应用到权重 ===
         self._apply_trade_status()
+
+    def _normalize_preloaded_trade_status(self, status, weight_codes):
+        """Validate a cached status panel and return the legacy long shape."""
+        if not isinstance(status, pd.DataFrame) or status.empty:
+            raise BacktestDataError("preloaded_trade_status 必须是非空 DataFrame")
+        if {'code', 'datetime', 'value'}.issubset(status.columns):
+            long_status = status.copy()
+        else:
+            wide = status.copy()
+            try:
+                wide.index = pd.DatetimeIndex(pd.to_datetime(wide.index))
+            except Exception as e:
+                raise BacktestDataError(
+                    f"preloaded_trade_status 索引必须可转换为 DatetimeIndex: {e}"
+                ) from e
+            if wide.index.has_duplicates:
+                raise BacktestDataError("preloaded_trade_status 索引不能重复")
+            missing = set(weight_codes) - set(wide.columns)
+            if missing:
+                raise BacktestDataError(
+                    f"preloaded_trade_status 缺少 {len(missing)} 个证券代码: {sorted(missing)[:10]}"
+                )
+            target_by_day = {
+                pd.Timestamp(ts).normalize(): pd.Timestamp(ts)
+                for ts in self.weight.index
+            }
+            available_by_day = {
+                pd.Timestamp(ts).normalize(): pd.Timestamp(ts)
+                for ts in wide.index
+            }
+            missing_days = sorted(set(target_by_day) - set(available_by_day))
+            if missing_days:
+                raise BacktestDataError(
+                    f"preloaded_trade_status 缺少 {len(missing_days)} 个调仓日: "
+                    f"{[day.strftime('%Y-%m-%d') for day in missing_days[:5]]}"
+                )
+            selected = wide.loc[
+                [available_by_day[day] for day in target_by_day],
+                weight_codes,
+            ].copy()
+            selected.index = [target_by_day[day] for day in target_by_day]
+            numeric = selected.apply(pd.to_numeric, errors='coerce')
+            invalid = ~numeric.isin([-1, 0, 1])
+            if numeric.isna().any().any() or invalid.any().any():
+                raise BacktestDataError("preloaded_trade_status 只能包含 -1、0、1")
+            long_status = (
+                numeric.rename_axis(index='datetime', columns='code')
+                .stack(future_stack=True)
+                .rename('value')
+                .reset_index()
+            )
+        long_status = long_status.copy()
+        long_status['datetime'] = pd.to_datetime(long_status['datetime'])
+        long_status['value'] = pd.to_numeric(long_status['value'], errors='coerce')
+        if long_status['value'].isna().any() or not long_status['value'].isin([-1, 0, 1]).all():
+            raise BacktestDataError("preloaded_trade_status 只能包含 -1、0、1")
+        long_status = long_status[long_status['code'].isin(weight_codes)]
+        long_status['status_text'] = long_status['value'].map(
+            {-1: '未上市/无法交易', 0: '停牌', 1: '正常交易'}
+        )
+        if 'name' not in long_status:
+            long_status['name'] = long_status['code']
+        return long_status
 
     def _apply_trade_status(self):
         """
@@ -653,8 +738,6 @@ class BacktestBase(object):
                     warnings.warn(
                         f"交易状态检查失败（已跳过，不影响回测）: {e}", UserWarning)
 
-        db = Datafeed(self.table_name)
-
         # 获取权重中的标的列表（排除cash）
         if 'cash' in self.weight.columns:
             weight_codes = list(self.weight.columns.drop('cash'))
@@ -679,17 +762,27 @@ class BacktestBase(object):
             'time_tolerance': self.time_tolerance,
         }
 
-        # === 数据库查询 ===
-        try:
-            self.cost_price = db.query_nearest_in_range_after(params)
-        except Exception as e:
-            raise BacktestDataError(
-                f"数据库查询失败: {e}\n"
-                f"查询参数: codes={len(weight_codes)}个, ranges={len(ranges)}个\n"
-                f"修复建议: 检查数据库连接和查询参数"
-            ) from e
-        finally:
-            db.close()
+        if self._preloaded_cost_price is not None:
+            self.cost_price = self._normalize_preloaded_cost_price(
+                self._preloaded_cost_price,
+                metric=params['metric'],
+                weight_codes=weight_codes,
+                weight_ts=weight_ts,
+                ranges=ranges,
+            )
+        else:
+            db = Datafeed(self.table_name)
+            # === 数据库查询 ===
+            try:
+                self.cost_price = db.query_nearest_in_range_after(params)
+            except Exception as e:
+                raise BacktestDataError(
+                    f"数据库查询失败: {e}\n"
+                    f"查询参数: codes={len(weight_codes)}个, ranges={len(ranges)}个\n"
+                    f"修复建议: 检查数据库连接和查询参数"
+                ) from e
+            finally:
+                db.close()
 
         # === 验证查询结果 ===
         expected_columns = ['code', 'input_ts', 'datetime', params['metric']]
@@ -839,6 +932,75 @@ class BacktestBase(object):
             ) from e
         
         return self.cost_price
+
+    def _normalize_preloaded_cost_price(
+        self, raw, *, metric, weight_codes, weight_ts, ranges
+    ):
+        """Normalize cached execution prices to query_nearest_in_range_after shape."""
+        if not isinstance(raw, pd.DataFrame) or raw.empty:
+            raise BacktestDataError("preloaded_cost_price 必须是非空 DataFrame")
+        required = {'code', 'input_ts', 'datetime', metric}
+        if required.issubset(raw.columns):
+            result = raw.loc[:, ['code', 'input_ts', 'datetime', metric]].copy()
+            result['input_ts'] = pd.to_datetime(result['input_ts'])
+            result['datetime'] = pd.to_datetime(result['datetime'])
+            result[metric] = pd.to_numeric(result[metric], errors='coerce')
+        else:
+            wide = raw.copy()
+            try:
+                wide.index = pd.DatetimeIndex(pd.to_datetime(wide.index))
+            except Exception as e:
+                raise BacktestDataError(
+                    f"preloaded_cost_price 索引必须可转换为 DatetimeIndex: {e}"
+                ) from e
+            if wide.index.has_duplicates:
+                raise BacktestDataError("preloaded_cost_price 索引不能重复")
+            missing = set(weight_codes) - set(wide.columns)
+            if missing:
+                raise BacktestDataError(
+                    f"preloaded_cost_price 缺少 {len(missing)} 个证券代码: {sorted(missing)[:10]}"
+                )
+            pieces = []
+            for input_ts, (range_start, range_end) in zip(weight_ts, ranges):
+                start = pd.Timestamp(range_start)
+                end = pd.Timestamp(range_end)
+                available = wide.loc[(wide.index >= start) & (wide.index <= end), weight_codes]
+                if available.empty:
+                    continue
+                for code in weight_codes:
+                    values = pd.to_numeric(available[code], errors='coerce').dropna()
+                    if values.empty:
+                        continue
+                    actual_ts = values.index[0]
+                    pieces.append({
+                        'code': code,
+                        'input_ts': input_ts,
+                        'datetime': actual_ts,
+                        metric: float(values.iloc[0]),
+                    })
+            result = pd.DataFrame(pieces, columns=['code', 'input_ts', 'datetime', metric])
+        if result.empty:
+            raise BacktestDataError("preloaded_cost_price 在回测调仓区间内没有有效数据")
+        if result[metric].isna().any() or (result[metric] <= 0).any():
+            raise BacktestDataError("preloaded_cost_price 必须包含正的数值价格")
+        valid_inputs = {pd.Timestamp(ts) for ts in weight_ts}
+        if not set(pd.DatetimeIndex(result['input_ts'])).issubset(valid_inputs):
+            raise BacktestDataError("preloaded_cost_price 包含不属于权重索引的 input_ts")
+        bounds = {
+            pd.Timestamp(input_ts): (pd.Timestamp(start), pd.Timestamp(end))
+            for input_ts, (start, end) in zip(weight_ts, ranges)
+        }
+        invalid_range = result.apply(
+            lambda row: not (
+                bounds[pd.Timestamp(row['input_ts'])][0]
+                <= pd.Timestamp(row['datetime'])
+                <= bounds[pd.Timestamp(row['input_ts'])][1]
+            ),
+            axis=1,
+        )
+        if invalid_range.any():
+            raise BacktestDataError("preloaded_cost_price 的实际成交时间超出对应查询区间")
+        return result
 
     def get_position_data(self):
         # === 计算前验证 ===
@@ -1001,7 +1163,6 @@ class BacktestBase(object):
 
     def get_daily_position_data(self):
         import datetime as dt
-        db = Datafeed(self.table_name)
         
         # === 准备查询参数 ===
         if 'cash' in self.weight.columns:
@@ -1027,22 +1188,31 @@ class BacktestBase(object):
                 f"end 类型: {type(self.end)}, 值: {self.end}"
             ) from e
         
-        # === 数据库查询 ===
-        try:
-            close_price_ts = db.query_time_range(
-                codes=query_codes,
-                start_date=start_date_str,
-                end_date=end_date_str,
-                metric=self.metric,
+        if self._preloaded_close_price is not None:
+            close_price_ts = self._normalize_preloaded_close_price(
+                self._preloaded_close_price,
+                query_codes=query_codes,
+                start=self.start,
+                end=self.end,
             )
-        except Exception as e:
-            raise BacktestDataError(
-                f"query_time_range 查询失败: {e}\n"
-                f"查询参数: codes={len(query_codes)}个, start={start_date_str}, end={end_date_str}\n"
-                f"修复建议: 检查数据库连接和查询参数"
-            ) from e
-        finally:
-            db.close()
+        else:
+            db = Datafeed(self.table_name)
+            # === 数据库查询 ===
+            try:
+                close_price_ts = db.query_time_range(
+                    codes=query_codes,
+                    start_date=start_date_str,
+                    end_date=end_date_str,
+                    metric=self.metric,
+                )
+            except Exception as e:
+                raise BacktestDataError(
+                    f"query_time_range 查询失败: {e}\n"
+                    f"查询参数: codes={len(query_codes)}个, start={start_date_str}, end={end_date_str}\n"
+                    f"修复建议: 检查数据库连接和查询参数"
+                ) from e
+            finally:
+                db.close()
         
         # === 验证查询结果 ===
         expected_columns = ['code', 'datetime', 'value']
@@ -1314,6 +1484,61 @@ class BacktestBase(object):
             ) from e
 
         return self.daily_amount
+
+    def _normalize_preloaded_close_price(self, raw, *, query_codes, start, end):
+        """Normalize cached daily valuation prices to query_time_range shape."""
+        start_bound = pd.Timestamp(start).normalize()
+        end_bound = pd.Timestamp(end).normalize() + pd.Timedelta(days=1)
+        if not isinstance(raw, pd.DataFrame) or raw.empty:
+            raise BacktestDataError("preloaded_close_price 必须是非空 DataFrame")
+        if {'code', 'datetime', 'value'}.issubset(raw.columns):
+            result = raw.loc[:, ['code', 'datetime', 'value']].copy()
+            result['datetime'] = pd.to_datetime(result['datetime'])
+            result['value'] = pd.to_numeric(result['value'], errors='coerce')
+        else:
+            wide = raw.copy()
+            try:
+                wide.index = pd.DatetimeIndex(pd.to_datetime(wide.index))
+            except Exception as e:
+                raise BacktestDataError(
+                    f"preloaded_close_price 索引必须可转换为 DatetimeIndex: {e}"
+                ) from e
+            if wide.index.has_duplicates or not wide.index.is_monotonic_increasing:
+                raise BacktestDataError(
+                    "preloaded_close_price 索引必须唯一且单调递增"
+                )
+            missing = set(query_codes) - set(wide.columns)
+            if missing:
+                raise BacktestDataError(
+                    f"preloaded_close_price 缺少 {len(missing)} 个证券代码: {sorted(missing)[:10]}"
+                )
+            selected = wide.loc[
+                (wide.index >= start_bound) &
+                (wide.index < end_bound),
+                query_codes,
+            ]
+            result = (
+                selected.rename_axis(index='datetime', columns='code')
+                .stack(future_stack=True)
+                .rename('value')
+                .reset_index()
+            )
+        result = result[
+            result['code'].isin(query_codes)
+            & (result['datetime'] >= start_bound)
+            & (result['datetime'] < end_bound)
+        ].copy()
+        if result.empty:
+            raise BacktestDataError("preloaded_close_price 在回测区间内没有有效数据")
+        if result['value'].isna().any() or (result['value'] <= 0).any():
+            raise BacktestDataError("preloaded_close_price 必须包含正的数值价格")
+        covered = set(result['code'])
+        missing = set(query_codes) - covered
+        if missing:
+            raise BacktestDataError(
+                f"preloaded_close_price 缺少 {len(missing)} 个证券代码的区间数据: {sorted(missing)[:10]}"
+            )
+        return result
 
     def dump_to_excel(self, filepath: str) -> str:
         """

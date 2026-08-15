@@ -28,6 +28,7 @@ dashboard/frontend/tsconfig.tsbuildinfo
 .coverage
 htmlcov/
 .tox/
+test/
 
 #日志
 logs/

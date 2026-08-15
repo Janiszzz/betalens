@@ -10,9 +10,9 @@ factor_spec:
     returns_wide: 涨跌幅(%)
   industry_inputs: {}
   compute_kwargs:
-    returns_threshold: 0
-    returns_stddev_window: 20
-    base_power_exponent: 2.0
+    returns_threshold: -0.05
+    returns_stddev_window: 40
+    base_power_exponent: 1.0
     signed_power_base_argmax_window: 5
     rank_ts_argmax_signed_power_center: 0.5
   direction: positive
@@ -21,20 +21,20 @@ factor_spec:
   use_industry: true
   use_mktcap: false
   industry_scheme: 申万一级行业
-  backtest_metric: 开盘价(元)
+  backtest_metric: 收盘价(元)
   required_history_bars: 24
   mask_inputs_by_pit: true
 weight:
-  mode: classic-long-short
-  long_groups: null
-  short_groups: null
+  mode: freeplay
+  long_groups:
+  short_groups: 
   group_weights: {}
   intra_group_allocation: {}
 run:
   start_date: '2024-01-01'
   end_date: '2025-12-31'
   rebal_freq: W
-  n_quantiles: 10
+  n_quantiles: 40
   initial_amount: 100000000
   benchmark_code: 000906.SH
   include_profiling: true

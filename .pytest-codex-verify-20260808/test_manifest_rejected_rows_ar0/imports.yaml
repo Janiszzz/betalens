@@ -1,7 +1,0 @@
-version: 1
-imports:
-  - id: rejected
-    path: bad_remark.csv
-    target: daily_market
-    adapter: standard_long
-    on_rejected: skip

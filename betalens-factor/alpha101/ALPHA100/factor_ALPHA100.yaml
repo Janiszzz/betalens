@@ -25,7 +25,7 @@ factor_spec:
   use_industry: true
   use_mktcap: false
   industry_scheme: 申万一级行业
-  backtest_metric: 开盘价(元)
+  backtest_metric: 收盘价(元)
   required_history_bars: 30
   mask_inputs_by_pit: true
 weight:

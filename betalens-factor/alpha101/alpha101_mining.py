@@ -7,8 +7,6 @@ from typing import Any, Mapping
 import yaml
 
 from alpha101_formulas import (
-    INDUSTRY_INPUTS,
-    MARKET_INPUTS,
     compute_alpha,
     get_definition,
     required_history_bars_for_alpha,
@@ -18,10 +16,6 @@ from factor_template_alpha101 import FactorPipeline, FactorSpec
 
 
 _CLASS_DIR = Path(__file__).resolve().parent
-_ALL_MARKET_INPUTS = {argument: metric for argument, metric in MARKET_INPUTS.values()}
-_ALL_INDUSTRY_INPUTS = {argument: scheme for argument, scheme in INDUSTRY_INPUTS.values()}
-
-
 def _require(params: Mapping[str, Any], key: str) -> Any:
     if key not in params:
         raise KeyError(f"mining params missing required key: {key}")
@@ -47,13 +41,14 @@ def compute_alpha_mining(**kwargs):
 
 
 def make_mining_spec(params: Mapping[str, Any]) -> FactorSpec:
-    """Declare the class-wide cache contract and one candidate's formula settings."""
+    """Declare only the selected Alpha's actual cache inputs."""
     alpha_id = _alpha_id(params)
+    definition = get_definition(alpha_id)
     formula_kwargs = _formula_kwargs(params)
     return FactorSpec(
-        name=get_definition(alpha_id).name,
-        inputs=dict(_ALL_MARKET_INPUTS),
-        industry_inputs=dict(_ALL_INDUSTRY_INPUTS),
+        name=definition.name,
+        inputs=dict(definition.inputs),
+        industry_inputs=dict(definition.industry_inputs),
         compute=compute_alpha_mining,
         compute_kwargs={"alpha_id": alpha_id, **formula_kwargs},
         strategy_type="cross_section",
