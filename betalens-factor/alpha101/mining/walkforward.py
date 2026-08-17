@@ -297,6 +297,7 @@ def _factor_config(
         blas_threads=int(mining.get("blas_threads", 1)),
         search_hash=search_hash,
         runtime_hash=_runtime_hash(mining, alpha_id),
+        candidate_major=bool(mining.get("candidate_major", True)),
     )
 
 

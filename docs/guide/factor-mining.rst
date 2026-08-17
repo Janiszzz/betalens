@@ -199,10 +199,16 @@ Exact 预加载
 多窗口调度
 ----------
 
-Optuna paired 模式使用单一全局事件循环和单一 ``ProcessPoolExecutor``。调度器
-按窗口轮询，优先给不同 TRAIN 窗口各提交一个 trial；MOTPE 每 study 最多一个
-在途 trial。Grid 仅在剩余窗口不足 worker 数时才使用同一 study 的备用容量。
-TEST 只有在对应 TRAIN 锁参写入 SQLite 后才能提交，且不调用 ``tell()``。
+Optuna paired 模式使用单一 ``ProcessPoolExecutor``。当 ``sampler=grid``、
+``engine=vector`` 且 ``candidate_major=true``（默认）时，任务以候选参数为主键：
+每个参数组合在完整 discovery span 上只计算一次因子、截面预处理和信号权重，
+然后在同一 worker 内按各 TRAIN 窗切片计算收益、Sharpe、回撤、Rank IC、覆盖率和
+换手率。进程间只返回紧凑指标表，不传输因子或权重矩阵；全部候选计算完成后再写入
+各窗口的独立 Optuna study，SQLite 不进入计算热路径。每个窗口仍独立锁参，随后
+使用 ``exact`` 引擎运行紧随其后的 TEST。
+
+``candidate_major=false``、MOTPE、exact 粗筛和自定义 weight hook 继续使用原多窗口
+事件循环。兼容调度器按窗口轮询；MOTPE 每 study 最多一个在途 trial。
 
 ``min_workers`` 是硬下限。资源不足时按 ``resource_check_seconds`` 等待，超过
 ``resource_wait_minutes`` 后失败，不静默降到下限以下；运行中低于内存低水位

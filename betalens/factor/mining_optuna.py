@@ -3802,6 +3802,165 @@ def _run_multiwindow_scheduler(
     return train_frames, test_frames, final_ordered
 
 
+def _candidate_major_tasks(config: Any, windows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """Build one full-span task per Grid candidate, never per window."""
+    candidates = _grid_candidates(config.grid, config.paper_params)
+    normalized = [dict(window) for window in windows]
+    tasks = []
+    for order, params in enumerate(candidates):
+        gid = core._resolve_gid(config.factor_module, config.gid_factory, params)
+        rows = []
+        for window in normalized:
+            window_id = hashlib.sha1(
+                f"{window['scheme']}|{window['train_start']}|{window['train_end']}".encode("utf-8")
+            ).hexdigest()[:16]
+            rows.append({
+                "window_id": window_id, "phase": "train", "scheme": window["scheme"],
+                "win_start": window["train_start"], "win_end": window["train_end"],
+                "train_start": window["train_start"], "train_end": window["train_end"],
+                "test_start": window["test_start"], "test_end": window["test_end"],
+                "stage_index": 0, "stage_fraction": 1.0,
+                "candidate_order": order,
+            })
+        tasks.append(_task_dict(
+            config, params, gid, phase="train", scheme="candidate-major",
+            win_start=min(row["win_start"] for row in rows),
+            win_end=max(row["win_end"] for row in rows), windows=rows,
+            candidate_order=order,
+        ))
+    return tasks
+
+
+def _run_candidate_major_compute(
+    config: Any, executor: ProcessPoolExecutor, windows: Sequence[Mapping[str, Any]],
+    logger: logging.Logger,
+) -> pd.DataFrame:
+    """Run candidates in parallel and return only compact window metrics."""
+    tasks = _candidate_major_tasks(config, windows)
+    futures = {executor.submit(core._run_candidate_windows, task): task for task in tasks}
+    rows: list[dict[str, Any]] = []
+    done = 0
+    while futures:
+        finished, _ = wait(tuple(futures), return_when=FIRST_COMPLETED)
+        for future in finished:
+            task = futures.pop(future)
+            result = future.result()
+            rows.extend(result)
+            done += 1
+            logger.info(
+                "CANDIDATE END completed=%d/%d params=%s windows=%d",
+                done, len(tasks), _parameter_key(task["params"]), len(result),
+            )
+    return pd.DataFrame(rows)
+
+
+def _candidate_major_select_and_test(
+    *, optuna: Any, config: Any, storage: Any, cache_paths: Any,
+    executor: ProcessPoolExecutor, logger: logging.Logger, audit_dir: Path,
+    windows: Sequence[Mapping[str, Any]], metrics: pd.DataFrame,
+    pareto_rows: list[dict[str, Any]], oos_rows: list[dict[str, Any]],
+) -> tuple[list[pd.DataFrame], list[pd.DataFrame], pd.DataFrame | None]:
+    """Persist compact metrics per window, lock parameters, then run exact OOS."""
+    distributions = {
+        name: optuna.distributions.CategoricalDistribution(list(values))
+        for name, values in config.grid.items()
+    }
+    train_frames: list[pd.DataFrame] = []
+    test_frames: list[pd.DataFrame] = []
+    final_ordered = None
+    final_end = None
+    completed_oos = {
+        (row.get("scheme"), row.get("train_start"), row.get("train_end"), row.get("test_start"), row.get("test_end"))
+        for row in oos_rows
+    }
+    for source in windows:
+        window = dict(source)
+        window_id = hashlib.sha1(
+            f"{window['scheme']}|{window['train_start']}|{window['train_end']}".encode("utf-8")
+        ).hexdigest()[:16]
+        frame = metrics[metrics["window_id"].astype(str) == window_id].copy()
+        if frame.empty:
+            raise RuntimeError(f"candidate-major worker produced no metrics for window={window_id}")
+        name = _study_name(
+            str(config.search_hash), "train", window["scheme"],
+            window["train_start"], window["train_end"],
+        )
+        study = _make_study(optuna, config, storage, name, logger)
+        existing = {
+            _parameter_key(trial.params): trial for trial in study.get_trials(deepcopy=False)
+            if trial.state.is_finished()
+        }
+        templates = []
+        for row in frame.to_dict("records"):
+            params = {name: row[name] for name in config.grid}
+            if _parameter_key(params) in existing:
+                continue
+            objectives = (row.get("robust_rank_ic"), row.get("sharpe"))
+            valid = not row.get("error") and all(
+                value is not None and np.isfinite(float(value)) for value in objectives
+            )
+            payload = {
+                "candidate_id": _candidate_id(params),
+                "candidate_order": int(row.get("candidate_order", 0)),
+                "stage_results": [{
+                    "stage_index": 0, "stage_fraction": 1.0,
+                    "stage_end": window["train_end"], "result": _jsonable(row),
+                }],
+                "result": _jsonable(row),
+            }
+            templates.append(optuna.trial.create_trial(
+                state=optuna.trial.TrialState.COMPLETE if valid else optuna.trial.TrialState.FAIL,
+                values=list(objectives) if valid else None,
+                params=params, distributions=distributions,
+                user_attrs={"betalens": payload},
+            ))
+        if templates:
+            study.add_trials(templates)
+        trial_frame, ordered, reason = _lock_window_study(study, config)
+        train_frames.append(trial_frame)
+        pareto_rows.extend(
+            ordered.assign(
+                study_name=study.study_name, phase="train", window_id=window_id
+            ).to_dict("records")
+        )
+        locked = ordered.iloc[0]
+        params = json.loads(str(locked["params_json"]))
+        train_end = pd.Timestamp(window["train_end"])
+        if final_end is None or train_end > final_end:
+            final_ordered, final_end = ordered, train_end
+        logger.info(
+            "LOCK window=%s trial=%d reason=%s params=%s",
+            window_id, int(locked["trial_number"]), reason, locked["params_json"],
+        )
+        oos_key = (
+            window["scheme"], window["train_start"], window["train_end"],
+            window["test_start"], window["test_end"],
+        )
+        if oos_key in completed_oos:
+            continue
+        task = _oos_task(
+            config, params, phase="test", scheme=window["scheme"],
+            start=window["test_start"], end=window["test_end"],
+            trial_number=int(locked["trial_number"]), audit_dir=audit_dir,
+            engine="exact",
+        )
+        result = core.run_tasks(config, [task], cache_paths, executor=executor)
+        if result.empty:
+            raise RuntimeError(f"exact TEST returned no result for window={window_id}")
+        value = result.iloc[0].to_dict()
+        test_frames.append(pd.DataFrame([{**value, "params": params}]))
+        oos_rows.append({
+            "window_id": window_id, **window,
+            "trial_number": int(locked["trial_number"]),
+            "candidate_id": _candidate_id(params), "params_json": _parameter_key(params),
+            **{key: value.get(key) for key in (
+                "robust_rank_ic", "mean_rank_ic", "sharpe", "mdd", "turnover",
+                "ic_coverage", "error", "task_log_path", "worker_pid",
+            )},
+        })
+    return train_frames, test_frames, final_ordered
+
+
 def run_optuna_walk_forward(config: Any) -> dict[str, pd.DataFrame]:
     try:
         import optuna
@@ -3978,17 +4137,32 @@ def run_optuna_walk_forward(config: Any) -> dict[str, pd.DataFrame]:
             }
             for train_start, train_end, test_start, test_end, scheme in pairs
         ]
-        train_frames, test_frames, final_ordered = _run_multiwindow_scheduler(
-            optuna=optuna, config=config, storage=storage, cache_paths=cache_paths,
-            executor=executor, logger=logger, audit_dir=audit_dir, windows=windows,
-            pareto_rows=pareto_rows, candidate_rows=candidate_rows, oos_rows=oos_rows,
-            status=status, database_path=database_path, snapshot_path=snapshot_path,
-            mirror_callback=mirror, legacy_index=None,
-            heartbeat_callback=lambda: (
-                _heartbeat_lock(lock_path, owner), _heartbeat_worker_slots(slot_owner)
-            ),
-            snapshot_callback=lambda: _request_snapshot(snapshot_requests),
-        )
+        candidate_major = bool(getattr(config, "candidate_major", True))
+        if candidate_major and str(config.sampler).lower() == "grid" and str(config.engine).lower() == "vector":
+            logger.info(
+                "CANDIDATE MAJOR enabled candidates=%d windows=%d: full-span compute then window slicing",
+                len(candidates), len(windows),
+            )
+            metrics = _run_candidate_major_compute(config, executor, windows, logger)
+            _atomic_csv(audit_dir / "candidate_window_metrics.csv", metrics)
+            train_frames, test_frames, final_ordered = _candidate_major_select_and_test(
+                optuna=optuna, config=config, storage=storage, cache_paths=cache_paths,
+                executor=executor, logger=logger, audit_dir=audit_dir,
+                windows=windows, metrics=metrics, pareto_rows=pareto_rows,
+                oos_rows=oos_rows,
+            )
+        else:
+            train_frames, test_frames, final_ordered = _run_multiwindow_scheduler(
+                optuna=optuna, config=config, storage=storage, cache_paths=cache_paths,
+                executor=executor, logger=logger, audit_dir=audit_dir, windows=windows,
+                pareto_rows=pareto_rows, candidate_rows=candidate_rows, oos_rows=oos_rows,
+                status=status, database_path=database_path, snapshot_path=snapshot_path,
+                mirror_callback=mirror, legacy_index=None,
+                heartbeat_callback=lambda: (
+                    _heartbeat_lock(lock_path, owner), _heartbeat_worker_slots(slot_owner)
+                ),
+                snapshot_callback=lambda: _request_snapshot(snapshot_requests),
+            )
 
         if final_ordered is None:
             raise RuntimeError("no final calibration candidates")

@@ -161,6 +161,9 @@ class RollingMiningConfig:
     blas_threads: int = 1
     search_hash: str = ""
     runtime_hash: str = ""
+    # Grid/vector optimization: compute each candidate once for the complete
+    # discovery span and score rolling windows by slicing in the same worker.
+    candidate_major: bool = True
 
 
 _CACHE_DATA: dict[str, Any] | None = None
@@ -1479,6 +1482,111 @@ def _run_task_batch(tasks: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
         result["batch_elapsed_seconds"] = batch_elapsed
         result["batch_size"] = len(tasks)
     return results
+
+
+def _run_candidate_windows(task: dict[str, Any]) -> list[dict[str, Any]]:
+    """Compute one candidate once, then score all requested rolling windows."""
+    from betalens.factor.factor import get_single_factor_weight, single_characteristic
+
+    if _CACHE_DATA is None:
+        raise RuntimeError("mining cache is not initialized")
+    if str(task.get("engine", "vector")) != "vector":
+        raise ValueError("candidate-major scoring currently requires engine='vector'")
+    params = dict(task["params"])
+    windows = [dict(window) for window in task.get("windows", ())]
+    if not windows:
+        return []
+    try:
+        spec = _load_spec(task["factor_module"], task["spec_factory"], params)
+        if getattr(spec, "weight_mode", "freeplay") in ("event", "timing") or task.get("weight_hook"):
+            raise ValueError("candidate-major scoring does not support custom weight hooks")
+        span_start = min(pd.Timestamp(window["win_start"]) for window in windows)
+        span_end = max(pd.Timestamp(window["win_end"]) for window in windows)
+        fetch_start = (
+            span_start - pd.Timedelta(days=int(task["warmup_days"]))
+        ).strftime("%Y-%m-%d")
+        trade_status = _CACHE_DATA.get("trade_status")
+        trade_days = (
+            pd.DatetimeIndex(np.asarray(trade_status["dates"], dtype=np.int64))
+            if isinstance(trade_status, Mapping) and "dates" in trade_status else None
+        )
+        window_pairs = [
+            _task_signal_rebalance_pairs(
+                window["win_start"], window["win_end"], fetch_start,
+                task["rebal_freq"], trade_days,
+            )
+            for window in windows
+        ]
+        signal_dates = sorted({signal for pairs in window_pairs for signal, _rebalance in pairs})
+        if not signal_dates:
+            raise ValueError("no signal dates")
+        input_names = list(dict.fromkeys([
+            *getattr(spec, "inputs", {}), *getattr(spec, "industry_inputs", {}),
+        ]))
+        wides = {
+            name: _cache_frame(
+                _CACHE_DATA["inputs"][name], fetch_start, span_end + pd.Timedelta(days=1)
+            )
+            for name in input_names
+        }
+        factor_wide = spec.compute(**wides, **getattr(spec, "compute_kwargs", {}))
+        prequery = filter_long_by_pit_universe(
+            wide_to_prequery(factor_wide, spec.name, signal_dates), _PIT_UNIVERSE
+        )
+        prequery = _preprocess_if_needed(
+            prequery, spec, signal_dates, _CACHE_DATA.get("universe") or [],
+            fetch_start, span_end.strftime("%Y-%m-%d"),
+        )
+        if prequery.empty:
+            raise ValueError("empty prequery")
+        quantiles = int(params[task["n_quantiles_param"]])
+        labeled = single_characteristic(prequery, spec.name, {spec.name: quantiles})
+        long_groups, short_groups = _resolve_groups(spec, quantiles)
+        signal_weights = get_single_factor_weight(labeled, {
+            "factor_key": spec.name,
+            "mode": getattr(spec, "weight_mode", "freeplay"),
+            "long": long_groups,
+            "short": short_groups,
+        })
+        price = _cache_frame(
+            _CACHE_DATA["price"], fetch_start, span_end + pd.Timedelta(days=40)
+        )
+        execution = _cache_frame(
+            _CACHE_DATA.get("execution_price", _CACHE_DATA["price"]),
+            fetch_start, span_end + pd.Timedelta(days=40),
+        )
+        rows = []
+        started = time.perf_counter()
+        for window, pairs in zip(windows, window_pairs, strict=True):
+            row = {**params, **window, "gid": task["gid"], "worker_pid": os.getpid()}
+            weights = _weights_on_rebalance_days(signal_weights, pairs)
+            if weights.empty:
+                row["error"] = "empty weights"
+            else:
+                codes = [
+                    column for column in weights.columns
+                    if column != "cash" and weights[column].fillna(0.0).abs().sum() > 0
+                ]
+                weights = weights.loc[:, codes + (["cash"] if "cash" in weights.columns else [])]
+                row.update(metrics_from_nav(_vector_backtest(weights, price)))
+                row.update(robust_rank_ic_metrics(factor_wide, execution, pairs))
+                row["turnover"] = mean_one_way_turnover(weights)
+                row["wide_rows"], row["wide_columns"] = factor_wide.shape
+                row["weight_rows"], row["weight_columns"] = weights.shape
+                row["error"] = None
+            rows.append(row)
+        elapsed = round(time.perf_counter() - started, 6)
+        for row in rows:
+            row["candidate_window_seconds"] = elapsed
+            row["candidate_window_count"] = len(windows)
+        return rows
+    except Exception as exc:
+        traceback.print_exc()
+        error = f"{type(exc).__name__}: {exc}"
+        return [
+            {**params, **window, "gid": task.get("gid", ""), "worker_pid": os.getpid(), "error": error}
+            for window in windows
+        ]
 
 
 def _cache_paths(cache_dir: str | Path) -> CachePaths:

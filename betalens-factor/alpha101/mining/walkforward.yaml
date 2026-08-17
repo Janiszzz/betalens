@@ -1,6 +1,6 @@
 mining:
   # all 表示依次挖掘 ALPHA1~ALPHA101；也可写成 [1, 58, 65]。
-  factors: [1]
+  factors: [2]
 
   # OneDrive 输出目录只接收异步审计镜像和最终结果。活动缓存、SQLite、日志
   # 默认位于 %LOCALAPPDATA%/Betalens/mining/<ALPHA>/<search_hash>。
@@ -47,6 +47,8 @@ mining:
 
   # 滚动粗筛使用 vector；VALID 前三名仍会调用标准 FactorPipeline exact 回测。
   engine: vector
+  # 每个参数组合只在完整 discovery span 上计算一次；各滚动窗口仅切片评价。
+  candidate_major: true
   workers: 12
   min_workers: 10
   max_workers: 12
