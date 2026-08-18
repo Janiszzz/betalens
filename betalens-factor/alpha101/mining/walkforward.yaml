@@ -37,9 +37,9 @@ mining:
   objective: robust_rank_ic
   objective_higher_is_better: true
   constraints:
-    ic_coverage_min: 0.80
+    ic_coverage_min: null
     max_drawdown_max: 0.35
-    turnover_max: 1.00
+    turnover_max: null
 
   # 每个 TRAIN 窗独立锁定唯一参数，只用于紧随其后的 TEST。
   # 最后一个完整 TRAIN 窗的前 3 个锁参候选进入整段 VALID，由 exact 引擎生成报告。
