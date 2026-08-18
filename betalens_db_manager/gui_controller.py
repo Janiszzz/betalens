@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -20,6 +22,7 @@ from .utils import json_default
 
 
 SUPPORTED_IMPORT_SUFFIXES = (".csv", ".csv.gz", ".xls", ".xlsx", ".parquet", ".pq")
+DEFAULT_MAX_FILE_WORKERS = 8
 ProgressCallback = Callable[[dict[str, Any]], None]
 
 
@@ -287,6 +290,17 @@ class GuiController:
             json.dumps(payload, ensure_ascii=False, sort_keys=True, default=json_default).encode("utf-8")
         ).hexdigest()
 
+    @staticmethod
+    def _file_workers(file_count: int, max_workers: int | None) -> int:
+        """Return a bounded worker count for file-level I/O and parsing."""
+
+        if max_workers is not None:
+            if isinstance(max_workers, bool) or not isinstance(max_workers, int) or max_workers <= 0:
+                raise ValueError("max_workers 必须是正整数")
+            return max(1, min(file_count, max_workers))
+        cpu_count = os.cpu_count() or 1
+        return max(1, min(file_count, DEFAULT_MAX_FILE_WORKERS, cpu_count + 4))
+
     def preflight_import(
         self,
         paths: Sequence[str | Path],
@@ -296,6 +310,7 @@ class GuiController:
         mode: str = INSERT_ONLY,
         options: Mapping[str, Any] | None = None,
         progress: ProgressCallback | None = None,
+        max_workers: int | None = None,
     ) -> FileImportPlan:
         if not self.is_online():
             raise RuntimeError("请先连接数据库")
@@ -307,22 +322,28 @@ class GuiController:
         files = self.discover_files(paths)
         if not files:
             raise ValueError("未找到可导入的 CSV、Excel 或 Parquet 文件")
-        items: list[FileImportItem] = []
+        worker_count = self._file_workers(len(files), max_workers)
+        items: list[FileImportItem | None] = [None] * len(files)
         with self.operations.claim("check-files"):
-            for position, path in enumerate(files, start=1):
-                if progress is not None:
-                    progress({"current": position, "total": len(files), "message": f"检查 {path.name}"})
-                try:
-                    preview = self.runner.preview(
+            futures = {}
+            with ThreadPoolExecutor(max_workers=worker_count, thread_name_prefix="db-import-check") as executor:
+                for position, path in enumerate(files):
+                    future = executor.submit(
+                        self.runner.preview,
                         path,
                         import_type=adapter,
-                        options=normalized_options,
+                        options=dict(normalized_options),
                         table=table,
                         mode=mode,
                         inspect_database=False,
                     )
-                    items.append(
-                        FileImportItem(
+                    futures[future] = (position, path)
+                completed = 0
+                for future in as_completed(futures):
+                    position, path = futures[future]
+                    try:
+                        preview = future.result()
+                        items[position] = FileImportItem(
                             path=path,
                             source_sha256=preview.get("source_sha256"),
                             preview_token=preview.get("preview_token"),
@@ -334,16 +355,30 @@ class GuiController:
                                 if isinstance(row, Mapping)
                             ),
                         )
-                    )
-                except Exception as exc:
-                    items.append(FileImportItem(path=path, source_sha256=None, preview_token=None, error=str(exc)))
+                    except Exception as exc:
+                        items[position] = FileImportItem(
+                            path=path,
+                            source_sha256=None,
+                            preview_token=None,
+                            error=str(exc),
+                        )
+                    completed += 1
+                    if progress is not None:
+                        progress(
+                            {
+                                "current": completed,
+                                "total": len(files),
+                                "message": f"检查完成 {path.name}",
+                            }
+                        )
+        resolved_items = tuple(item for item in items if item is not None)
         return FileImportPlan(
             table=table,
             adapter=adapter,
             mode=mode,
             options=normalized_options,
-            items=tuple(items),
-            fingerprint=self._plan_fingerprint(table, adapter, mode, normalized_options, items),
+            items=resolved_items,
+            fingerprint=self._plan_fingerprint(table, adapter, mode, normalized_options, resolved_items),
             source_label="; ".join(str(Path(value).expanduser()) for value in paths),
         )
 
@@ -352,24 +387,34 @@ class GuiController:
         plan: FileImportPlan,
         *,
         progress: ProgressCallback | None = None,
+        max_workers: int | None = None,
     ) -> dict[str, Any]:
         current = self._plan_fingerprint(
             plan.table, plan.adapter, plan.mode, plan.options, plan.items
         )
         if current != plan.fingerprint:
             raise StalePlanError("文件预检结果已失效，请重新检查文件")
-        records: list[dict[str, Any]] = []
+        worker_count = self._file_workers(len(plan.items), max_workers)
+        records: list[dict[str, Any] | None] = [None] * len(plan.items)
         with self.operations.claim("import-files"):
-            for position, item in enumerate(plan.items, start=1):
+            ready_positions: list[tuple[int, FileImportItem]] = []
+            completed = 0
+            for position, item in enumerate(plan.items):
                 if not item.ready:
-                    records.append(
-                        {"path": str(item.path), "status": "skipped", "error": item.error or "文件未通过检查"}
-                    )
-                    continue
-                if progress is not None:
-                    progress({"current": position, "total": len(plan.items), "message": f"导入 {item.path.name}"})
-                try:
-                    record = self.runner.run(
+                    records[position] = {
+                        "path": str(item.path),
+                        "status": "skipped",
+                        "error": item.error or "文件未通过检查",
+                    }
+                    completed += 1
+                else:
+                    ready_positions.append((position, item))
+
+            futures = {}
+            with ThreadPoolExecutor(max_workers=worker_count, thread_name_prefix="db-import-run") as executor:
+                for position, item in ready_positions:
+                    future = executor.submit(
+                        self.runner.run,
                         item.path,
                         table=plan.table,
                         import_type=plan.adapter,
@@ -379,29 +424,41 @@ class GuiController:
                         preview_token=item.preview_token,
                         on_rejected="fail",
                     )
-                    records.append(record)
-                except Exception as exc:
-                    # Each file is independently atomic in ImportJobRunner.
-                    # Keep working through a folder so one bad spreadsheet
-                    # does not hide successful imports from the user.
-                    records.append(
-                        {
+                    futures[future] = (position, item)
+                for future in as_completed(futures):
+                    position, item = futures[future]
+                    try:
+                        records[position] = future.result()
+                    except Exception as exc:
+                        # Each file is independently atomic in ImportJobRunner.
+                        # Keep working through a folder so one bad spreadsheet
+                        # does not hide successful imports from the user.
+                        records[position] = {
                             "path": str(item.path),
                             "status": "failed",
                             "error": str(exc),
                         }
-                    )
-        failures = [record for record in records if record.get("status") not in {"completed", "skipped"}]
-        skipped = [record for record in records if record.get("status") == "skipped"]
+                    completed += 1
+                    if progress is not None:
+                        progress(
+                            {
+                                "current": completed,
+                                "total": len(plan.items),
+                                "message": f"导入完成 {item.path.name}",
+                            }
+                        )
+        resolved_records = [record for record in records if record is not None]
+        failures = [record for record in resolved_records if record.get("status") not in {"completed", "skipped"}]
+        skipped = [record for record in resolved_records if record.get("status") == "skipped"]
         return {
             "status": "completed" if not failures and not skipped else "completed_with_errors",
             "table": plan.table,
             "adapter": plan.adapter,
             "total_files": len(records),
-            "completed_files": sum(record.get("status") == "completed" for record in records),
+            "completed_files": sum(record.get("status") == "completed" for record in resolved_records),
             "failed_files": len(failures),
             "skipped_files": len(skipped),
-            "items": records,
+            "items": resolved_records,
         }
 
     def query(self, request: QueryRequest):
@@ -427,6 +484,7 @@ __all__ = [
     "FileImportPlan",
     "GuiController",
     "OperationRegistry",
+    "DEFAULT_MAX_FILE_WORKERS",
     "SUPPORTED_IMPORT_SUFFIXES",
     "StalePlanError",
 ]

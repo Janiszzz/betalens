@@ -117,13 +117,20 @@ worker 只收到普通字典，不连接 Optuna storage。并行只由一个
 SQLite 与恢复
 -------------
 
-默认每个因子在自身 ``output_dir`` 创建 ``study.sqlite3`` 和原子
-``.study.lock``。只有协调主进程写库；连接使用 ``busy_timeout=30s``、
-``journal_mode=DELETE``、``synchronous=FULL``，活动连接池收紧为
+默认每个因子的活动目录位于本地
+``%LOCALAPPDATA%/Betalens/mining/<ALPHA>/<search_hash>``，其中创建
+``study.sqlite3``、协调锁和 worker-slot 锁。只有协调主进程写库；本地 SQLite
+使用 ``WAL``、``synchronous=NORMAL``、``busy_timeout=30s``、
 ``pool_size=1``、``max_overflow=0``。数据库锁按 1、2、4 秒退避重试。
-每批 trial 及每个 TRAIN/TEST 对结束后，通过 SQLite online backup 生成
-``study.snapshot.sqlite3``。重启时遗留 RUNNING trial 标记为
-``FAIL/stale_after_restart``，相同参数重新入队。
+周期 SQLite online backup 在单独线程运行并合并重复请求；OneDrive 输出目录
+每 60 秒原子镜像审计文件和一致快照，不进入计算热路径。
+
+``search_hash`` 只包含公式、搜索空间、窗口、目标、约束、数据口径和数据库
+``dataset_coverage``/交易日历签名；worker
+数量、运行目录和审计频率进入 ``runtime_hash``，调整性能参数不会使历史 trial
+失效。重启时遗留 RUNNING trial 标记为 ``FAIL/stale_after_restart``，并按稳定
+``candidate_id`` 重新入队。发现旧 OneDrive ``.study.lock`` 的 PID 仍活动时，
+新协调器拒绝启动；旧任务退出后才通过 SQLite backup 认领已有 study。
 
 ``storage_url`` 可显式改为本地 scratch SQLite URL 或 PostgreSQL URL；框架
 不会因 OneDrive 锁错误自动改变 storage。``Ctrl+C`` 会停止提交、取消未开始
@@ -150,7 +157,15 @@ partial 文件保留用于中断对账。
 缓存
 ----
 
-挖掘会把宽表数据、PIT 股票池和元数据写入 cache 目录。默认 cache 在 ``output_dir`` 下，也可用 ``cache_dir`` 指定。
+挖掘缓存使用 immutable memmap-v3。每个数值宽表分别保存为 ``float64 .npy``，
+PIT 股票池保存为布尔矩阵，交易状态保存为 ``int8``，行业标签保存为 ``int32``
+编码和字典。worker 以 ``mmap_mode='r'`` 打开共享文件，只把当前窗口和预热期
+切片转换为 DataFrame，不再为每个进程反序列化整份 pickle。
+
+缓存构建使用独立 build lock，先写 staging，最后原子发布 ``READY.json``；
+发布前校验 shape 与 SHA-256，日期和证券轴按内容寻址并跨字段复用；发布后读取
+不加锁。v3 不迁移旧 ``mining_cache.pkl`` / ``pit_universe.pkl``，
+配置不匹配时直接构建新 generation。
 
 当 ``FactorSpec.industry_inputs`` 非空，cache 同时保存行业标签宽表；当
 ``mask_inputs_by_pit: true`` 时，行情和行业输入会在公式计算前按逐日 PIT
@@ -166,6 +181,40 @@ partial 文件保留用于中断对账。
    **/_walkforward/_cache/
 
 已有 `.gitignore` 包含这些目录。若历史缓存已被跟踪，需单独从索引移除。
+
+Exact 预加载
+------------
+
+``BacktestBase`` 在参数末尾提供三个仅限关键字的可选输入：
+``preloaded_cost_price``、``preloaded_close_price`` 和
+``preloaded_trade_status``。Mining exact worker 从 memmap 分别截取成交价、收盘估值价
+和交易状态后传入；
+三项齐全时不创建 Datafeed 连接。未传入时仍走原数据库查询。
+
+预加载数据与数据库结果进入相同的日期/证券/价格校验、停牌处理、整数手成交、
+现金、持仓和净值计算流程。格式错误会抛出 ``BacktestDataError``，不会静默
+回退数据库。``engine.data_sources`` 记录每条数据链路实际使用
+``preloaded`` 还是 ``database``，供 worker 日志审计。
+
+多窗口调度
+----------
+
+Optuna paired 模式使用单一 ``ProcessPoolExecutor``。当 ``sampler=grid``、
+``engine=vector`` 且 ``candidate_major=true``（默认）时，任务以候选参数为主键：
+每个参数组合在完整 discovery span 上只计算一次因子、截面预处理和信号权重，
+然后在同一 worker 内按各 TRAIN 窗切片计算收益、Sharpe、回撤、Rank IC、覆盖率和
+换手率。进程间只返回紧凑指标表，不传输因子或权重矩阵；全部候选计算完成后再写入
+各窗口的独立 Optuna study，SQLite 不进入计算热路径。每个窗口仍独立锁参，随后
+使用 ``exact`` 引擎运行紧随其后的 TEST。
+
+``candidate_major=false``、MOTPE、exact 粗筛和自定义 weight hook 继续使用原多窗口
+事件循环。兼容调度器按窗口轮询；MOTPE 每 study 最多一个在途 trial。
+
+``min_workers`` 是硬下限。资源不足时按 ``resource_check_seconds`` 等待，超过
+``resource_wait_minutes`` 后失败，不静默降到下限以下；运行中低于内存低水位
+会暂停补任务，达到恢复水位后继续。BLAS/NumExpr 线程固定为 1，避免进程内
+嵌套并行。启动时会在短生命周期 worker 中映射真实 cache，读取 private bytes，
+再预留 25% 放大、至少 8 GB 物理内存和 15% commit 余量。
 
 引擎选择
 --------

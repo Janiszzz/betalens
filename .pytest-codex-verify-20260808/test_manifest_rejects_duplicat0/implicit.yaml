@@ -1,5 +1,0 @@
-version: 1
-imports:
-  - id: one
-    path: market.csv
-    target: daily_market
