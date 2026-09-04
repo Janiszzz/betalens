@@ -1,0 +1,40 @@
+meta:
+  class: research
+  name: COURSE_MOM
+  source: Betalens 研究员课程，自定义动量教学例
+  formula: close / delay(close, window) - 1
+  logic: 检验历史涨幅与后续相对收益的关系，未提供有效性结论。
+  strategy_type: cross_sectional
+factor_spec:
+  inputs:
+    close_wide: 收盘价(元)
+  industry_inputs: {}
+  compute_kwargs:
+    window: 20
+  direction: positive
+  table_name: daily_market
+  index_code: 000906.SH
+  use_industry: false
+  use_mktcap: false
+  industry_scheme: 申万一级行业
+  backtest_metric: 收盘价(元)
+  required_history_bars: 21
+  mask_inputs_by_pit: false
+weight:
+  mode: freeplay
+  long_groups: [max]
+  short_groups: [min]
+  group_weights: {}
+  intra_group_allocation: {}
+run:
+  start_date: '2024-01-01'
+  end_date: '2024-06-30'
+  rebal_freq: W
+  grouping_mode: equal_count
+  n_quantiles: 5
+  initial_amount: 100000000
+  benchmark_code: null
+  include_profiling: true
+  dump_excel: true
+  warmup_days: null
+  output_dir: outputs/runs/course_mom_01

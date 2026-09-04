@@ -1,0 +1,32 @@
+# Betalens 维护协作说明示例
+
+这是供新人参考的模板，不是仓库根目录已生效指令；采用前按团队实际约定调整。
+
+## 架构
+
+- 研究 Python 包在 betalens/，因子实验脚本与完整 YAML 在 betalens-factor/。
+- 只读取数用 Datafeed，建库/导入/写入由 betalens_db_manager 承担。
+- Dashboard 使用 FastAPI + React/TypeScript；序列化与前端 types 同步。
+- PostgreSQL 保存研究数据；本地 SQLite 保存管理/挖掘任务信息。
+
+## 修改方式
+
+- 先明确输入输出、时间戳、单位、缺失值和副作用，再修改实现。
+- 保留具名参数、完整 YAML、无回测副作用的因子 import 约定。
+- 修复研究口径时说明历史结果的兼容性，不静默改变定义。
+- 不改已应用 migration 来升级结构，新增版本并同步 contract/registry。
+- 不在日志或示例中包含数据库密码。
+
+## 验证
+
+- 核心入门测试：python -m pytest tests/test_factor_grouping.py tests/test_backtest.py -q
+- 完整测试按改动风险和 docs/learning_coding/07_环境测试与已知边界.md 选择。
+- 前端构建在 dashboard/frontend 执行 npm run build；仓库没有声明 npm test/lint。
+- 接口索引：python docs/learning_coding/build_catalog.py，再加 --check。
+- 数据库写入、迁移和删除验证使用隔离测试库。
+
+## 交付
+
+- 描述具体问题、最终行为、验证结果和未验证部分。
+- 记录配置、代码版本和数据条件，不能只给净值截图。
+- 已知源码/文档差异先核对，不把注释意图当作实际实现。
