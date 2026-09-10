@@ -7,7 +7,11 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from betalens.factor.config import load_yaml_config, section
+from betalens.factor.config import (
+    load_yaml_config,
+    resolve_preprocessing_options,
+    section,
+)
 
 from .schemas import FactorDetail, FactorSummary
 
@@ -93,6 +97,12 @@ def effective_factor_defaults(spec_data: dict[str, Any], factor_cfg: dict[str, A
     factor_spec = section(factor_cfg, "factor_spec")
     weight = section(factor_cfg, "weight")
     run = section(factor_cfg, "run")
+    preprocessing = resolve_preprocessing_options(
+        factor_spec,
+        legacy_enabled=bool(
+            factor_spec.get("use_industry") or factor_spec.get("use_mktcap")
+        ),
+    )
     defaults = dict(run)
     defaults.update(
         {
@@ -100,6 +110,7 @@ def effective_factor_defaults(spec_data: dict[str, Any], factor_cfg: dict[str, A
             "index_code": factor_spec.get("index_code"),
             "use_industry": factor_spec.get("use_industry"),
             "use_mktcap": factor_spec.get("use_mktcap"),
+            **preprocessing,
             "industry_scheme": factor_spec.get("industry_scheme"),
             "backtest_metric": factor_spec.get("backtest_metric"),
             "weight_mode": weight.get("mode"),

@@ -10,20 +10,24 @@ factor_spec:
     volume_wide: 成交量(股)
   industry_inputs: {}
   compute_kwargs:
-    volume_delta_lag: 29
+    volume_delta_lag: 46
     close_delta_lag: 11
   direction: positive
   table_name: daily_market
   index_code: 000906.SH
   use_industry: true
   use_mktcap: false
+  winsorize_method: none
+  winsorize_n: 3.0
+  standardize_method: zscore
+  neutralize: true
   industry_scheme: 申万一级行业
   backtest_metric: 收盘价(元)
   required_history_bars: 2
   mask_inputs_by_pit: true
 weight:
   mode: freeplay
-  long_groups: [39]
+  long_groups: "max"
   short_groups: null
   group_weights: {}
   intra_group_allocation: {}

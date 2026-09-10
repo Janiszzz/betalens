@@ -312,6 +312,10 @@ const buildRunParams = (defaults: Record<string, unknown>) => ({
   direction: asString(defaults.direction, 'positive'),
   use_industry: asBool(defaults.use_industry),
   use_mktcap: asBool(defaults.use_mktcap),
+  winsorize_method: asString(defaults.winsorize_method, 'none'),
+  winsorize_n: asNumber(defaults.winsorize_n, 3),
+  standardize_method: asString(defaults.standardize_method, 'none'),
+  neutralize: asBool(defaults.neutralize),
   industry_scheme: asString(defaults.industry_scheme, '申万一级行业'),
   backtest_metric: asString(defaults.backtest_metric, '收盘价(元)'),
   weight_mode: asString(defaults.weight_mode, 'freeplay'),
@@ -845,6 +849,29 @@ function ParameterPanel({
       {'pretom_hi' in params ? <LabeledInput label="PreTOM终点" type="number" value={asString(params.pretom_hi)} onChange={(v) => onParam('pretom_hi', Number(v))} /> : null}
       {!isTiming ? (
         <>
+          <h3><Settings size={16} />预处理</h3>
+          <label className="field">
+            截尾方法
+            <select value={asString(params.winsorize_method, 'none')} onChange={(event) => onParam('winsorize_method', event.target.value)}>
+              <option value="none">关闭</option>
+              <option value="mad">MAD</option>
+              <option value="percentile">分位数</option>
+              <option value="std">标准差</option>
+            </select>
+          </label>
+          {asString(params.winsorize_method, 'none') !== 'none' ? (
+            <LabeledInput label="截尾阈值" type="number" value={asString(params.winsorize_n)} onChange={(v) => onParam('winsorize_n', Number(v))} />
+          ) : null}
+          <label className="field">
+            标准化方法
+            <select value={asString(params.standardize_method, 'none')} onChange={(event) => onParam('standardize_method', event.target.value)}>
+              <option value="none">关闭</option>
+              <option value="zscore">Z-score</option>
+              <option value="rank">Rank</option>
+              <option value="minmax">Min-max</option>
+            </select>
+          </label>
+          <label className="field inline"><input type="checkbox" checked={Boolean(params.neutralize)} onChange={(event) => onParam('neutralize', event.target.checked)} />启用中性化</label>
           <label className="field inline"><input type="checkbox" checked={Boolean(params.use_industry)} onChange={(event) => onParam('use_industry', event.target.checked)} />行业中性化</label>
           <label className="field inline"><input type="checkbox" checked={Boolean(params.use_mktcap)} onChange={(event) => onParam('use_mktcap', event.target.checked)} />市值中性化</label>
           <label className="field inline"><input type="checkbox" checked={Boolean(params.include_profiling)} onChange={(event) => onParam('include_profiling', event.target.checked)} />Profiling</label>
@@ -1624,6 +1651,17 @@ function BacktestChartPanels({
   const groupNames = Array.from(new Set(groupNav.map((row) => asString(row.group)))).sort(
     (left, right) => asNumber(left.replace(/^G/, ''), 0) - asNumber(right.replace(/^G/, ''), 0)
   );
+  const groupFinalReturns = groupNames.flatMap((group) => {
+    const records = groupNav
+      .filter((row) => asString(row.group) === group && asNullableNumber(row.cumulativeReturn) !== null)
+      .sort((left, right) => asString(left.date).localeCompare(asString(right.date)));
+    const latest = records[records.length - 1];
+    const cumulativeReturn = asNullableNumber(latest?.cumulativeReturn);
+    return latest && cumulativeReturn !== null
+      ? [{ group, cumulativeReturn, date: asString(latest.date) }]
+      : [];
+  });
+  const groupColor = (index: number) => `hsl(${Math.round((index / Math.max(groupNames.length - 1, 1)) * 125)}, 68%, 40%)`;
   const chartConfig = { displaylogo: false, responsive: true, scrollZoom: true };
 
   return (
@@ -1642,7 +1680,7 @@ function BacktestChartPanels({
                   mode: 'lines',
                   name: group,
                   line: {
-                    color: `hsl(${Math.round((index / Math.max(groupNames.length - 1, 1)) * 125)}, 68%, 40%)`,
+                    color: groupColor(index),
                     width: 1.6
                   },
                   hovertemplate: `${group}<br>%{x}<br>累计收益 %{y:.2%}<extra></extra>`
@@ -1662,6 +1700,38 @@ function BacktestChartPanels({
               />
             </Suspense>
           ) : <div className="table-empty">本次回测没有可展示的分组净值数据</div>}
+        </div>
+      ) : null}
+
+      {!isTiming ? (
+        <div className="chart-card">
+          <div className="chart-card-title">分组累计收益情况直方图</div>
+          {groupFinalReturns.length ? (
+            <Suspense fallback={<div className="chart-loading"><Loader2 className="spin" size={18} />加载图表...</div>}>
+              <PlotView
+                data={[
+                  {
+                    x: groupFinalReturns.map((row) => row.group),
+                    y: groupFinalReturns.map((row) => row.cumulativeReturn),
+                    customdata: groupFinalReturns.map((row) => row.date),
+                    type: 'bar',
+                    name: '累计收益',
+                    marker: { color: groupFinalReturns.map((_, index) => groupColor(index)) },
+                    hovertemplate: '%{x}<br>累计收益 %{y:.2%}<br>截至 %{customdata}<extra></extra>'
+                  }
+                ]}
+                layout={{
+                  ...baseLayout('', 340, false),
+                  margin: { l: 52, r: 22, t: 24, b: 50 },
+                  showlegend: false,
+                  bargap: 0.18,
+                  xaxis: { type: 'category', gridcolor: '#d8dde3', title: { text: '分组' } },
+                  yaxis: { gridcolor: '#d8dde3', zerolinecolor: '#87909a', tickformat: '.1%', title: { text: '累计收益' } }
+                }}
+                config={chartConfig}
+              />
+            </Suspense>
+          ) : <div className="table-empty">本次回测没有可展示的分组累计收益数据</div>}
         </div>
       ) : null}
 

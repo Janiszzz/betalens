@@ -52,14 +52,15 @@
        winsorize_method="mad",
        standardize_method="zscore",
        industry_scheme="申万一级行业",
+       neutralize=True,
    )
 
-``preprocess_factor`` 逐截面执行去空值、去极值、标准化和可选中性化。行业标签可由 ``industry_scheme`` 自动按 PIT 口径查询 ``industry`` 表；市值中性化需调用方准备 log 市值列。
+``preprocess_factor`` 逐截面执行去空值、可选截尾、可选标准化和可选中性化。截尾或标准化方法设为 ``none`` 可分别关闭；``neutralize=False`` 关闭 OLS 中性化。行业标签可由 ``industry_scheme`` 自动按 PIT 口径查询 ``industry`` 表；市值中性化需调用方准备 log 市值列。
 
 常用低层函数：
 
-* ``winsorize_factor``：截面去极值，支持 ``mad``、``percentile``、``std``。
-* ``standardize_factor``：支持 ``zscore``、``rank``、``minmax``。
+* ``winsorize_factor``：截面去极值，支持 ``none``、``mad``、``percentile``、``std``。
+* ``standardize_factor``：支持 ``none``、``zscore``、``rank``、``minmax``。
 * ``neutralize_factor``：行业哑变量和 log 市值的截面 OLS 残差。
 * ``neutralize_factor_by_factor``：用一个因子解释另一个因子并取残差。
 * ``query_industry_panel``：为 ``(input_ts, code)`` 面板取 PIT 行业标签。

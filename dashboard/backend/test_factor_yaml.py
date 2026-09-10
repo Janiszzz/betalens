@@ -163,6 +163,28 @@ class FactorYamlDashboardTests(unittest.TestCase):
 
         self.assertEqual(config["factor_spec"]["compute_kwargs"], nested)
 
+    def test_run_config_persists_preprocessing_controls(self) -> None:
+        _script, _class_cfg, factor_cfg = get_factor_config("alpha101", "ALPHA12")
+        request = RunRequest(
+            factor_class="alpha101",
+            name="ALPHA12",
+            parameters={
+                "winsorize_method": "percentile",
+                "winsorize_n": 1.0,
+                "standardize_method": "rank",
+                "neutralize": False,
+            },
+        )
+        run = DashboardRun(request)
+        with tempfile.TemporaryDirectory() as tmp:
+            config = RunManager._build_run_config(factor_cfg, run, Path(tmp) / "run")
+
+        factor_spec = config["factor_spec"]
+        self.assertEqual(factor_spec["winsorize_method"], "percentile")
+        self.assertEqual(factor_spec["winsorize_n"], 1.0)
+        self.assertEqual(factor_spec["standardize_method"], "rank")
+        self.assertFalse(factor_spec["neutralize"])
+
 
 if __name__ == "__main__":
     unittest.main()

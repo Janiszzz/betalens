@@ -18,7 +18,14 @@ from typing import Any, Iterable, Mapping
 import pandas as pd
 
 
-_TABLES = ("search_progress", "window_results", "candidate_summary", "winners", "errors")
+_TABLES = (
+    "search_progress",
+    "window_results",
+    "rank_ic_series",
+    "candidate_summary",
+    "winners",
+    "errors",
+)
 
 
 def _json_default(value: Any) -> str:
@@ -137,7 +144,10 @@ _COLUMN_NAMES = {
     "window_start": "窗口开始", "window_end": "窗口结束", "ann_ret": "年化收益率",
     "ann_vol": "年化波动率", "sharpe": "夏普比率", "mdd": "最大回撤",
     "calmar": "卡玛比率", "turnover": "换手率", "rank_ic": "Rank IC",
+    "mean_rank_ic": "平均Rank IC", "robust_rank_ic": "稳健Rank IC", "ic_ir": "IC IR",
     "ic_coverage": "IC覆盖率", "n_days": "有效天数", "error": "错误信息",
+    "record_kind": "记录类型", "signal_date": "信号日", "rebalance_date": "调仓日",
+    "forward_end_date": "收益截止日", "cross_section_n": "截面样本数",
     "error_type": "错误类型", "valid_windows": "有效窗口数",
     "failed_windows": "失败窗口数", "candidate_elapsed_seconds": "候选耗时（秒）",
     "sharpe_median": "夏普中位数", "rank": "排名", "selection_status": "筛选状态",
@@ -158,7 +168,8 @@ def _humanize_columns(frame: pd.DataFrame) -> pd.DataFrame:
     metric_names = {
         "ann_ret": "年化收益率", "ann_vol": "年化波动率", "sharpe": "夏普比率",
         "mdd": "最大回撤", "calmar": "卡玛比率", "turnover": "换手率",
-        "rank_ic": "Rank IC", "ic_coverage": "IC覆盖率", "n_days": "有效天数",
+        "rank_ic": "Rank IC", "mean_rank_ic": "平均Rank IC", "robust_rank_ic": "稳健Rank IC",
+        "ic_ir": "IC IR", "ic_coverage": "IC覆盖率", "n_days": "有效天数",
     }
     names = {}
     for column in frame.columns:
@@ -184,6 +195,8 @@ def _humanize_columns(frame: pd.DataFrame) -> pd.DataFrame:
             "completed": "已完成",
             "summarized": "已汇总",
             "boundary_check": "边界检查",
+            "window_ic_ir": "窗口IC IR",
+            "rank_ic_observation": "逐期Rank IC",
         },
         "筛选状态": {
             "selected": "已入选",
@@ -209,15 +222,40 @@ def _humanize_columns(frame: pd.DataFrame) -> pd.DataFrame:
 
 def _write_sheet(writer: pd.ExcelWriter, name: str, frame: pd.DataFrame, *, max_rows: int = 1_000_000) -> None:
     frame = _empty_safe(frame)
-    if name == "窗口表现" and len(frame) > max_rows:
+    if len(frame) > max_rows:
         for offset in range(0, len(frame), max_rows):
             frame.iloc[offset:offset + max_rows].to_excel(
                 writer,
-                sheet_name=f"窗口表现_{offset // max_rows + 1}",
+                sheet_name=f"{name}_{offset // max_rows + 1}"[:31],
                 index=False,
             )
     else:
         frame.to_excel(writer, sheet_name=name[:31], index=False)
+
+
+def _ic_audit_frame(windows: pd.DataFrame, series: pd.DataFrame) -> pd.DataFrame:
+    identity = ["stage", "factor_id", "candidate_id", "params_json"]
+    window_columns = [
+        *identity,
+        "window_id",
+        "window_start",
+        "window_end",
+        "ic_ir",
+        "rank_ic",
+        "mean_rank_ic",
+        "ic_coverage",
+    ]
+    parts = []
+    if not windows.empty:
+        available = [name for name in window_columns if name in windows]
+        summaries = windows.loc[windows.get("error", pd.Series(index=windows.index)).isna(), available].copy()
+        summaries.insert(0, "record_kind", "window_ic_ir")
+        parts.append(summaries)
+    if not series.empty:
+        observations = series.copy()
+        observations.insert(0, "record_kind", "rank_ic_observation")
+        parts.append(observations)
+    return pd.concat(parts, ignore_index=True, sort=False) if parts else pd.DataFrame()
 
 
 def _style_workbook(path: Path) -> None:
@@ -485,7 +523,7 @@ class MiningTask:
             log_path=audit_dir / "运行日志.log",
             store=ResultStore(cache_dir / "results.sqlite3"),
             metadata={
-                "schema_version": 1,
+                "schema_version": 2,
                 "status": "running",
                 "launch_id": launch_id,
                 "run_id": run_id,
@@ -552,6 +590,7 @@ class MiningTask:
                 parameter_rows.append({"因子": self.factor_id, "参数": name, **dict(spec)})
         progress = self.store.read("search_progress")
         windows = self.store.read("window_results")
+        rank_ic_series = self.store.read("rank_ic_series")
         summaries = self.store.read("candidate_summary")
         winners = self.store.read("winners")
         errors = self.store.read("errors")
@@ -593,6 +632,7 @@ class MiningTask:
             _write_sheet(writer, "参数空间", _humanize_columns(pd.DataFrame(parameter_rows)))
             _write_sheet(writer, "搜索进度", _humanize_columns(progress))
             _write_sheet(writer, "窗口表现", _humanize_columns(windows))
+            _write_sheet(writer, "IC分析", _humanize_columns(_ic_audit_frame(windows, rank_ic_series)))
             _write_sheet(writer, "候选汇总", _humanize_columns(summaries))
             _write_sheet(writer, "赢家参数", _humanize_columns(winner_parameters))
             _write_sheet(writer, "赢家汇总", _humanize_columns(winner_summaries))
@@ -604,6 +644,7 @@ class MiningTask:
 
     def finish(self, result: FactorMiningResult, *, status: str, **updates: Any) -> None:
         windows = self.store.read("window_results")
+        rank_ic_series = self.store.read("rank_ic_series")
         summaries = self.store.read("candidate_summary")
         winners = self.store.read("winners")
         errors = self.store.read("errors")
@@ -627,6 +668,7 @@ class MiningTask:
                 "coarse_candidates": int(summary_stages.eq("coarse").sum()),
                 "fine_candidates": int(summary_stages.eq("fine").sum()),
                 "selected_candidates": len(winners),
+                "rank_ic_observations": len(rank_ic_series),
                 "errors": len(errors),
                 "stage_window_rows": stage_window_rows,
                 "stage_candidates": stage_candidates,

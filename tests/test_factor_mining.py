@@ -460,6 +460,57 @@ def test_summary_supports_configured_metric_aggregation():
     assert result.loc[0, "selection_status"] == "selected"
 
 
+def test_rank_ic_observations_are_deduplicated_across_overlapping_windows():
+    dates = pd.date_range("2024-01-01", periods=5, freq="D")
+    factor = pd.DataFrame(
+        [
+            [1.0, 2.0, 3.0, 4.0],
+            [4.0, 1.0, 3.0, 2.0],
+            [2.0, 4.0, 1.0, 3.0],
+            [1.0, 3.0, 4.0, 2.0],
+            [3.0, 2.0, 1.0, 4.0],
+        ],
+        index=dates,
+        columns=list("ABCD"),
+    )
+    price = pd.DataFrame(
+        [
+            [100.0, 100.0, 100.0, 100.0],
+            [100.0, 100.0, 100.0, 100.0],
+            [101.0, 102.0, 103.0, 104.0],
+            [102.0, 101.0, 106.0, 103.0],
+            [104.0, 105.0, 103.0, 108.0],
+        ],
+        index=dates,
+        columns=list("ABCD"),
+    )
+    first = [(dates[0], dates[1]), (dates[1], dates[2]), (dates[2], dates[3])]
+    second = [(dates[1], dates[2]), (dates[2], dates[3]), (dates[3], dates[4])]
+
+    observations = mining._rank_ic_observations(factor, price, [first, second])
+
+    assert len(observations) == 3
+    assert mining._rank_ic_metrics(observations, first) == mining._rank_ic(factor, price, first)
+    assert np.isfinite(mining._rank_ic_metrics(observations, first)["ic_ir"])
+    audit_rows = mining._rank_ic_audit_rows(
+        observations,
+        factor_id="F",
+        candidate_id="C",
+        stage="coarse",
+        params_json="{}",
+    )
+    assert len(audit_rows) == 3
+    assert {"signal_date", "rebalance_date", "forward_end_date", "cross_section_n"}.issubset(audit_rows[0])
+
+
+def test_effective_workers_are_capped_by_physical_cores(monkeypatch):
+    data = _synthetic_data()
+    monkeypatch.setattr(mining, "_physical_cpu_count", lambda: 3)
+    monkeypatch.setattr(mining, "_system_memory", lambda: (64 * 1024**3, 64 * 1024**3))
+
+    assert mining._effective_workers(16, data, 0.7) == 3
+
+
 def test_exact_engine_uses_preloaded_frames():
     index = pd.date_range("2024-01-02", periods=12, freq="B") + pd.Timedelta(hours=15)
     price = pd.DataFrame(
@@ -608,13 +659,17 @@ def test_run_logging_is_live_and_persisted(tmp_path, monkeypatch, capsys):
     assert result_db.exists()
     with sqlite3.connect(result_db) as connection:
         assert connection.execute("SELECT COUNT(*) FROM window_results").fetchone()[0] == 4
+        assert connection.execute("SELECT COUNT(*) FROM rank_ic_series").fetchone()[0] > 0
         assert connection.execute("SELECT COUNT(*) FROM candidate_summary").fetchone()[0] == 2
         assert connection.execute("SELECT COUNT(*) FROM winners").fetchone()[0] == 1
     workbook = pd.ExcelFile(factor_run.run_dir / "audit" / "挖掘审计.xlsx")
     assert {
         "运行概览", "运行配置", "参数空间", "搜索进度", "窗口表现",
-        "候选汇总", "赢家参数", "赢家汇总", "错误",
+        "IC分析", "候选汇总", "赢家参数", "赢家汇总", "错误",
     }.issubset(workbook.sheet_names)
+    ic_audit = pd.read_excel(factor_run.run_dir / "audit" / "挖掘审计.xlsx", sheet_name="IC分析")
+    assert {"记录类型", "IC IR", "Rank IC", "信号日", "收益截止日"}.issubset(ic_audit.columns)
+    assert {"窗口IC IR", "逐期Rank IC"}.issubset(set(ic_audit["记录类型"]))
     assert not (output_dir / "run_manifest.json").exists()
     assert not any(
         getattr(handler, "_betalens_mining_handler", False)

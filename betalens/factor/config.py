@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -56,6 +57,67 @@ def require_keys(mapping: Mapping[str, Any], keys: Sequence[str], *, context: st
     missing = [key for key in keys if key not in mapping]
     if missing:
         raise ConfigError(f"{context}: missing required key(s): {', '.join(missing)}")
+
+
+def resolve_preprocessing_options(
+    mapping: Mapping[str, Any],
+    *,
+    legacy_enabled: bool = False,
+    context: str = "factor_spec",
+    strict: bool = False,
+) -> dict[str, Any]:
+    """Resolve configurable cross-sectional preprocessing with legacy defaults."""
+    keys = {
+        "winsorize_method",
+        "winsorize_n",
+        "standardize_method",
+        "neutralize",
+    }
+    if strict:
+        unknown = sorted(set(mapping) - keys)
+        if unknown:
+            raise ConfigError(
+                f"{context}: unknown preprocessing option(s): {', '.join(unknown)}"
+            )
+    winsorize_method = mapping.get("winsorize_method")
+    if winsorize_method is None:
+        winsorize_method = "mad" if legacy_enabled else "none"
+    winsorize_method = str(winsorize_method).strip().lower()
+    if winsorize_method not in {"none", "mad", "percentile", "std"}:
+        raise ConfigError(
+            f"{context}: winsorize_method must be none, mad, percentile or std"
+        )
+
+    try:
+        winsorize_n = float(mapping.get("winsorize_n", 3.0))
+    except (TypeError, ValueError) as exc:
+        raise ConfigError(f"{context}: winsorize_n must be numeric") from exc
+    if not math.isfinite(winsorize_n) or winsorize_n < 0:
+        raise ConfigError(f"{context}: winsorize_n must be finite and >= 0")
+    if winsorize_method == "percentile" and winsorize_n >= 50:
+        raise ConfigError(f"{context}: percentile winsorize_n must be < 50")
+
+    standardize_method = mapping.get("standardize_method")
+    if standardize_method is None:
+        standardize_method = "zscore" if legacy_enabled else "none"
+    standardize_method = str(standardize_method).strip().lower()
+    if standardize_method not in {"none", "zscore", "rank", "minmax"}:
+        raise ConfigError(
+            f"{context}: standardize_method must be none, zscore, rank or minmax"
+        )
+
+    neutralize = mapping.get("neutralize")
+    if neutralize is None:
+        neutralize = bool(legacy_enabled)
+    if not isinstance(neutralize, bool):
+        raise ConfigError(f"{context}: neutralize must be boolean")
+
+    return {
+        "winsorize_method": winsorize_method,
+        "winsorize_n": winsorize_n,
+        "standardize_method": standardize_method,
+        "neutralize": neutralize,
+    }
 
 
 def resolve_path(value: str | Path, base_dir: str | Path) -> Path:
@@ -153,6 +215,12 @@ def factor_spec_options(config: Mapping[str, Any], config_path: str | Path) -> d
         ("mode", "long_groups", "short_groups"),
         context=f"{config_path}: weight",
     )
+    legacy_preprocessing = bool(factor_spec["use_industry"] or factor_spec["use_mktcap"])
+    preprocessing = resolve_preprocessing_options(
+        factor_spec,
+        legacy_enabled=legacy_preprocessing,
+        context=f"{config_path}: factor_spec",
+    )
     options = {
         "inputs": dict(factor_spec["inputs"]),
         "compute_kwargs": dict(factor_spec["compute_kwargs"] or {}),
@@ -161,6 +229,7 @@ def factor_spec_options(config: Mapping[str, Any], config_path: str | Path) -> d
         "index_code": factor_spec.get("index_code"),
         "use_industry": bool(factor_spec["use_industry"]),
         "use_mktcap": bool(factor_spec["use_mktcap"]),
+        **preprocessing,
         "industry_scheme": str(factor_spec["industry_scheme"]),
         "backtest_metric": str(factor_spec["backtest_metric"]),
         "long_groups": weight.get("long_groups"),

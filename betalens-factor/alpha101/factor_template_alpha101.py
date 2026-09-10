@@ -61,6 +61,10 @@ class FactorSpec:
     table_name: str = DB_TABLE
     use_industry: bool = False
     use_mktcap: bool = False
+    winsorize_method: str | None = None
+    winsorize_n: float = 3.0
+    standardize_method: str | None = None
+    neutralize: bool | None = None
     industry_scheme: str = "申万一级行业"
     index_code: str | None = None
     long_groups: list | None = None

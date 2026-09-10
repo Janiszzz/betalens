@@ -25,6 +25,7 @@ from typing import Any, Callable, Literal, Mapping, Sequence
 import numpy as np
 import pandas as pd
 
+from betalens.factor.config import resolve_preprocessing_options
 from betalens.factor.mining_audit import (
     FactorMiningResult,
     MiningResult,
@@ -131,6 +132,7 @@ def _operation_name(operation: str) -> str:
         "candidate.factor": "计算候选因子",
         "candidate.weights": "生成候选权重",
         "candidate.nav": "计算候选全程净值",
+        "candidate.rank_ic": "预计算候选Rank IC序列",
         "candidate.fit_window": "拟合窗口参数",
         "candidate.window_nav": "计算窗口净值",
     }.get(operation, operation)
@@ -306,6 +308,18 @@ class MiningData:
     cache_manifest_path: str | None = None
 
 
+class CandidateEvaluation(list):
+    """Window results plus the de-duplicated Rank IC observations for audit."""
+
+    def __init__(
+        self,
+        window_rows: Sequence[Mapping[str, Any]] = (),
+        rank_ic_series: Sequence[Mapping[str, Any]] = (),
+    ) -> None:
+        super().__init__(window_rows)
+        self.rank_ic_series = list(rank_ic_series)
+
+
 def _load_yaml(path: str | Path) -> dict[str, Any]:
     import yaml
 
@@ -371,7 +385,11 @@ def _candidate_id(factor_id: str, params: Mapping[str, Any]) -> str:
     return f"{factor_id}_{hashlib.sha1(encoded.encode('utf-8')).hexdigest()[:12]}"
 
 
-def _import_spec(module_name: str, params: Mapping[str, Any]) -> MiningSpec:
+def _import_spec(
+    module_name: str,
+    params: Mapping[str, Any],
+    preprocessing: Mapping[str, Any] | None = None,
+) -> MiningSpec:
     try:
         module = importlib.import_module(module_name)
     except ModuleNotFoundError as exc:
@@ -393,6 +411,32 @@ def _import_spec(module_name: str, params: Mapping[str, Any]) -> MiningSpec:
     value = factory(dict(params))
     if not isinstance(value, MiningSpec):
         raise TypeError(f"{module_name}.make_mining_spec(params) must return MiningSpec")
+    factor = value.factor_spec
+    legacy_enabled = bool(
+        getattr(factor, "use_industry", False)
+        or getattr(factor, "use_mktcap", False)
+    )
+    configured = {
+        "winsorize_method": getattr(factor, "winsorize_method", None),
+        "winsorize_n": getattr(factor, "winsorize_n", 3.0),
+        "standardize_method": getattr(factor, "standardize_method", None),
+        "neutralize": getattr(factor, "neutralize", None),
+    }
+    if preprocessing:
+        resolve_preprocessing_options(
+            preprocessing,
+            legacy_enabled=legacy_enabled,
+            context="parameter_space.preprocessing",
+            strict=True,
+        )
+        configured.update(preprocessing)
+    resolved = resolve_preprocessing_options(
+        configured,
+        legacy_enabled=legacy_enabled,
+        context=f"{getattr(factor, 'name', module_name)} preprocessing",
+    )
+    for name, option in resolved.items():
+        setattr(factor, name, option)
     return value
 
 
@@ -415,6 +459,14 @@ def _system_memory() -> tuple[int | None, int | None]:
         return None, None
 
 
+def _physical_cpu_count() -> int:
+    try:
+        import psutil
+        return max(1, int(psutil.cpu_count(logical=False) or os.cpu_count() or 1))
+    except Exception:
+        return max(1, int(os.cpu_count() or 1))
+
+
 def _frame_bytes(value: pd.DataFrame | None) -> int:
     if value is None:
         return 0
@@ -423,15 +475,32 @@ def _frame_bytes(value: pd.DataFrame | None) -> int:
 
 def _effective_workers(requested: int, data: MiningData, ratio: float) -> int:
     requested = max(1, int(requested))
+    cpu_budget = _physical_cpu_count()
     total, available = _system_memory()
     if not total or not available or ratio <= 0:
-        return requested
+        return min(requested, cpu_budget)
     frames = [*data.inputs.values(), data.price, data.execution_price, *data.industry_by_scheme.values()]
     if data.trade_status is not None:
         frames.append(data.trade_status)
     per_worker = max(1, sum(_frame_bytes(value) for value in frames))
     budget = min(int(total * min(float(ratio), 1.0)), int(available * 0.85))
-    return max(1, min(requested, budget // per_worker))
+    return max(1, min(requested, cpu_budget, budget // per_worker))
+
+
+@contextmanager
+def _worker_thread_limits():
+    """Keep spawned numeric workers from multiplying native thread pools."""
+    names = ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS")
+    added = []
+    for name in names:
+        if name not in os.environ:
+            os.environ[name] = "1"
+            added.append(name)
+    try:
+        yield
+    finally:
+        for name in added:
+            os.environ.pop(name, None)
 
 
 def _fetch_daily_wide(metric: str, universe: Sequence[str], start: str, end: str, table: str) -> pd.DataFrame:
@@ -670,6 +739,10 @@ def _cache_signature(
         "inputs": dict(getattr(factor, "inputs", {}) or {}),
         "industry_inputs": dict(getattr(factor, "industry_inputs", {}) or {}),
         "industry_scheme": getattr(factor, "industry_scheme", None),
+        "winsorize_method": getattr(factor, "winsorize_method", None),
+        "winsorize_n": getattr(factor, "winsorize_n", 3.0),
+        "standardize_method": getattr(factor, "standardize_method", None),
+        "neutralize": getattr(factor, "neutralize", None),
         "execution_price_field": getattr(factor, "backtest_metric", "收盘价(元)"),
         "valuation_price_field": "收盘价(元)",
         "universe": sorted(map(str, universe)),
@@ -817,7 +890,10 @@ def _fetch_data(
         reference = next(iter(inputs.values()), price).index
         industry = {}
         schemes = dict(getattr(factor, "industry_inputs", {}) or {})
-        if getattr(factor, "use_industry", False):
+        if (
+            getattr(factor, "neutralize", None) is not False
+            and getattr(factor, "use_industry", False)
+        ):
             schemes.setdefault("__neutralize_industry", getattr(factor, "industry_scheme", "申万一级行业"))
         for name, scheme in schemes.items():
             value = _fetch_industry_wide(scheme, universe, days, reference)
@@ -925,30 +1001,59 @@ def _filter_pit(value: pd.DataFrame, pit: Mapping[Any, set[str]] | None) -> pd.D
 def _preprocess(value: pd.DataFrame, factor: Any, signal_dates: Sequence[Any], data: MiningData) -> pd.DataFrame:
     use_industry = bool(getattr(factor, "use_industry", False))
     use_mktcap = bool(getattr(factor, "use_mktcap", False))
-    if not (use_industry or use_mktcap):
+    preprocessing = resolve_preprocessing_options(
+        {
+            "winsorize_method": getattr(factor, "winsorize_method", None),
+            "winsorize_n": getattr(factor, "winsorize_n", 3.0),
+            "standardize_method": getattr(factor, "standardize_method", None),
+            "neutralize": getattr(factor, "neutralize", None),
+        },
+        legacy_enabled=bool(use_industry or use_mktcap),
+        context=f"{getattr(factor, 'name', 'factor')} preprocessing",
+    )
+    if (
+        preprocessing["winsorize_method"] == "none"
+        and preprocessing["standardize_method"] == "none"
+        and not (preprocessing["neutralize"] and (use_industry or use_mktcap))
+    ):
         return value
     from betalens.factor.preprocessing import neutralize_factor, standardize_factor, winsorize_factor
 
     metric = factor.name
     value = value.dropna(subset=[metric]).copy()
     industry_panel = None
-    if use_industry:
+    if preprocessing["neutralize"] and use_industry:
         scheme = getattr(factor, "industry_scheme", "申万一级行业")
         cached = data.industry_by_scheme.get(scheme)
         if cached is not None and not cached.empty:
             industry_panel = _wide_to_long(cached, "__industry", signal_dates).set_index(["input_ts", "code"])["__industry"]
     mktcap_panel = None
-    if use_mktcap:
+    if preprocessing["neutralize"] and use_mktcap:
         market_cap = _fetch_daily_wide("A股流通市值(元)", data.universe, str(value.input_ts.min().date()), str(value.input_ts.max().date()), getattr(factor, "table_name", "daily_market"))
         if not market_cap.empty:
             mktcap_panel = _wide_to_long(np.log(market_cap.replace(0, np.nan)), "__mktcap", signal_dates).set_index(["input_ts", "code"])["__mktcap"]
     groups = []
     for stamp, group in value.groupby("input_ts"):
         section = group.set_index("code").copy()
-        series = standardize_factor(winsorize_factor(section[metric], method="mad", n=3.0), method="zscore")
+        series = section[metric]
+        if preprocessing["winsorize_method"] != "none":
+            series = winsorize_factor(
+                series,
+                method=preprocessing["winsorize_method"],
+                n=preprocessing["winsorize_n"],
+            )
+        if preprocessing["standardize_method"] != "none":
+            series = standardize_factor(
+                series,
+                method=preprocessing["standardize_method"],
+            )
         industry = industry_panel.xs(stamp, level="input_ts").reindex(series.index) if industry_panel is not None and stamp in industry_panel.index.get_level_values("input_ts") else None
         mktcap = mktcap_panel.xs(stamp, level="input_ts").reindex(series.index) if mktcap_panel is not None and stamp in mktcap_panel.index.get_level_values("input_ts") else None
-        section[metric] = neutralize_factor(series, industry_labels=industry, log_market_cap=mktcap) if industry is not None or mktcap is not None else series
+        section[metric] = (
+            neutralize_factor(series, industry_labels=industry, log_market_cap=mktcap)
+            if preprocessing["neutralize"] and (industry is not None or mktcap is not None)
+            else series
+        )
         groups.append(section.reset_index())
     return pd.concat(groups, ignore_index=True) if groups else value.iloc[0:0]
 
@@ -1028,28 +1133,114 @@ def _daily_last(value: pd.DataFrame) -> pd.DataFrame:
     return result.groupby(level=0, sort=True).last()
 
 
-def _rank_ic(factor: pd.DataFrame, price: pd.DataFrame, pairs: Sequence[tuple[Any, Any]]) -> dict[str, Any]:
+def _rank_ic_key(
+    signal: Any,
+    rebalance: Any,
+    next_rebalance: Any,
+) -> tuple[pd.Timestamp, pd.Timestamp, pd.Timestamp]:
+    return tuple(
+        pd.Timestamp(value).normalize()
+        for value in (signal, rebalance, next_rebalance)
+    )
+
+
+def _rank_ic_observations(
+    factor: pd.DataFrame,
+    price: pd.DataFrame,
+    pair_groups: Sequence[Sequence[tuple[Any, Any]]],
+) -> dict[tuple[pd.Timestamp, pd.Timestamp, pd.Timestamp], tuple[float, int]]:
+    """Calculate every distinct forward-period Rank IC exactly once."""
     factor, price = _daily_last(factor), _daily_last(price)
-    observations = []
-    possible = max(0, len(pairs) - 1)
-    for index in range(possible):
-        signal, rebalance = pairs[index]
-        _, next_rebalance = pairs[index + 1]
-        signal, rebalance, next_rebalance = map(lambda value: pd.Timestamp(value).normalize(), (signal, rebalance, next_rebalance))
+    keys = dict.fromkeys(
+        _rank_ic_key(pairs[index][0], pairs[index][1], pairs[index + 1][1])
+        for pairs in pair_groups
+        for index in range(max(0, len(pairs) - 1))
+    )
+    observations = {}
+    for signal, rebalance, next_rebalance in keys:
+        key = (signal, rebalance, next_rebalance)
         if signal not in factor.index or rebalance not in price.index or next_rebalance not in price.index:
+            observations[key] = (np.nan, 0)
             continue
         section = pd.concat([factor.loc[signal].rename("signal"), (price.loc[next_rebalance] / price.loc[rebalance] - 1).rename("return")], axis=1).replace([np.inf, -np.inf], np.nan).dropna()
+        observations[key] = (np.nan, int(len(section)))
         if len(section) >= 3 and section.signal.nunique() > 1 and section["return"].nunique() > 1:
             correlation = section.signal.corr(section["return"], method="spearman")
             if pd.notna(correlation):
-                observations.append((rebalance, float(correlation)))
-    coverage = len(observations) / possible if possible else 0.0
-    if not observations:
-        return {"rank_ic": np.nan, "robust_rank_ic": np.nan, "mean_rank_ic": np.nan, "ic_coverage": coverage}
-    monthly = pd.Series([value for _, value in observations], index=pd.DatetimeIndex([day for day, _ in observations])).groupby(lambda day: day.to_period("M")).mean()
+                observations[key] = (float(correlation), int(len(section)))
+    return observations
+
+
+def _rank_ic_metrics(
+    observations: Mapping[tuple[pd.Timestamp, pd.Timestamp, pd.Timestamp], tuple[float, int]],
+    pairs: Sequence[tuple[Any, Any]],
+) -> dict[str, Any]:
+    possible = max(0, len(pairs) - 1)
+    selected = []
+    for index in range(possible):
+        key = _rank_ic_key(pairs[index][0], pairs[index][1], pairs[index + 1][1])
+        if key in observations and pd.notna(observations[key][0]):
+            selected.append((key[1], observations[key][0]))
+    coverage = len(selected) / possible if possible else 0.0
+    if not selected:
+        return {
+            "rank_ic": np.nan,
+            "robust_rank_ic": np.nan,
+            "mean_rank_ic": np.nan,
+            "ic_ir": np.nan,
+            "ic_coverage": coverage,
+        }
+    values = pd.Series([value for _, value in selected], dtype=float)
+    standard_deviation = float(values.std())
+    ic_ir = float(values.mean() / standard_deviation) if len(values) > 1 and standard_deviation > 0 else np.nan
+    monthly = pd.Series(
+        values.to_numpy(),
+        index=pd.DatetimeIndex([day for day, _ in selected]),
+    ).groupby(lambda day: day.to_period("M")).mean()
     median = float(monthly.median())
     robust = median - 0.25 * 1.4826 * float((monthly - median).abs().median())
-    return {"rank_ic": robust, "robust_rank_ic": robust, "mean_rank_ic": float(np.mean([value for _, value in observations])), "ic_coverage": coverage}
+    return {
+        "rank_ic": robust,
+        "robust_rank_ic": robust,
+        "mean_rank_ic": float(values.mean()),
+        "ic_ir": ic_ir,
+        "ic_coverage": coverage,
+    }
+
+
+def _rank_ic(
+    factor: pd.DataFrame,
+    price: pd.DataFrame,
+    pairs: Sequence[tuple[Any, Any]],
+) -> dict[str, Any]:
+    observations = _rank_ic_observations(factor, price, [pairs])
+    return _rank_ic_metrics(observations, pairs)
+
+
+def _rank_ic_audit_rows(
+    observations: Mapping[tuple[pd.Timestamp, pd.Timestamp, pd.Timestamp], tuple[float, int]],
+    *,
+    factor_id: str,
+    candidate_id: str,
+    stage: str,
+    params_json: str,
+    window_id: str | None = None,
+) -> list[dict[str, Any]]:
+    return [
+        {
+            "factor_id": factor_id,
+            "candidate_id": candidate_id,
+            "stage": stage,
+            "window_id": window_id,
+            "params_json": params_json,
+            "signal_date": signal,
+            "rebalance_date": rebalance,
+            "forward_end_date": next_rebalance,
+            "rank_ic": value,
+            "cross_section_n": count,
+        }
+        for (signal, rebalance, next_rebalance), (value, count) in observations.items()
+    ]
 
 
 def _vector_nav(weights: pd.DataFrame, price: pd.DataFrame) -> pd.Series:
@@ -1090,7 +1281,7 @@ def _call_fit(callback: Callable, data: MiningData, params: Mapping[str, Any], w
 def _evaluate_candidate(module: str, factor_id: str, params: Mapping[str, Any], stage: str, windows: Sequence[MiningWindow], data: MiningData, evaluation: Mapping[str, Any]) -> list[dict[str, Any]]:
     candidate_started = time.perf_counter()
     params = dict(params)
-    spec = _import_spec(module, params)
+    spec = _import_spec(module, params, evaluation.get("_preprocessing"))
     mode = str(spec.execution_mode).lower()
     if mode not in {"precomputed", "rolling_fit"}:
         raise ValueError(f"unsupported execution_mode={mode}")
@@ -1099,6 +1290,16 @@ def _evaluate_candidate(module: str, factor_id: str, params: Mapping[str, Any], 
     amount = float(evaluation.get("initial_amount", 1e8))
     frequency = str(evaluation.get("rebal_freq", "D"))
     tolerance = int(evaluation.get("time_tolerance", 24))
+    params_json = json.dumps(params, ensure_ascii=False, sort_keys=True, default=str)
+    window_pairs = {
+        window.window_id: _signal_pairs(
+            window.start,
+            window.end,
+            frequency,
+            data.execution_price.index,
+        )
+        for window in windows
+    }
     if _TASK_LOGS:
         _LOGGER.info(
             "%s候选开始计算：因子=%s，候选=%s，执行模式=%s，回测引擎=%s，窗口数=%d，参数=%s",
@@ -1108,9 +1309,11 @@ def _evaluate_candidate(module: str, factor_id: str, params: Mapping[str, Any], 
             _mode_name(mode),
             _engine_name(engine),
             len(windows),
-            json.dumps(params, ensure_ascii=False, sort_keys=True, default=str),
+            params_json,
         )
     full_factor = full_weights = full_nav = None
+    full_rank_ic_observations = {}
+    rank_ic_rows = []
     if mode == "precomputed":
         compute_started = time.perf_counter()
         if _TASK_LOGS:
@@ -1158,6 +1361,28 @@ def _evaluate_candidate(module: str, factor_id: str, params: Mapping[str, Any], 
                     len(full_nav),
                     _elapsed(nav_started),
                 )
+        rank_ic_started = time.perf_counter()
+        with _heartbeat("candidate.rank_ic", stage=stage, candidate=candidate):
+            full_rank_ic_observations = _rank_ic_observations(
+                full_factor,
+                data.execution_price,
+                list(window_pairs.values()),
+            )
+        rank_ic_rows.extend(_rank_ic_audit_rows(
+            full_rank_ic_observations,
+            factor_id=factor_id,
+            candidate_id=candidate,
+            stage=stage,
+            params_json=params_json,
+        ))
+        if _TASK_LOGS:
+            _LOGGER.info(
+                "%s候选 %s：Rank IC序列预计算完成，唯一期间=%d，耗时=%s",
+                _stage_name(stage),
+                candidate,
+                len(full_rank_ic_observations),
+                _elapsed(rank_ic_started),
+            )
     rows = []
     windows_started = time.perf_counter()
     for position, window in enumerate(windows, 1):
@@ -1178,8 +1403,14 @@ def _evaluate_candidate(module: str, factor_id: str, params: Mapping[str, Any], 
         try:
             active_spec = spec
             factor, weights = full_factor, full_weights
+            pairs = window_pairs[window.window_id]
+            active_rank_ic_observations = full_rank_ic_observations
             if mode == "rolling_fit":
-                active_spec = _import_spec(module, params)
+                active_spec = _import_spec(
+                    module,
+                    params,
+                    evaluation.get("_preprocessing"),
+                )
                 if active_spec.execution_mode != "rolling_fit" or active_spec.fit_window is None:
                     raise ValueError("rolling_fit requires MiningSpec.fit_window")
                 fit_start = pd.Timestamp(window.start) - pd.Timedelta(days=_warmup_days(active_spec, params))
@@ -1194,6 +1425,20 @@ def _evaluate_candidate(module: str, factor_id: str, params: Mapping[str, Any], 
                     raise TypeError("fit_window must return DataFrame or mapping")
                 if weights is None and factor is not None:
                     weights = _build_weights(factor, active_spec, params, window_data, window.start, window.end, frequency)
+                if factor is not None:
+                    active_rank_ic_observations = _rank_ic_observations(
+                        factor,
+                        window_data.execution_price,
+                        [pairs],
+                    )
+                    rank_ic_rows.extend(_rank_ic_audit_rows(
+                        active_rank_ic_observations,
+                        factor_id=factor_id,
+                        candidate_id=candidate,
+                        stage=stage,
+                        params_json=params_json,
+                        window_id=window.window_id,
+                    ))
                 with _heartbeat("candidate.window_nav", stage=stage, candidate=candidate, window=window.window_id):
                     nav = _vector_nav(weights, window_data.price) if engine == "vector" else _exact_nav(weights, window_data, active_spec, amount, tolerance)
             elif spec.window_transform is not None:
@@ -1211,8 +1456,8 @@ def _evaluate_candidate(module: str, factor_id: str, params: Mapping[str, Any], 
             window_weights = _slice_frame(weights, window.start, window.end)
             metrics["turnover"] = _turnover(window_weights)
             if factor is not None:
-                metrics.update(_rank_ic(factor, data.execution_price, _signal_pairs(window.start, window.end, frequency, data.execution_price.index)))
-            row = {"factor_id": factor_id, "candidate_id": candidate, "stage": stage, "window_id": window.window_id, "window_start": window.start, "window_end": window.end, "params_json": json.dumps(params, ensure_ascii=False, sort_keys=True, default=str), **params, **metrics, "error": None}
+                metrics.update(_rank_ic_metrics(active_rank_ic_observations, pairs))
+            row = {"factor_id": factor_id, "candidate_id": candidate, "stage": stage, "window_id": window.window_id, "window_start": window.start, "window_end": window.end, "params_json": params_json, **params, **metrics, "error": None}
             if report_progress:
                 window_elapsed = time.perf_counter() - windows_started
                 eta = window_elapsed / position * (len(windows) - position)
@@ -1230,7 +1475,7 @@ def _evaluate_candidate(module: str, factor_id: str, params: Mapping[str, Any], 
                     _human_duration(eta),
                 )
         except Exception as exc:
-            row = {"factor_id": factor_id, "candidate_id": candidate, "stage": stage, "window_id": window.window_id, "window_start": window.start, "window_end": window.end, "params_json": json.dumps(params, ensure_ascii=False, sort_keys=True, default=str), **params, "error": f"{type(exc).__name__}: {exc}"}
+            row = {"factor_id": factor_id, "candidate_id": candidate, "stage": stage, "window_id": window.window_id, "window_start": window.start, "window_end": window.end, "params_json": params_json, **params, "error": f"{type(exc).__name__}: {exc}"}
             _LOGGER.exception(
                 "%s候选 %s：第%d/%d个窗口计算失败，窗口方案=%s，错误=%s",
                 _stage_name(stage),
@@ -1253,7 +1498,7 @@ def _evaluate_candidate(module: str, factor_id: str, params: Mapping[str, Any], 
             failed,
             _elapsed(candidate_started),
         )
-    return rows
+    return CandidateEvaluation(rows, rank_ic_rows)
 
 
 def _safe_evaluate(module: str, factor_id: str, params: Mapping[str, Any], stage: str, windows: Sequence[MiningWindow], data: MiningData, evaluation: Mapping[str, Any]) -> list[dict[str, Any]]:
@@ -1268,7 +1513,10 @@ def _safe_evaluate(module: str, factor_id: str, params: Mapping[str, Any], stage
             type(exc).__name__,
             exc,
         )
-        return [{"factor_id": factor_id, "candidate_id": _candidate_id(factor_id, params), "stage": stage, "window_id": window.window_id, "window_start": window.start, "window_end": window.end, "params_json": json.dumps(dict(params), ensure_ascii=False, sort_keys=True, default=str), **dict(params), "error": f"{type(exc).__name__}: {exc}"} for window in windows]
+        return CandidateEvaluation([
+            {"factor_id": factor_id, "candidate_id": _candidate_id(factor_id, params), "stage": stage, "window_id": window.window_id, "window_start": window.start, "window_end": window.end, "params_json": json.dumps(dict(params), ensure_ascii=False, sort_keys=True, default=str), **dict(params), "error": f"{type(exc).__name__}: {exc}"}
+            for window in windows
+        ])
 
 
 _WORKER_DATA: MiningData | None = None
@@ -1456,7 +1704,10 @@ def _evaluate_stage(
         if metadata:
             for row in rows:
                 row.update(metadata)
+            for row in getattr(rows, "rank_ic_series", ()):
+                row.update(metadata)
         task.store.append("window_results", rows)
+        task.store.append("rank_ic_series", getattr(rows, "rank_ic_series", ()))
         task.store.append(
             "errors",
             [row for row in rows if row.get("error") is not None],
@@ -1498,37 +1749,38 @@ def _evaluate_stage(
         listener.start()
         rows_by_index: dict[int, list[dict[str, Any]]] = {}
         try:
-            with ProcessPoolExecutor(
-                max_workers=workers,
-                mp_context=context,
-                initializer=_initialize_worker,
-                initargs=(
-                    initializer_data,
-                    cache_manifest_path,
-                    log_queue,
-                    _LOGGER.level,
-                    _TASK_LOGS,
-                    _HEARTBEAT_SECONDS,
-                ),
-            ) as executor:
-                futures = {}
-                for index, params in enumerate(candidates):
-                    submitted = time.perf_counter()
-                    future = executor.submit(
-                        _worker_evaluate,
-                        module,
-                        factor_id,
-                        params,
-                        stage,
-                        windows,
-                        evaluation,
-                    )
-                    futures[future] = (index, submitted)
-                for completed, future in enumerate(as_completed(futures), 1):
-                    index, submitted = futures[future]
-                    rows = future.result()
-                    rows_by_index[index] = rows
-                    report(completed, index, rows, submitted)
+            with _worker_thread_limits():
+                with ProcessPoolExecutor(
+                    max_workers=workers,
+                    mp_context=context,
+                    initializer=_initialize_worker,
+                    initargs=(
+                        initializer_data,
+                        cache_manifest_path,
+                        log_queue,
+                        _LOGGER.level,
+                        _TASK_LOGS,
+                        _HEARTBEAT_SECONDS,
+                    ),
+                ) as executor:
+                    futures = {}
+                    for index, params in enumerate(candidates):
+                        submitted = time.perf_counter()
+                        future = executor.submit(
+                            _worker_evaluate,
+                            module,
+                            factor_id,
+                            params,
+                            stage,
+                            windows,
+                            evaluation,
+                        )
+                        futures[future] = (index, submitted)
+                    for completed, future in enumerate(as_completed(futures), 1):
+                        index, submitted = futures[future]
+                        rows = future.result()
+                        rows_by_index[index] = rows
+                        report(completed, index, rows, submitted)
         finally:
             listener.stop()
             log_queue.close()
@@ -1731,6 +1983,7 @@ def _evaluate_with_reuse(
 ) -> pd.DataFrame:
     candidates = _dedupe_candidates(factor_id, candidates)
     previous = previous if previous is not None else pd.DataFrame()
+    previous_ic = task.store.read("rank_ic_series") if not previous.empty else pd.DataFrame()
     reused, pending = [], []
     available = set(previous.candidate_id.astype(str)) if not previous.empty and "candidate_id" in previous else set()
     for value in candidates:
@@ -1747,6 +2000,20 @@ def _evaluate_with_reuse(
             rows[key] = item
         reused.append(rows)
         task.store.append("window_results", rows.to_dict(orient="records"))
+        if not previous_ic.empty and "candidate_id" in previous_ic:
+            ic_rows = previous_ic.loc[
+                previous_ic.candidate_id.astype(str) == candidate_id
+            ].copy()
+            dedupe_columns = [
+                name for name in (
+                    "window_id", "signal_date", "rebalance_date", "forward_end_date",
+                )
+                if name in ic_rows
+            ]
+            if dedupe_columns:
+                ic_rows = ic_rows.drop_duplicates(dedupe_columns, keep="last")
+            ic_rows["stage"] = stage
+            task.store.append("rank_ic_series", ic_rows.to_dict(orient="records"))
         task.store.append("search_progress", [{
             "event": "completed",
             "stage": stage,
@@ -1985,7 +2252,16 @@ def _run_factor(
     sample = {name: spec.get("high", (spec.get("choices") or [None])[0]) for name, spec in parameter_specs.items()}
     sample["factor_id"] = factor_id
     factor_evaluation = {**dict(evaluation), **dict(factor_config.get("evaluation") or {})}
-    imported_spec = _import_spec(module, sample)
+    global_preprocessing = parameters_config.get("preprocessing") or {}
+    factor_preprocessing = factor_config.get("preprocessing") or {}
+    if not isinstance(factor_preprocessing, Mapping):
+        raise ValueError(f"factor {factor_id} preprocessing must be a mapping")
+    preprocessing = {
+        **dict(global_preprocessing),
+        **dict(factor_preprocessing),
+    }
+    imported_spec = _import_spec(module, sample, preprocessing)
+    factor_evaluation["_preprocessing"] = preprocessing
     if mode != str(imported_spec.execution_mode).lower():
         raise ValueError(
             f"factor {factor_id} execution_mode={mode} does not match make_mining_spec={imported_spec.execution_mode}"
@@ -2265,6 +2541,15 @@ def _validate_performance_config(performance: Mapping[str, Any]) -> None:
 
 
 def _validate_search_config(parameters: Mapping[str, Any]) -> None:
+    preprocessing = parameters.get("preprocessing")
+    if preprocessing is not None:
+        if not isinstance(preprocessing, Mapping):
+            raise ValueError("preprocessing must be a mapping")
+        resolve_preprocessing_options(
+            preprocessing,
+            context="parameter_space.preprocessing",
+            strict=True,
+        )
     search = parameters.get("search") or {}
     for stage in ("coarse", "refine", "expansion"):
         config = search.get(stage) or {}

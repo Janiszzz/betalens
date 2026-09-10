@@ -45,6 +45,8 @@ from dataclasses import dataclass, field
 import numpy as np
 from typing import Callable, Any
 
+from betalens.factor.config import resolve_preprocessing_options
+
 
 DB_TABLE = "daily_market"
 
@@ -561,8 +563,13 @@ class FactorSpec:
     direction:      "positive"→高分组做多 (long=[n_q-1]) | "negative"→低分组做多 (long=[0])
     compute_kwargs: 透传给 compute 的额外关键字参数（如 window=20）
     table_name:     Datafeed 数据表名
+    winsorize_method / winsorize_n:
+                    截尾方法和阈值；方法为 none 时关闭截尾。
+    standardize_method:
+                    标准化方法；为 none 时关闭标准化。
+    neutralize:     是否执行中性化；use_industry / use_mktcap 决定控制变量。
     use_industry / use_mktcap:
-                    是否做行业 / 市值中性化。True 时管线自动 point-in-time
+                    是否使用行业 / 市值控制变量。True 时管线自动 point-in-time
                     查 industry 表 / 查"市值"宽表取 log。
     industry_scheme: 行业中性化分类体系，如 '申万一级行业'。
     index_code:     指数代码（如 '000906.SH'=中证800）。给定后逐期用 PIT 成分股
@@ -582,6 +589,10 @@ class FactorSpec:
     table_name: str = DB_TABLE
     use_industry: bool = False
     use_mktcap: bool = False
+    winsorize_method: str | None = None
+    winsorize_n: float = 3.0
+    standardize_method: str | None = None
+    neutralize: bool | None = None
     industry_scheme: str = "申万一级行业"
     index_code: str | None = None
     long_groups: list | None = None
@@ -639,8 +650,8 @@ class FactorPipeline:
         return long_groups or [], short_groups or []
 
     def _preprocess_with_stats(self, prequery, metric, industry_scheme,
-                               mktcap_col, verbose):
-        """逐截面 winsorize→standardize→neutralize，同时收集中性化诊断。
+                               mktcap_col, preprocessing, verbose):
+        """按配置逐截面预处理，同时收集中性化诊断。
 
         等价于 betalens.preprocess_factor，但额外返回逐期诊断 DataFrame
         （preprocess_factor 仅 print 不返回，故此处内联以便 dashboard 展示）。
@@ -651,7 +662,7 @@ class FactorPipeline:
         data = fix_null_values(prequery, strategy=FillStrategy.DROP, columns=[metric])
 
         ind_panel = None
-        if industry_scheme:
+        if preprocessing["neutralize"] and industry_scheme:
             ind_panel = query_industry_panel(
                 data, scheme=industry_scheme, industry_table='industry',
                 verbose=False)
@@ -660,8 +671,17 @@ class FactorPipeline:
         for ts, group in data.groupby('input_ts'):
             sub = group.copy()
             series = sub.set_index('code')[metric]
-            series = winsorize_factor(series, method='mad', n=3.0)
-            series = standardize_factor(series, method='zscore')
+            if preprocessing["winsorize_method"] != "none":
+                series = winsorize_factor(
+                    series,
+                    method=preprocessing["winsorize_method"],
+                    n=preprocessing["winsorize_n"],
+                )
+            if preprocessing["standardize_method"] != "none":
+                series = standardize_factor(
+                    series,
+                    method=preprocessing["standardize_method"],
+                )
             before = series.copy()
 
             industry = None
@@ -671,7 +691,7 @@ class FactorPipeline:
             mktcap = sub.set_index('code')[mktcap_col] \
                 if mktcap_col and mktcap_col in sub.columns else None
 
-            if industry is not None or mktcap is not None:
+            if preprocessing["neutralize"] and (industry is not None or mktcap is not None):
                 series, st = neutralize_factor(
                     series, industry_labels=industry,
                     log_market_cap=mktcap, return_stats=True)
@@ -921,11 +941,24 @@ class FactorPipeline:
             if verbose:
                 print(f"  成分股过滤: {n0} → {len(prequery)} 行")
 
-        # 4c. 中性化（去极值→标准化→行业/市值中性化）+ 诊断收集
+        # 4c. 可配置预处理（截尾→标准化→行业/市值中性化）+ 诊断收集
         neu_stats = None
-        if sp.use_industry or sp.use_mktcap:
+        preprocessing = resolve_preprocessing_options(
+            sp.__dict__,
+            legacy_enabled=bool(sp.use_industry or sp.use_mktcap),
+            context=f"{sp.name} factor_spec",
+        )
+        needs_preprocessing = (
+            preprocessing["winsorize_method"] != "none"
+            or preprocessing["standardize_method"] != "none"
+            or (
+                preprocessing["neutralize"]
+                and (sp.use_industry or sp.use_mktcap)
+            )
+        )
+        if needs_preprocessing:
             mktcap_col = None
-            if sp.use_mktcap:
+            if preprocessing["neutralize"] and sp.use_mktcap:
                 mktcap_wide = fetch_daily_wide("A股流通市值(元)", universe=universe,
                                                start_date=fetch_start,
                                                end_date=end_date,
@@ -939,8 +972,15 @@ class FactorPipeline:
                     mktcap_col = 'log_mktcap'
             prequery, neu_stats = self._preprocess_with_stats(
                 prequery, sp.name,
-                industry_scheme=sp.industry_scheme if sp.use_industry else None,
-                mktcap_col=mktcap_col, verbose=verbose)
+                industry_scheme=(
+                    sp.industry_scheme
+                    if preprocessing["neutralize"] and sp.use_industry
+                    else None
+                ),
+                mktcap_col=mktcap_col,
+                preprocessing=preprocessing,
+                verbose=verbose,
+            )
 
         # 5. 分组
         if verbose:

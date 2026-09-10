@@ -3,29 +3,10 @@ version: 1
 # 因子类别；用于任务元信息、输出归类，并启用 alpha101 的 `factors: all` 展开。
 factor_class: alpha101
 
-# ALPHA12 有两个可搜索滞后参数。采样模式在 [1, 50] 范围内探索，
-# 不强制执行 50 x 50 的完整网格。
+# 从 ALPHA13 继续挖掘到 ALPHA101。列表项自动使用 alpha101_mining、
+# precomputed 执行模式及下方的自动参数空间配置。
 factors:
-  ALPHA12:
-    module: alpha101_mining
-    execution_mode: precomputed
-    parameters:
-      volume_delta_lag:
-        type: int
-        low: 1
-        high: 50
-        step: 1
-        scale: linear
-      close_delta_lag:
-        type: int
-        low: 1
-        high: 50
-        step: 1
-        scale: linear
-    parameter_limits:
-      volume_delta_lag: {low: 1, high: 50}
-      close_delta_lag: {low: 1, high: 50}
-
+  - ALPHA49
 
 # 仅用于 `factors: all` 或 `parameters: auto`。
 alpha101_parameter_generation:
@@ -38,12 +19,12 @@ alpha101_parameter_generation:
     window: {low: 1, high: 1260}
     lag: {low: 1, high: 504}
     weight: {low: 0.0, high: 1.0}
-    threshold: {low: -10.0, high: 10.0}
+    threshold: {low: -100.0, high: 100.0}
     exponent: {low: 0.01, high: 100.0}
 
 evaluation:
   # 评分区间 [开始日期, 结束日期]，格式 YYYY-MM-DD。
-  span: ["2010-01-01", "2022-12-31"]
+  span: ["2015-01-01", "2022-12-31"]
   # 调仓频率，使用 pandas 频率字符串；常用：D | W | M。
   rebal_freq: W
   # 可选：vector | exact。vector 适合大规模搜索，exact 适合精确成交复核。
@@ -56,9 +37,9 @@ evaluation:
 
 windows:
   # 评分窗口长度，单位为交易日，可配置多个正整数。
-  lengths: [252, 504, 756]
+  lengths: [252, 756]
   # 窗口滑动步长，单位为交易日；每个 step 必须 <= 每个 length。
-  steps: [21, 42, 63]
+  steps: [21, 63]
 
 search:
   coarse:
@@ -91,19 +72,20 @@ search:
     seed: 20260820
   fine:
     # 围绕宽搜/TPE 优胜候选生成局部网格，不遍历全域整数点。
-    top_k: 8
+    top_k: 10
     points_per_dimension: 7
     max_candidates: 343
   stability:
     # 对最终赢家做局部扰动稳定性审计。
     enabled: true
-    top_k: 3
+    top_k: 10
     perturbations_per_candidate: 8
     radius_ratio: 0.10
     max_objective_degradation: 0.20
     required_pass_ratio: 0.70
     minimum_valid_ratio: 0.80
-    require_pass: false
+    # 剪除未通过赢家邻域稳定性检验的候选。
+    require_pass: true
     seed: 20260821
 
 selection:
@@ -112,9 +94,15 @@ selection:
     # rank_ic | ic_coverage | n_days。
     metric: sharpe
     # 可选聚合：mean | median | p25 | min | max。
-    aggregate: median
+    aggregate: mean
     # 可选：maximize | minimize。
     direction: maximize
-  # 采样模式保留排名靠前的候选。
-  filters: []
+  # 每轮汇总后剪除覆盖不足或回撤过大的候选，再把优胜者送入后续阶段。
+  filters:
+    - metric: valid_window_ratio
+      op: ">="
+      value: 0.8
+    - metric: max_mdd
+      op: "<="
+      value: 0.35
   top_k: 10

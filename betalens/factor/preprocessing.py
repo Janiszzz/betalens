@@ -37,7 +37,8 @@ def winsorize_factor(
 
     Args:
         factor_series: 单截面因子值，index=code
-        method: 'mad'（中位数绝对偏差，推荐）| 'percentile'（百分位截尾）| 'std'（均值±n倍标准差）
+        method: 'none'（不截尾）| 'mad'（中位数绝对偏差，推荐）|
+                'percentile'（百分位截尾）| 'std'（均值±n倍标准差）
         n: 阈值倍数（percentile 方法时为单侧截尾百分比，如 n=1 截 [1%, 99%]）
 
     Returns:
@@ -48,6 +49,9 @@ def winsorize_factor(
         >>> winsorize_factor(s, method='mad', n=3)
     """
     s = factor_series.copy()
+    if method is None or str(method).strip().lower() == 'none':
+        return s
+    method = str(method).strip().lower()
     valid = s.dropna()
     if len(valid) == 0:
         return s
@@ -64,7 +68,7 @@ def winsorize_factor(
         lower = valid.mean() - n * valid.std()
         upper = valid.mean() + n * valid.std()
     else:
-        raise ValueError(f"winsorize method 须为 'mad' / 'percentile' / 'std'，收到: {method}")
+        raise ValueError(f"winsorize method 须为 'none' / 'mad' / 'percentile' / 'std'，收到: {method}")
 
     return s.clip(lower=lower, upper=upper)
 
@@ -78,7 +82,8 @@ def standardize_factor(
 
     Args:
         factor_series: 单截面因子值
-        method: 'zscore'（(x-mean)/std）| 'rank'（rank/N，结果在(0,1)）| 'minmax'（缩放到[0,1]）
+        method: 'none'（不标准化）| 'zscore'（(x-mean)/std）|
+                'rank'（rank/N，结果在(0,1)）| 'minmax'（缩放到[0,1]）
 
     Returns:
         标准化后的 Series
@@ -87,6 +92,9 @@ def standardize_factor(
         >>> standardize_factor(s, method='zscore')
     """
     s = factor_series.copy()
+    if method is None or str(method).strip().lower() == 'none':
+        return s
+    method = str(method).strip().lower()
     valid = s.dropna()
 
     if method == 'zscore':
@@ -109,7 +117,7 @@ def standardize_factor(
         return (s - vmin) / (vmax - vmin)
 
     else:
-        raise ValueError(f"standardize method 须为 'zscore' / 'rank' / 'minmax'，收到: {method}")
+        raise ValueError(f"standardize method 须为 'none' / 'zscore' / 'rank' / 'minmax'，收到: {method}")
 
 
 def neutralize_factor(
@@ -548,10 +556,11 @@ def preprocess_factor(
     industry_scheme: str = None,
     industry_table: str = 'industry',
     verbose: bool = True,
+    neutralize: bool = True,
 ) -> pd.DataFrame:
     """
     逐截面（按 input_ts）依次执行：
-      fix_null_values(drop) → winsorize_factor() → standardize_factor() → neutralize_factor()
+      fix_null_values(drop) → [winsorize] → [standardize] → [neutralize]
 
     行业中性化的标签有两种来源：
       - industry_scheme 给定（推荐）：自动从 industry 表（query_industry，point-in-time）
@@ -563,14 +572,15 @@ def preprocess_factor(
         pre_queried_data: pre_query_characteristic_data() 的输出，
                           列含 input_ts, code, {metric}, datetime, diff_hours
         metric: 因子列名
-        winsorize_method: 'mad' | 'percentile' | 'std'
+        winsorize_method: 'none' | 'mad' | 'percentile' | 'std'
         winsorize_n: 去极值阈值
-        standardize_method: 'zscore' | 'rank' | 'minmax'
+        standardize_method: 'none' | 'zscore' | 'rank' | 'minmax'
         industry_col: pre_queried_data 中的行业列名（None 则跳过中性化该项）
         log_mktcap_col: pre_queried_data 中的 log市值列名（None 则跳过市值中性化）
         industry_scheme: 自动查 industry 表的分类体系名，如 '申万一级行业'；
                          给定即自动注入行业标签并打印诊断（优先于 industry_col）
         industry_table: 行业表名，默认 'industry'
+        neutralize: 是否执行行业/市值 OLS 中性化
         verbose: True 时打印行业诊断与中性化执行摘要
 
     Returns:
@@ -588,7 +598,7 @@ def preprocess_factor(
 
     # 1b. 行业标签：industry_scheme 给定则自动查表（point-in-time），否则用 industry_col
     ind_panel = None
-    if industry_scheme:
+    if neutralize and industry_scheme:
         ind_panel = query_industry_panel(
             data, scheme=industry_scheme,
             industry_table=industry_table, verbose=False,
@@ -617,7 +627,7 @@ def preprocess_factor(
             industry = None
         mktcap = sub.set_index('code')[log_mktcap_col] if log_mktcap_col and log_mktcap_col in sub.columns else None
 
-        if industry is not None or mktcap is not None:
+        if neutralize and (industry is not None or mktcap is not None):
             series, st = neutralize_factor(
                 series, industry_labels=industry,
                 log_market_cap=mktcap, return_stats=True,

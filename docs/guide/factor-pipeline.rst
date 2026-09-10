@@ -56,6 +56,10 @@ YAML 结构
      index_code: 000906.SH
      use_industry: false
      use_mktcap: false
+     winsorize_method: none
+     winsorize_n: 3.0
+     standardize_method: none
+     neutralize: false
      industry_scheme: 申万一级行业
      backtest_metric: 收盘价(元)
      required_history_bars: 0
@@ -139,7 +143,9 @@ FactorSpec
 * ``direction``：``positive`` 高分组做多，``negative`` 低分组做多。
 * ``table_name``：输入数据表，常用 ``daily_market``。
 * ``index_code``：PIT 指数成分过滤。
-* ``use_industry`` / ``use_mktcap``：行业和市值中性化。
+* ``winsorize_method``：截尾方法，支持 ``none``、``mad``、``percentile``、``std``；``winsorize_n`` 为对应阈值。
+* ``standardize_method``：标准化方法，支持 ``none``、``zscore``、``rank``、``minmax``。
+* ``neutralize``：中性化总开关；``use_industry`` / ``use_mktcap`` 决定使用行业或市值控制变量。
 * ``weight_mode``、``long_groups``、``short_groups``：权重生成口径。
 * ``backtest_metric``：回测成交价指标。
 
@@ -154,7 +160,7 @@ FactorSpec
 ``group_balance_by_date`` 和 ``group_balance_summary``，展示组间数量差异、
 同值边界和相邻组特征值区分度。
 
-``FactorPipeline.run(..., warmup_days=N)`` 可用日历日显式覆盖自动预热；省略或在 YAML 中设为 ``null`` 时，管线根据 ``required_history_bars`` 与算子参数推断。旧 YAML 无需增加上述可选字段。
+``FactorPipeline.run(..., warmup_days=N)`` 可用日历日显式覆盖自动预热；省略或在 YAML 中设为 ``null`` 时，管线根据 ``required_history_bars`` 与算子参数推断。旧 YAML 无需增加上述可选字段：曾启用行业/市值中性化的配置继续默认执行 ``mad(3) → zscore → neutralize``，未启用中性化的配置继续默认不做预处理。
 
 Alpha101 目录
 -------------

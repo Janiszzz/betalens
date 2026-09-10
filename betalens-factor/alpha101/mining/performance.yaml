@@ -2,11 +2,10 @@ runtime:
   # 可选：process | serial。process 使用多进程，serial 便于调试。
   backend: process
   # 请求的工作进程数，正整数；框架可能根据内存预算自动下调。
-  workers: 12
-  # 预留批大小，必须为正整数；当前候选仍逐个提交给 worker。
+  workers: 16
   chunk_size: 1
   # 可用于 mining 的系统内存比例，范围 (0, 1]。
-  max_memory_ratio: 0.5
+  max_memory_ratio: 0.7
 
 cache:
   # 可选：true | false。true 将任务输入写为 NPY/memmap；结果 SQLite 始终生成。

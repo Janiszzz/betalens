@@ -21,6 +21,20 @@
 ``FactorMiningResult`` 提供 ``factor_id``、``run_id``、``run_dir``、运行状态、
 粗细搜窗口结果、候选汇总和最终赢家。
 
+截面预处理可在 ``parameter_space.yaml`` 顶层统一配置，也可在单个 ``factors``
+条目中覆盖：
+
+.. code-block:: yaml
+
+   preprocessing:
+     winsorize_method: none       # none | mad | percentile | std
+     winsorize_n: 3.0
+     standardize_method: zscore  # none | zscore | rank | minmax
+     neutralize: true
+
+``neutralize`` 只控制 OLS 是否执行，行业和市值控制变量仍由因子 ``FactorSpec`` 的
+``use_industry`` / ``use_mktcap`` 决定。未配置时沿用因子原有预处理行为。
+
 搜索流程可以包含五个阶段：QMC 在宽边界内均匀覆盖数量级，TPE 根据已完成批次
 向优良区域收敛；若优胜候选持续集中于同一参数边界，则扩大该侧边界并启动新的
 Optuna study；之后在优胜候选邻域生成细粒度 Grid，最后对赢家参数施加随机扰动
@@ -135,7 +149,8 @@ categorical 和 bool 保持赢家值。扰动候选照常经历全部滑动窗�
 因子模块提供 ``make_mining_spec(params) -> MiningSpec``：
 
 * ``precomputed``：完整区间只计算一次因子；没有窗口变换时完整净值只回测一次，
-  各窗口表现从净值切片得到。
+  各窗口表现从净值切片得到。逐调仓期 Rank IC 也按唯一的
+  ``(信号日, 调仓日, 下一调仓日)`` 预计算一次，重叠窗口只做序列切片和聚合。
 * ``rolling_fit``：通过 ``fit_window`` 为每个窗口独立拟合并生成权重。
 * ``window_transform``：可在不重算因子的情况下做窗口级权重变换，例如 DISP 的
   pretom 过滤。
@@ -147,6 +162,10 @@ categorical 和 bool 保持赢家值。扰动候选照常经历全部滑动窗�
 NPY/memmap 保存行情、成交价、PIT、交易状态和行业面板；重叠窗口只加载时间切片。
 ``cache/input_manifest.json`` 描述输入缓存，``cache/results.sqlite3`` 增量保存搜索
 进度和计算结果。关闭数据缓存时直接查询数据库，但结果数据库仍会生成。
+
+多进程运行时，实际 worker 数还会受物理 CPU 核数和内存预算约束。框架为新启动的
+worker 默认设置单线程 BLAS；如果调用环境已显式设置 ``OPENBLAS_NUM_THREADS``、
+``OMP_NUM_THREADS``、``MKL_NUM_THREADS`` 或 ``NUMEXPR_NUM_THREADS``，则保留调用方设置。
 
 输出
 ----
@@ -167,7 +186,9 @@ NPY/memmap 保存行情、成交价、PIT、交易状态和行业面板；重叠
 
 ``metadata.yaml`` 记录配置指纹、环境、Git 状态、运行状态、结果计数和异常。
 ``挖掘审计.xlsx`` 包含运行概览、参数空间、搜索进度、全部窗口表现、候选汇总、
-赢家参数、赢家汇总和错误。旧版扁平 CSV/Parquet、``run_manifest.json``、
+IC 分析、赢家参数、赢家汇总和错误。``IC分析`` sheet 同时记录窗口 IC IR 和逐期
+Rank IC 序列；IC IR 按窗口内逐期 Rank IC 的均值除以样本标准差计算，不额外年化。
+旧版扁平 CSV/Parquet、``run_manifest.json``、
 ``selected_candidates.yaml`` 和 ``selected_nav`` 不再生成。
 
 热力图报告
