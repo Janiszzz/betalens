@@ -3,11 +3,13 @@ from __future__ import annotations
 
 import hashlib
 import importlib
+import inspect
 import json
 import logging
 import math
 import multiprocessing as mp
 import os
+import re
 import sys
 import threading
 import time
@@ -285,6 +287,7 @@ class MiningSpec:
     fit_window: Callable | None = None
     window_transform: Callable | None = None
     warmup_days: int | Callable = 30
+    weight_hook: Callable | None = None
 
 
 @dataclass(frozen=True)
@@ -412,6 +415,42 @@ def _import_spec(
     if not isinstance(value, MiningSpec):
         raise TypeError(f"{module_name}.make_mining_spec(params) must return MiningSpec")
     factor = value.factor_spec
+    # The mining config may promote an otherwise cross-sectional formula to a
+    # timing strategy.  Keep this adaptation here so existing factor modules
+    # remain unchanged and both paths share the same signal implementation.
+    if str(params.get("strategy_type", "")).strip().lower() == "timing":
+        setattr(factor, "strategy_type", "timing")
+        if value.weight_hook is None:
+            from betalens.factor.signal import standard_timing_weight_hook
+            value.weight_hook = standard_timing_weight_hook
+        current = dict(getattr(factor, "compute_kwargs", {}) or {})
+        if params.get("target_codes") is not None:
+            current["target_codes"] = params.get("target_codes")
+        signal = dict(current.get("signal_weight") or {})
+        aliases = {
+            "signal_method": "method", "signal_window": "window",
+            "signal_sigma": "sigma", "signal_operator": "operator",
+            "signal_side": "side", "signal_max_weight": "max_weight",
+            "signal_max_gross_exposure": "max_gross_exposure",
+            # Accept the concise timing parameter name as well; it is common
+            # in existing YAML files and remains distinct from metric
+            # aggregation through params_json restoration.
+            "max_gross_exposure": "max_gross_exposure",
+        }
+        for source, target in aliases.items():
+            if params.get(source) is not None:
+                signal[target] = params[source]
+        state = dict(signal.get("state") or {})
+        for key, value_param in params.items():
+            if str(key).startswith("state_"):
+                state[str(key)[6:]] = value_param
+        if state:
+            signal["state"] = state
+        if signal:
+            current["signal_weight"] = signal
+        if "max_gross_exposure" in signal:
+            current["max_gross_exposure"] = signal["max_gross_exposure"]
+        setattr(factor, "compute_kwargs", current)
     legacy_enabled = bool(
         getattr(factor, "use_industry", False)
         or getattr(factor, "use_mktcap", False)
@@ -729,6 +768,16 @@ def _cache_signature(
 ) -> str:
     factor = spec.factor_spec
     cache_config = performance.get("cache", {}) or {}
+    raw_targets = (getattr(factor, "compute_kwargs", {}) or {}).get("target_codes") or (
+        getattr(factor, "compute_kwargs", {}) or {}
+    ).get("stock_code")
+    if isinstance(raw_targets, str):
+        raw_targets = re.split(r"[,\s，;；]+", raw_targets.strip())
+    timing_targets = sorted({
+        str(value).strip()
+        for value in (raw_targets or [])
+        if value is not None and str(value).strip()
+    })
     payload = {
         "schema": 4,
         "dataset_version": cache_config.get("dataset_version", "default"),
@@ -747,6 +796,8 @@ def _cache_signature(
         "valuation_price_field": "收盘价(元)",
         "universe": sorted(map(str, universe)),
         "pit_fingerprint": _pit_fingerprint(pit),
+        "strategy_type": getattr(factor, "strategy_type", "cross_sectional"),
+        "target_codes": timing_targets,
     }
     return hashlib.sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str).encode()).hexdigest()
 
@@ -854,11 +905,53 @@ def _fetch_data(
     )
     days = list(sorted(get_absolute_trade_days(fetch_start, end, "D")))
     _LOGGER.info("交易日历准备完成：共%d个交易日", len(days))
-    universe = list(performance.get("universe") or [])
+    raw_universe = performance.get("universe") or []
+    if isinstance(raw_universe, str):
+        universe = [
+            value for value in re.split(r"[,\s，;；]+", raw_universe.strip())
+            if value
+        ]
+    else:
+        universe = list(raw_universe)
     pit = None
+    # Timing targets are part of the data universe even when the formula also
+    # declares an index/PIT universe.  Resolve them before PIT construction so
+    # a target is never accidentally filtered out or omitted when performance
+    # configuration leaves ``universe`` empty.
+    raw_targets = params.get("target_codes") or (
+        getattr(factor, "compute_kwargs", {}) or {}
+    ).get("target_codes") or (
+        getattr(factor, "compute_kwargs", {}) or {}
+    ).get("stock_code")
+    if isinstance(raw_targets, str):
+        raw_targets = re.split(r"[,\s，;；]+", raw_targets.strip())
+    target_codes = {
+        str(value).strip()
+        for value in (raw_targets or [])
+        if value is not None and str(value).strip()
+    }
+    if getattr(factor, "strategy_type", "cross_sectional") == "timing":
+        # The run-level universe is the final fallback for timing targets.
+        # Without any of the documented fallbacks, fail early with a clear
+        # configuration error instead of silently producing all-zero weights.
+        if not target_codes:
+            target_codes = {
+                str(value).strip()
+                for value in universe
+                if value is not None and str(value).strip()
+            }
+        if not target_codes:
+            raise ValueError(
+                "timing strategy requires target_codes, stock_code, or a non-empty performance.universe"
+            )
+        universe = sorted({str(value) for value in universe} | target_codes)
     if getattr(factor, "index_code", None):
         pit = _build_pit(days, getattr(factor, "index_code"))
         universe = sorted({str(code) for values in pit.values() for code in values})
+        if getattr(factor, "strategy_type", "cross_sectional") == "timing":
+            if target_codes:
+                universe = sorted(set(universe).union(target_codes))
+                pit = {day: set(values).union(target_codes) for day, values in pit.items()}
     if not universe:
         raise ValueError("a mining factor requires factor_spec.index_code or performance.universe")
     _LOGGER.info("证券池准备完成：共%d只证券", len(universe))
@@ -1074,8 +1167,60 @@ def _build_weights(factor_wide: pd.DataFrame, spec: MiningSpec, params: Mapping[
     factor = spec.factor_spec
     pairs = _signal_pairs(start, end, frequency, data.price.index)
     signal_dates = [signal for signal, _ in pairs]
-    if getattr(factor, "weight_mode", "freeplay") in {"event", "timing"}:
-        weights = pd.DataFrame(index=pd.DatetimeIndex(signal_dates) + pd.Timedelta(minutes=10))
+    if getattr(factor, "strategy_type", "cross_sectional") == "timing" or getattr(factor, "weight_mode", "freeplay") in {"event", "timing"}:
+        if not signal_dates:
+            return pd.DataFrame()
+        hook = spec.weight_hook
+        if hook is None:
+            from betalens.factor.signal import standard_timing_weight_hook
+            hook = standard_timing_weight_hook
+        target_codes = params.get("target_codes") or (getattr(factor, "compute_kwargs", {}) or {}).get("target_codes") or (getattr(factor, "compute_kwargs", {}) or {}).get("stock_code")
+        context = {
+            "factor_wide": factor_wide,
+            "signal_dates": signal_dates,
+            "rebalance_dates": [rebalance for _, rebalance in pairs],
+            "params": dict(params),
+            "spec": spec,
+            "data": data,
+            "input_wides": {**dict(data.inputs), "price_wide": data.price, "execution_price": data.execution_price},
+            "universe": target_codes or data.universe,
+            "target_codes": target_codes,
+            "start": start,
+            "end": end,
+            "frequency": frequency,
+        }
+        result = hook(pd.DataFrame(index=pd.DatetimeIndex(signal_dates)), context)
+        if hasattr(result, "weights"):
+            weights = result.weights
+            if hasattr(result, "factor_values"):
+                weights.attrs["factor_values"] = result.factor_values
+            if hasattr(result, "events"):
+                weights.attrs["events"] = result.events
+        else:
+            weights = result
+        if weights is None:
+            return pd.DataFrame()
+        weights = weights.copy()
+        # Hooks operate on signal dates; the backtest consumes rebalance
+        # timestamps, matching the cross-sectional pipeline convention.
+        normalized = pd.DatetimeIndex(weights.index).normalize()
+        mapping = {
+            pd.Timestamp(signal).normalize(): pd.Timestamp(rebalance).normalize()
+            for signal, rebalance in pairs
+        }
+        if normalized.isin(mapping).any():
+            keep = normalized.isin(mapping)
+            weights = weights.loc[keep]
+            weights.index = pd.DatetimeIndex([
+                mapping[day] + pd.Timedelta(minutes=10) for day in normalized[keep]
+            ])
+        else:
+            rebalance_days = {pd.Timestamp(rebalance).normalize() for _, rebalance in pairs}
+            keep = normalized.isin(rebalance_days)
+            weights = weights.loc[keep]
+            weights.index = pd.DatetimeIndex([
+                day + pd.Timedelta(minutes=10) for day in normalized[keep]
+            ])
     else:
         value = _filter_pit(_wide_to_long(factor_wide, factor.name, signal_dates), data.pit)
         value = _preprocess(value, factor, signal_dates, data)
@@ -1097,6 +1242,10 @@ def _build_weights(factor_wide: pd.DataFrame, spec: MiningSpec, params: Mapping[
             "short": short_groups,
             "grouping_mode": grouping_mode,
         })
+    # Timing hooks already emit execution timestamps; cross-sectional weights
+    # are mapped from signal dates to rebalance dates here.
+    if getattr(factor, "strategy_type", "cross_sectional") == "timing" or getattr(factor, "weight_mode", "freeplay") in {"event", "timing"}:
+        return weights.sort_index()
     return _weights_on_rebalance(weights, pairs)
 
 
@@ -1125,6 +1274,51 @@ def _turnover(weights: pd.DataFrame | None) -> float:
     values = weights.loc[:, columns].fillna(0.0).sort_index().reset_index(drop=True)
     values = pd.concat([pd.DataFrame([np.zeros(len(columns))], columns=columns), values], ignore_index=True)
     return float((0.5 * values.diff().abs().sum(axis=1).iloc[1:]).mean())
+
+
+def _timing_metrics(weights: pd.DataFrame | None, nav: pd.Series | None) -> dict[str, float | int]:
+    """Compute stable timing-quality metrics from generated target weights."""
+    if weights is None or weights.empty:
+        return {
+            "trade_count": 0, "win_rate": 0.0, "odds": 0.0,
+            "avg_position": 0.0, "open_ratio": 0.0,
+            "max_gross_exposure": 0.0, "signal_count": 0,
+        }
+    frame = weights.copy()
+    frame.index = pd.DatetimeIndex(frame.index).normalize()
+    frame = frame.groupby(level=0).last().sort_index()
+    stock_cols = [c for c in frame.columns if str(c).lower() != "cash"]
+    stock = frame.reindex(columns=stock_cols).apply(pd.to_numeric, errors="coerce").fillna(0.0)
+    position = stock.abs().sum(axis=1) if not stock.empty else pd.Series(0.0, index=frame.index)
+    active = position > 1e-8
+    transitions = active.astype(int).diff().fillna(active.astype(int))
+    trade_count = int(((transitions == 1)).sum())
+    # Approximate trade win/loss from NAV changes over active segments.  This
+    # is deterministic and works for both vector and exact engines.
+    wins: list[float] = []
+    if nav is not None and len(nav):
+        nav_series = pd.Series(nav).copy()
+        nav_series.index = pd.DatetimeIndex(nav_series.index).normalize()
+        nav_series = nav_series.groupby(level=0).last().sort_index()
+        for _, segment in active.groupby((active != active.shift()).cumsum()):
+            if not bool(segment.iloc[0]):
+                continue
+            dates = segment.index.intersection(nav_series.index)
+            if len(dates) >= 2 and nav_series.loc[dates[0]]:
+                wins.append(float(nav_series.loc[dates[-1]] / nav_series.loc[dates[0]] - 1.0))
+    positive = [value for value in wins if value > 0]
+    negative = [-value for value in wins if value < 0]
+    avg_win = float(np.mean(positive)) if positive else 0.0
+    avg_loss = float(np.mean(negative)) if negative else 0.0
+    return {
+        "trade_count": trade_count,
+        "win_rate": float(np.mean(np.asarray(wins) > 0)) if wins else 0.0,
+        "odds": avg_win / avg_loss if avg_loss > 0 else (float("inf") if avg_win > 0 else 0.0),
+        "avg_position": float(position.mean()) if len(position) else 0.0,
+        "open_ratio": float(active.mean()) if len(active) else 0.0,
+        "max_gross_exposure": float(position.max()) if len(position) else 0.0,
+        "signal_count": int(active.sum()),
+    }
 
 
 def _daily_last(value: pd.DataFrame) -> pd.DataFrame:
@@ -1260,7 +1454,10 @@ def _exact_nav(weights: pd.DataFrame, data: MiningData, spec: MiningSpec, amount
 
     codes = [name for name in weights if name != "cash"]
     if not codes:
-        return pd.Series(dtype=float)
+        # A timing strategy with no active signal is a valid all-cash path;
+        # keep exact and vector engines consistent instead of reporting an
+        # ``empty nav`` candidate failure.
+        return pd.Series(1.0, index=data.price.index)
     close = data.price.loc[:, [name for name in codes if name in data.price]]
     execution = data.execution_price.loc[:, [name for name in codes if name in data.execution_price]]
     status = data.trade_status.loc[:, [name for name in codes if name in data.trade_status]] if data.trade_status is not None else None
@@ -1319,7 +1516,17 @@ def _evaluate_candidate(module: str, factor_id: str, params: Mapping[str, Any], 
         if _TASK_LOGS:
             _LOGGER.info("%s候选 %s：开始计算全程因子", _stage_name(stage), candidate)
         with _heartbeat("candidate.factor", stage=stage, candidate=candidate):
-            full_factor = spec.factor_spec.compute(**data.inputs, **getattr(spec.factor_spec, "compute_kwargs", {}))
+            compute_kwargs = dict(getattr(spec.factor_spec, "compute_kwargs", {}) or {})
+            for key in ("signal_weight", "target_codes", "stock_code", "strategy_type"):
+                compute_kwargs.pop(key, None)
+            for key in list(compute_kwargs):
+                if str(key).startswith(("signal_", "state_")):
+                    compute_kwargs.pop(key, None)
+            signature = inspect.signature(spec.factor_spec.compute)
+            if not any(p.kind == inspect.Parameter.VAR_KEYWORD for p in signature.parameters.values()):
+                allowed = set(signature.parameters)
+                compute_kwargs = {key: value for key, value in compute_kwargs.items() if key in allowed}
+            full_factor = spec.factor_spec.compute(**data.inputs, **compute_kwargs)
         if _TASK_LOGS:
             _LOGGER.info(
                 "%s候选 %s：全程因子计算完成，结果=%d行 x %d列，耗时=%s",
@@ -1361,28 +1568,29 @@ def _evaluate_candidate(module: str, factor_id: str, params: Mapping[str, Any], 
                     len(full_nav),
                     _elapsed(nav_started),
                 )
-        rank_ic_started = time.perf_counter()
-        with _heartbeat("candidate.rank_ic", stage=stage, candidate=candidate):
-            full_rank_ic_observations = _rank_ic_observations(
-                full_factor,
-                data.execution_price,
-                list(window_pairs.values()),
-            )
-        rank_ic_rows.extend(_rank_ic_audit_rows(
-            full_rank_ic_observations,
-            factor_id=factor_id,
-            candidate_id=candidate,
-            stage=stage,
-            params_json=params_json,
-        ))
-        if _TASK_LOGS:
-            _LOGGER.info(
-                "%s候选 %s：Rank IC序列预计算完成，唯一期间=%d，耗时=%s",
-                _stage_name(stage),
-                candidate,
-                len(full_rank_ic_observations),
-                _elapsed(rank_ic_started),
-            )
+        if getattr(spec.factor_spec, "strategy_type", "cross_sectional") != "timing":
+            rank_ic_started = time.perf_counter()
+            with _heartbeat("candidate.rank_ic", stage=stage, candidate=candidate):
+                full_rank_ic_observations = _rank_ic_observations(
+                    full_factor,
+                    data.execution_price,
+                    list(window_pairs.values()),
+                )
+            rank_ic_rows.extend(_rank_ic_audit_rows(
+                full_rank_ic_observations,
+                factor_id=factor_id,
+                candidate_id=candidate,
+                stage=stage,
+                params_json=params_json,
+            ))
+            if _TASK_LOGS:
+                _LOGGER.info(
+                    "%s候选 %s：Rank IC序列预计算完成，唯一期间=%d，耗时=%s",
+                    _stage_name(stage),
+                    candidate,
+                    len(full_rank_ic_observations),
+                    _elapsed(rank_ic_started),
+                )
     rows = []
     windows_started = time.perf_counter()
     for position, window in enumerate(windows, 1):
@@ -1446,6 +1654,20 @@ def _evaluate_candidate(module: str, factor_id: str, params: Mapping[str, Any], 
                 weights = transformed if transformed is not None else weights
                 with _heartbeat("candidate.window_nav", stage=stage, candidate=candidate, window=window.window_id):
                     nav = _vector_nav(weights, data.price) if engine == "vector" else _exact_nav(weights, data, spec, amount, tolerance)
+            elif getattr(spec.factor_spec, "strategy_type", "cross_sectional") == "timing":
+                # Rebuild each timing window so stateful signals start cleanly
+                # at the window boundary while retaining historical warmup.
+                weights = _build_weights(
+                    full_factor,
+                    spec,
+                    params,
+                    data,
+                    window.start,
+                    window.end,
+                    frequency,
+                )
+                with _heartbeat("candidate.window_nav", stage=stage, candidate=candidate, window=window.window_id):
+                    nav = _vector_nav(weights, data.price) if engine == "vector" else _exact_nav(weights, data, spec, amount, tolerance)
             else:
                 nav = full_nav
             if nav is None or len(nav) == 0:
@@ -1455,8 +1677,12 @@ def _evaluate_candidate(module: str, factor_id: str, params: Mapping[str, Any], 
             metrics = metrics_from_nav(pd.Series(nav.to_numpy()[keep], index=index[keep]))
             window_weights = _slice_frame(weights, window.start, window.end)
             metrics["turnover"] = _turnover(window_weights)
+            if getattr(active_spec.factor_spec, "strategy_type", "cross_sectional") == "timing":
+                window_nav = pd.Series(nav.to_numpy()[keep], index=index[keep])
+                metrics.update(_timing_metrics(window_weights, window_nav))
             if factor is not None:
-                metrics.update(_rank_ic_metrics(active_rank_ic_observations, pairs))
+                if getattr(active_spec.factor_spec, "strategy_type", "cross_sectional") != "timing":
+                    metrics.update(_rank_ic_metrics(active_rank_ic_observations, pairs))
             row = {"factor_id": factor_id, "candidate_id": candidate, "stage": stage, "window_id": window.window_id, "window_start": window.start, "window_end": window.end, "params_json": params_json, **params, **metrics, "error": None}
             if report_progress:
                 window_elapsed = time.perf_counter() - windows_started
@@ -1567,10 +1793,20 @@ def _summary(frame: pd.DataFrame, selection: Mapping[str, Any]) -> pd.DataFrame:
                 parameter_names.update(json.loads(str(payload)))
             except (TypeError, ValueError):
                 pass
+    # Most parameter names are excluded from metric aggregation because they
+    # are copied into each window row.  Timing adds quality metrics, however,
+    # and a configurable parameter (notably ``max_gross_exposure``) may share
+    # one of those names.  Keep the timing metrics in the aggregation set so
+    # their ``*_mean/median/...`` columns remain available for selection and
+    # audit; candidate parameters are recovered from params_json below.
+    timing_metric_names = {
+        "trade_count", "win_rate", "odds", "avg_position", "open_ratio",
+        "max_gross_exposure", "signal_count",
+    }
     metric_columns = [
         name for name in valid.columns
         if name not in excluded
-        and name not in parameter_names
+        and (name not in parameter_names or name in timing_metric_names)
         and pd.api.types.is_numeric_dtype(valid[name])
     ]
     for name in metric_columns:
@@ -1596,6 +1832,28 @@ def _summary(frame: pd.DataFrame, selection: Mapping[str, Any]) -> pd.DataFrame:
     if identity_columns:
         identity = valid.groupby(["factor_id", "candidate_id"], as_index=False)[identity_columns].first()
         summary = summary.merge(identity, on=["factor_id", "candidate_id"], how="left")
+    # Restore the authoritative candidate parameters from params_json.  This
+    # also repairs the one-to-one name collision between a timing metric and a
+    # parameter (for example ``max_gross_exposure``) without dropping the
+    # aggregated metric columns above.
+    if parameter_names and "params_json" in valid:
+        parameter_values: dict[tuple[Any, Any], dict[str, Any]] = {}
+        for key, group in valid.groupby(["factor_id", "candidate_id"], sort=False):
+            for payload in group["params_json"].dropna():
+                try:
+                    parsed = json.loads(str(payload))
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    continue
+                if isinstance(parsed, Mapping):
+                    parameter_values[key] = dict(parsed)
+                    break
+        for name in parameter_names:
+            summary[name] = [
+                parameter_values.get((row["factor_id"], row["candidate_id"]), {}).get(
+                    name, row.get(name, np.nan)
+                )
+                for _, row in summary.iterrows()
+            ]
     summary["valid_window_ratio"] = summary.valid_window_count / summary.window_count.replace(0, np.nan)
     objective = selection.get("objective", {}) or {}
     metric, aggregate = str(objective.get("metric", "sharpe")), str(objective.get("aggregate", "median"))
@@ -1631,11 +1889,45 @@ def _summary(frame: pd.DataFrame, selection: Mapping[str, Any]) -> pd.DataFrame:
             raise ValueError(f"selection filter {name} is missing value")
         if op not in operators:
             raise ValueError(f"unsupported selection operator: {op}")
-        summary.loc[~operators[op](summary[name], target).fillna(False), "selection_status"] = "filtered"
+        # When a timing metric shares its name with a parameter, the bare
+        # metric filter refers to the window-median quality metric; the bare
+        # parameter remains available in params_json/parameter columns for
+        # candidate generation.
+        filter_values = summary[f"{name}_median"] if name in timing_metric_names and f"{name}_median" in summary else summary[name]
+        summary.loc[~operators[op](filter_values, target).fillna(False), "selection_status"] = "filtered"
     summary = summary.sort_values("objective", ascending=str(objective.get("direction", "maximize")).lower() == "minimize", na_position="last").reset_index(drop=True)
     eligible = summary.index[summary.selection_status == "candidate"]
     summary.loc[eligible[:int(selection.get("top_k", len(summary)))], "selection_status"] = "selected"
     return summary
+
+
+def _row_parameter_values(
+    row: Mapping[str, Any],
+    parameter_specs: Mapping[str, Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Recover candidate parameters without being fooled by metric collisions.
+
+    Timing evaluations expose metrics such as ``max_gross_exposure``.  A
+    search space may legitimately contain a parameter with the same name;
+    window rows then contain the metric value in that column while the
+    authoritative candidate value remains in ``params_json``.  Any stage
+    that feeds values back into Optuna or generates local candidates must use
+    the serialized parameter payload first.
+    """
+    payload = row.get("params_json") if isinstance(row, Mapping) else None
+    parsed: Mapping[str, Any] = {}
+    if payload is not None:
+        try:
+            value = json.loads(str(payload))
+            if isinstance(value, Mapping):
+                parsed = value
+        except (TypeError, ValueError, json.JSONDecodeError):
+            parsed = {}
+    return {
+        name: parsed[name] if name in parsed else row[name]
+        for name in parameter_specs
+        if name in parsed or name in row
+    }
 
 
 def _evaluate_stage(
@@ -2079,7 +2371,7 @@ def _run_sampled_stage(
                 factor_id,
             )
         seed_candidates = [
-            {name: row[name] for name in parameter_specs}
+            _row_parameter_values(row, parameter_specs)
             for row in seed_summary.to_dict(orient="records")
         ]
         seeded = seed_study_with_results(
@@ -2156,7 +2448,7 @@ def _top_parameter_rows(
     selected = summary.loc[summary.selection_status == "selected"]
     source = selected if not selected.empty else summary
     return [
-        {name: row[name] for name in parameter_specs if name in row}
+        _row_parameter_values(row, parameter_specs)
         for row in source.head(max(1, int(count))).to_dict(orient="records")
     ]
 
@@ -2235,8 +2527,29 @@ def _run_factor(
     if mode not in {"precomputed", "rolling_fit"}:
         raise ValueError(f"factor {factor_id} requires execution_mode=precomputed or rolling_fit")
     parameter_specs = dict(factor_config.get("parameters") or {})
+    strategy_type = str(factor_config.get("strategy_type", "")).strip().lower()
+    if strategy_type == "timing":
+        # Fixed defaults participate in candidate identity/audit just like
+        # searched parameters, while signal_* aliases are normalized later.
+        defaults = dict(factor_config.get("signal_defaults") or {})
+        defaults.pop("state", None)
+        for key, value in defaults.items():
+            alias = f"signal_{key}" if not str(key).startswith("signal_") else str(key)
+            parameter_specs.setdefault(alias, {"type": "categorical", "choices": [value]})
+        state_defaults = dict((factor_config.get("signal_defaults") or {}).get("state") or {})
+        for key, value in state_defaults.items():
+            parameter_specs.setdefault(f"state_{key}", {"type": "categorical", "choices": [value]})
+        parameter_specs.setdefault("strategy_type", {"type": "categorical", "choices": ["timing"]})
+        if factor_config.get("target_codes") is not None:
+            target_value = factor_config.get("target_codes")
+            if isinstance(target_value, list):
+                target_value = target_value[0] if len(target_value) == 1 else tuple(target_value)
+            parameter_specs.setdefault("target_codes", {"type": "categorical", "choices": [target_value]})
     if str(factor_id).upper().startswith("ALPHA"):
-        number = int(str(factor_id).upper().replace("ALPHA", ""))
+        match = re.match(r"ALPHA(\d+)", str(factor_id).upper())
+        if match is None:
+            raise ValueError(f"invalid alpha factor id: {factor_id}")
+        number = int(match.group(1))
         parameter_specs.setdefault("alpha_id", {"type": "int", "low": number, "high": number, "step": 1})
     validate_parameter_specs(parameter_specs)
     parameter_limits = dict(factor_config.get("parameter_limits") or {})
@@ -2244,6 +2557,9 @@ def _run_factor(
         execution_mode=mode,
         resolved_parameter_specs=parameter_specs,
         parameter_limits=parameter_limits,
+        strategy_type=strategy_type or "cross_sectional",
+        target_codes=factor_config.get("target_codes"),
+        signal_defaults=factor_config.get("signal_defaults") or {},
     )
     _LOGGER.info(
         "开始处理因子：因子=%s，模块=%s，执行模式=%s，待挖掘参数=%s，任务目录=%s",
@@ -2377,7 +2693,7 @@ def _run_factor(
     broad_candidates = []
     if not broad.empty:
         broad_candidates = [
-            {name: row[name] for name in current_specs}
+            _row_parameter_values(row, current_specs)
             for row in broad.drop_duplicates("candidate_id").to_dict(orient="records")
         ]
     fine_plan = generate_fine_candidates(
@@ -2441,7 +2757,13 @@ def _run_factor(
     stability_summary = pd.DataFrame()
     stability_config = dict(search.get("stability") or {})
     if stability_config and bool(stability_config.get("enabled", True)) and not selected.empty:
-        stability_winners = selected.head(max(1, int(stability_config.get("top_k", 3)))).to_dict(orient="records")
+        stability_winners = []
+        for row in selected.head(max(1, int(stability_config.get("top_k", 3)))).to_dict(orient="records"):
+            winner = _row_parameter_values(row, current_specs)
+            # Perturbation metadata uses the parent candidate id; preserve it
+            # while keeping all parameter values sourced from params_json.
+            winner["candidate_id"] = row.get("candidate_id")
+            stability_winners.append(winner)
         perturbation_plan = generate_perturbation_candidates(
             current_specs,
             stability_winners,

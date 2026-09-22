@@ -35,20 +35,42 @@ class FactorYamlDashboardTests(unittest.TestCase):
         alpha101 = [item for item in discover_factors() if item.factor_class == "alpha101"]
         names = {item.name for item in alpha101}
 
-        self.assertEqual(len(alpha101), 202)
-        self.assertEqual(
-            names,
+        standard_names = {
+            name
+            for number in range(1, 102)
+            for name in (f"ALPHA{number}", f"ALPHA{number}_timing")
+        }
+        modified_names = {
+            "ALPHA12_MOMENTUM",
+            "ALPHA12_REVERSAL",
+        }
+
+        self.assertTrue(standard_names.issubset(names))
+        self.assertTrue(modified_names.issubset(names))
+        self.assertFalse(
             {
-                name
-                for number in range(1, 102)
-                for name in (f"ALPHA{number}", f"ALPHA{number}_timing")
-            },
+                "ALPHA12_CS_MOMENTUM",
+                "ALPHA12_CS_REVERSAL",
+                "ALPHA12_TS_MOMENTUM",
+                "ALPHA12_TS_REVERSAL",
+                "ALPHA12_JOINT_MOMENTUM",
+                "ALPHA12_JOINT_REVERSAL",
+            } & names
         )
-        self.assertEqual(sum(item.strategy_type == "cross_sectional" for item in alpha101), 101)
+        self.assertEqual(len(alpha101), len(names))
+        self.assertGreaterEqual(
+            sum(item.strategy_type == "cross_sectional" for item in alpha101),
+            103,
+        )
         self.assertEqual(sum(item.strategy_type == "timing" for item in alpha101), 101)
 
         alpha48 = next(item for item in alpha101 if item.name == "ALPHA48")
         self.assertEqual(alpha48.inputs["subindustry_wide"], "industry:申万三级行业")
+
+        for name in ("ALPHA12_MOMENTUM", "ALPHA12_REVERSAL"):
+            script, _class_cfg, factor_cfg = get_factor_config("alpha101", name)
+            self.assertEqual(script.name, f"factor_{name}.py")
+            self.assertEqual(factor_cfg["meta"]["name"], name)
 
     def test_get_factor_config_supports_multiple_yaml_specs_in_one_dir(self) -> None:
         script, _class_cfg, factor_cfg = get_factor_config("tdx", "XICHOU_timing")

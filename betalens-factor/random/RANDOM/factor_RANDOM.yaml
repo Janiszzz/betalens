@@ -1,0 +1,64 @@
+meta:
+  class: random
+  name: RANDOM
+  source: 多分布随机分组基准因子
+  formula: RANDOM[t,i] = Distribution(parameters; seed), Distribution in {uniform, normal, poisson, exponential, lognormal, beta, student_t}
+  logic: 收盘价仅用于确定当日可用股票；因子得分由 seed 和指定分布生成，equal_count 按随机得分排序分组，无经济方向含义。泊松模式加入极小的种子扰动来随机打破同值。
+factor_spec:
+  inputs:
+    close_wide: 收盘价(元)
+  compute_kwargs:
+    seed: 42
+    # 可选分布模式：
+    # uniform    - 均匀分布，使用 low、high
+    # normal     - 正态分布，使用 mean、std
+    # poisson    - 泊松分布，使用 lam、tie_break_epsilon
+    # exponential- 指数分布，使用 scale
+    # lognormal  - 对数正态分布，使用 mean、sigma
+    # beta       - Beta 分布，使用 alpha、beta
+    # student_t  - Student t 分布，使用 df
+    distribution: normal
+    # 仅当前 distribution 对应的参数会生效，其余参数会被忽略。
+    distribution_params:
+      low: 0.0
+      high: 1.0
+      mean: 0.0
+      std: 1.0
+      lam: 5.0
+      tie_break_epsilon: 0.000000001
+      scale: 1.0
+      sigma: 1.0
+      alpha: 2.0
+      beta: 5.0
+      df: 5.0
+  direction: positive
+  table_name: daily_market
+  index_code: 000906.SH
+  use_industry: false
+  use_mktcap: false
+  winsorize_method: none
+  winsorize_n: 3.0
+  standardize_method: none
+  neutralize: false
+  industry_scheme: 申万一级行业
+  backtest_metric: 收盘价(元)
+  required_history_bars: 0
+  mask_inputs_by_pit: true
+weight:
+  mode: classic-long-short
+  long_groups: null
+  short_groups: null
+  group_weights: {}
+  intra_group_allocation: {}
+run:
+  start_date: '2024-01-01'
+  end_date: '2025-12-31'
+  rebal_freq: W
+  grouping_mode: equal_count
+  n_quantiles: 20
+  initial_amount: 100000000
+  benchmark_code: 000906.SH
+  include_profiling: true
+  dump_excel: true
+  warmup_days: 0
+  output_dir: outputs/runs/manual

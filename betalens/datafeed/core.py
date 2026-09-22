@@ -338,7 +338,7 @@ class Datafeed:
 
 def get_absolute_trade_days(begin_date, end_date, period, exchange="SHSE"):
     """Return locally stored exchange trading dates, sampled by period end."""
-    period_map = {"D": None, "W": "W", "M": "M", "Q": "Q", "S": "2Q", "Y": "Y"}
+    period_map = {"D": None, "W": "W", "M": "M", "Q": "Q", "H": "2Q", "Y": "Y"}
     period_key = str(period).upper()
     if period_key not in period_map:
         raise ValueError(f"不支持的 period: {period}")

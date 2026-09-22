@@ -458,9 +458,13 @@ def generate_fine_candidates(
             "values": dimensions[name],
         }
     names = list(dimensions)
-    candidates = [dict(zip(names, values)) for values in itertools.product(*(dimensions[name] for name in names))]
+    combinations = itertools.islice(
+        itertools.product(*(dimensions[name] for name in names)),
+        max_candidates,
+    )
+    candidates = [dict(zip(names, values)) for values in combinations]
     return FineGridPlan(
-        candidates=_dedupe(candidates)[:max_candidates],
+        candidates=_dedupe(candidates),
         anchors=[dict(value) for value in anchors],
         dimensions=dimensions,
         local_bounds=local_bounds,

@@ -1,0 +1,206 @@
+# XICHOU timing 单标的参数挖掘。
+# 目标标的来自 daily_index：000300.SH（沪深300指数）。
+version: 1
+factor_class: tdx
+
+factors:
+  XICHOU_timing:
+    module: factor_XICHOU_timing_mining
+    execution_mode: precomputed
+    strategy_type: timing
+    target_codes: ["000300.SH"]
+
+    # 公式参数、触发规则、历史事件与状态机参数均可独立搜索。
+    parameters:
+      sma_n:
+        type: int
+        low: 2
+        high: 30
+        step: 1
+      ema_n:
+        type: int
+        low: 2
+        high: 30
+        step: 1
+      llv_n:
+        type: int
+        low: 5
+        high: 120
+        step: 1
+        scale: log
+      signal_method:
+        type: categorical
+        choices: [event_history, threshold, rolling_z]
+      trigger_threshold:
+        type: float
+        low: 0.01
+        high: 1.0
+      trigger_operator:
+        type: categorical
+        choices: [auto, gt, lt]
+      signal_side:
+        type: categorical
+        choices: [long, short]
+      signal_window:
+        type: int
+        low: 20
+        high: 260
+        step: 1
+      signal_sigma:
+        type: float
+        low: 0.5
+        high: 3.0
+      history_window:
+        type: int
+        low: 3
+        high: 30
+        step: 1
+      duration_quantile:
+        type: float
+        low: 0.5
+        high: 0.95
+      exit_wait_quantile:
+        type: float
+        low: 0.5
+        high: 0.95
+      min_history_events:
+        type: int
+        low: 2
+        high: 10
+        step: 1
+      default_exit_wait_days:
+        type: int
+        low: 1
+        high: 30
+        step: 1
+      max_weight:
+        type: float
+        low: 0.25
+        high: 1.0
+      max_gross_exposure:
+        type: float
+        low: 0.25
+        high: 1.0
+      state_enabled:
+        type: bool
+      state_mode:
+        type: categorical
+        choices: [level, stateful]
+      state_entry_threshold:
+        type: categorical
+        choices: [null, 0.05, 0.1, 0.2, 0.5]
+      state_exit_threshold:
+        type: categorical
+        choices: [null, 0.0, 0.05, 0.1, 0.2]
+      state_min_hold_days:
+        type: int
+        low: 0
+        high: 60
+        step: 1
+      state_max_hold_days:
+        type: int
+        low: 1
+        high: 260
+        step: 1
+      state_cooldown_days:
+        type: int
+        low: 0
+        high: 30
+        step: 1
+      state_stop_loss:
+        type: float
+        low: 0.01
+        high: 0.30
+      state_take_profit:
+        type: float
+        low: 0.01
+        high: 1.0
+
+    parameter_limits:
+      sma_n: {low: 2, high: 60}
+      ema_n: {low: 2, high: 60}
+      llv_n: {low: 3, high: 300}
+      trigger_threshold: {low: 0.0, high: 2.0}
+      signal_window: {low: 5, high: 520}
+      signal_sigma: {low: 0.1, high: 5.0}
+      history_window: {low: 2, high: 60}
+      duration_quantile: {low: 0.1, high: 0.99}
+      exit_wait_quantile: {low: 0.1, high: 0.99}
+      min_history_events: {low: 1, high: 30}
+      default_exit_wait_days: {low: 0, high: 90}
+      max_weight: {low: 0.0, high: 1.0}
+      max_gross_exposure: {low: 0.25, high: 1.0}
+      state_min_hold_days: {low: 0, high: 120}
+      state_max_hold_days: {low: 1, high: 520}
+      state_cooldown_days: {low: 0, high: 90}
+      state_stop_loss: {low: 0.01, high: 0.8}
+      state_take_profit: {low: 0.01, high: 3.0}
+
+evaluation:
+  span: ["2015-01-01", "2022-12-31"]
+  rebal_freq: D
+  engine: vector
+  initial_amount: 100000000
+  time_tolerance: 24
+
+windows:
+  lengths: [252, 756]
+  steps: [21, 63]
+
+search:
+  coarse:
+    sampler: qmc
+    qmc_type: sobol
+    scramble: true
+    n_trials: 256
+    seed: 20260914
+  refine:
+    enabled: true
+    sampler: tpe
+    n_trials: 96
+    batch_size: 8
+    n_startup_trials: 16
+    bootstrap_top_k: 24
+    seed: 20260915
+  expansion:
+    enabled: true
+    sampler: qmc
+    qmc_type: sobol
+    n_trials: 96
+    max_rounds: 2
+    boundary_top_k: 5
+    boundary_tolerance: 0.10
+    winner_ratio: 0.67
+    range_multiplier: 2
+    seed: 20260916
+  fine:
+    top_k: 12
+    points_per_dimension: 5
+    max_candidates: 625
+  stability:
+    enabled: true
+    top_k: 8
+    perturbations_per_candidate: 8
+    radius_ratio: 0.10
+    max_objective_degradation: 0.20
+    required_pass_ratio: 0.70
+    minimum_valid_ratio: 0.80
+    require_pass: true
+    seed: 20260917
+
+selection:
+  objective:
+    metric: sharpe
+    aggregate: median
+    direction: maximize
+  filters:
+    - metric: valid_window_ratio
+      op: ">="
+      value: 0.8
+    - metric: max_mdd
+      op: "<="
+      value: 0.35
+    - metric: open_ratio_median
+      op: ">="
+      value: 0.05
+  top_k: 10

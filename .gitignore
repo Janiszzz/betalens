@@ -29,6 +29,7 @@ dashboard/frontend/tsconfig.tsbuildinfo
 htmlcov/
 .tox/
 test/
+tests/
 
 #日志
 logs/
@@ -53,8 +54,20 @@ config.local.json
 **/_sweep/_cache/
 **/_walkforward/_cache/
 **/outputs/
+.pytest-tmp-run/
+.pytest-tmp-full/
+.pytest-tmp-*/
 
 #版权问题
 *XICHOU*
 betalens-factor/tdx/XICHOU/**
+# XICHOU timing mining configuration is maintained as a first-class,
+# reproducible workflow; keep only the new adapter/configs visible to Git.
+!betalens-factor/tdx/XICHOU/
+!betalens-factor/tdx/XICHOU/timing_mining/
+!betalens-factor/tdx/XICHOU/timing_mining/**
+!betalens-factor/tdx/XICHOU/factor_XICHOU_timing_mining.py
+# Keep generated mining outputs ignored even though the timing config folder
+# itself is explicitly unignored above.
+betalens-factor/tdx/XICHOU/timing_mining/outputs/
 

@@ -1,0 +1,47 @@
+meta:
+  class: alpha101
+  name: ALPHA12_MOMENTUM
+  source: Modified from WorldQuant ALPHA12
+  formula: sign(log-return) * sqrt(tanh(abs-return/MAD)^alpha * tanh(abs-log-volume-change/MAD)^alpha) * trend_efficiency
+  logic: 连续量价同向动量信号；对数变化消除单位和股价尺度，连续极端映射强调首尾效应，非目标象限为中性零值。
+factor_spec:
+  inputs:
+    close_wide: 收盘价(元)
+    volume_wide: 成交量(股)
+  industry_inputs: {}
+  compute_kwargs:
+    volume_delta_lag: 76
+    close_delta_lag: 1
+    extreme_scale: 2.0
+    trend_power: 1.0
+  direction: negative
+  table_name: daily_market
+  index_code: 000906.SH
+  use_industry: false
+  use_mktcap: false
+  winsorize_method: none
+  winsorize_n: 3.0
+  standardize_method: none
+  neutralize: false
+  industry_scheme: 申万一级行业
+  backtest_metric: 收盘价(元)
+  required_history_bars: 77
+  mask_inputs_by_pit: true
+weight:
+  mode: freeplay
+  long_groups: "min"
+  short_groups: "max"
+  group_weights: {}
+  intra_group_allocation: {}
+run:
+  start_date: '2016-01-01'
+  end_date: '2025-12-31'
+  rebal_freq: Q
+  grouping_mode: equal_count
+  n_quantiles: 40
+  initial_amount: 100000000
+  benchmark_code: 000906.SH
+  include_profiling: true
+  dump_excel: true
+  warmup_days: null
+  output_dir: outputs/runs/manual

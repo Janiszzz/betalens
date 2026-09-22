@@ -170,6 +170,9 @@ def _humanize_columns(frame: pd.DataFrame) -> pd.DataFrame:
         "mdd": "最大回撤", "calmar": "卡玛比率", "turnover": "换手率",
         "rank_ic": "Rank IC", "mean_rank_ic": "平均Rank IC", "robust_rank_ic": "稳健Rank IC",
         "ic_ir": "IC IR", "ic_coverage": "IC覆盖率", "n_days": "有效天数",
+        "trade_count": "交易次数", "win_rate": "胜率", "odds": "赔率",
+        "avg_position": "平均仓位", "open_ratio": "开仓占比",
+        "max_gross_exposure": "最大总敞口", "signal_count": "信号次数",
     }
     names = {}
     for column in frame.columns:
@@ -275,7 +278,7 @@ def _style_workbook(path: Path) -> None:
             width = min(42, max(10, max((len(value) for value in values), default=10) + 2))
             sheet.column_dimensions[column[0].column_letter].width = width
             header = str(column[0].value or "")
-            if any(word in header for word in ("收益率", "波动率", "回撤", "换手率", "覆盖率", "比例")):
+            if any(word in header for word in ("收益率", "波动率", "回撤", "换手率", "覆盖率", "比例", "胜率", "仓位", "敞口")):
                 for cell in list(column)[1:]:
                     cell.number_format = "0.00%"
     workbook.save(path)
@@ -310,6 +313,33 @@ def _heatmap_parameter_pairs(frame: pd.DataFrame, parameter_specs: Mapping[str, 
     if len(varying) == 1:
         return [(varying[0], "候选")]
     return [("候选", "候选")]
+
+
+def _restore_parameters_from_payload(
+    frame: pd.DataFrame,
+    parameter_specs: Mapping[str, Any],
+) -> pd.DataFrame:
+    """Use serialized candidate parameters for audit/heatmap dimensions.
+
+    Window rows can contain a timing metric whose name is also a search
+    parameter (``max_gross_exposure`` is the common case).  The metric is
+    intentionally retained in the raw results for metric aggregation, while
+    heatmap axes must use the candidate value from ``params_json``.
+    """
+    if frame.empty or "params_json" not in frame or not parameter_specs:
+        return frame
+    output = frame.copy()
+    for index, payload in output["params_json"].items():
+        try:
+            parsed = json.loads(str(payload))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+        if not isinstance(parsed, Mapping):
+            continue
+        for name in parameter_specs:
+            if name in parsed:
+                output.at[index, name] = parsed[name]
+    return output
 
 
 def _heatmap_matrix(frame: pd.DataFrame, row_name: str, column_name: str, metric: str) -> pd.DataFrame:
@@ -360,6 +390,7 @@ def _write_heatmap_report(
     parameter_specs = metadata.get("resolved_parameter_specs", {})
     if not isinstance(parameter_specs, Mapping):
         parameter_specs = {}
+    total_frame = _restore_parameters_from_payload(total_frame, parameter_specs)
     pairs = _heatmap_parameter_pairs(total_frame, parameter_specs)
     metrics = [("sharpe", "夏普比率"), ("ann_ret", "年化收益率"), ("calmar", "卡玛比率"), ("mdd", "最大回撤")]
     output_paths: list[str] = []

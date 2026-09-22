@@ -3,10 +3,28 @@ version: 1
 # 因子类别；用于任务元信息、输出归类，并启用 alpha101 的 `factors: all` 展开。
 factor_class: alpha101
 
-# 从 ALPHA13 继续挖掘到 ALPHA101。列表项自动使用 alpha101_mining、
-# precomputed 执行模式及下方的自动参数空间配置。
+# Alpha12 使用显式参数空间，避免自动生成器扩大或改变指定边界。
 factors:
-  - ALPHA49
+  ALPHA12:
+    module: alpha101_mining
+    execution_mode: precomputed
+    parameters:
+      volume_delta_lag:
+        type: int
+        low: 1
+        high: 180
+        step: 1
+        scale: linear
+      close_delta_lag:
+        type: int
+        low: 1
+        high: 180
+        step: 1
+        scale: linear
+    # 边界扩展受此限制，始终保持在 1..180。
+    parameter_limits:
+      volume_delta_lag: {low: 1, high: 180}
+      close_delta_lag: {low: 1, high: 180}
 
 # 仅用于 `factors: all` 或 `parameters: auto`。
 alpha101_parameter_generation:

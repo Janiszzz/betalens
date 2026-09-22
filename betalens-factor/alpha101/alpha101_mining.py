@@ -32,13 +32,20 @@ def _alpha_id(params: Mapping[str, Any]) -> int:
 def _formula_kwargs(params: Mapping[str, Any]) -> dict[str, Any]:
     definition = get_definition(_alpha_id(params))
     missing = [name for name in definition.parameters if name not in params]
-    if missing:
+    if missing and str(params.get("strategy_type", "")).lower() != "timing":
         raise KeyError(f"mining params missing formula keys: {', '.join(missing)}")
-    return {name: params[name] for name in definition.parameters}
+    return {
+        name: params.get(name, definition.parameters[name].default)
+        for name in definition.parameters
+    }
 
 
 def compute_alpha_mining(**kwargs):
     alpha_id = kwargs.pop("alpha_id")
+    # Timing-only controls are consumed by the signal hook, not the Alpha
+    # formula itself.
+    for key in ("stock_code", "target_codes", "signal_weight"):
+        kwargs.pop(key, None)
     return compute_alpha(alpha_id, **kwargs)
 
 

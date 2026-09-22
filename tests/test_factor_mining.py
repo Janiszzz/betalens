@@ -153,6 +153,23 @@ def test_optuna_search_supports_log_and_composite_categories():
     assert len({str(row) for row in seen}) == 4
 
 
+def test_fine_grid_applies_candidate_limit_before_materializing_cartesian_product():
+    specs = {
+        f"parameter_{index}": {"type": "categorical", "choices": list(range(5))}
+        for index in range(30)
+    }
+    anchor = {name: 2 for name in specs}
+
+    plan = generate_fine_candidates(
+        specs,
+        [anchor],
+        {"points_per_dimension": 5, "max_candidates": 17},
+    )
+
+    assert len(plan.candidates) == 17
+    assert all(set(candidate) == set(specs) for candidate in plan.candidates)
+
+
 def test_qmc_wide_search_boundary_expansion_and_perturbations_are_bounded():
     specs = {
         "window": {"type": "int", "low": 1, "high": 100, "step": 1, "scale": "log"},
@@ -458,6 +475,49 @@ def test_summary_supports_configured_metric_aggregation():
     )
     assert result.loc[0, "objective"] == pytest.approx(0.2)
     assert result.loc[0, "selection_status"] == "selected"
+
+
+def test_timing_metric_name_collision_restores_parameters_for_tpe_seed():
+    """A timing metric must not replace its same-named search parameter."""
+    frame = pd.DataFrame([
+        {
+            "factor_id": "TIMING",
+            "candidate_id": "C",
+            "window_id": "1",
+            "params_json": json.dumps({"max_gross_exposure": 0.8, "factor_id": "TIMING"}),
+            # This is the observed metric, not the candidate parameter.
+            "max_gross_exposure": 0.0,
+            "sharpe": 1.0,
+            "error": None,
+        },
+        {
+            "factor_id": "TIMING",
+            "candidate_id": "C",
+            "window_id": "2",
+            "params_json": json.dumps({"max_gross_exposure": 0.8, "factor_id": "TIMING"}),
+            "max_gross_exposure": 0.6,
+            "sharpe": 1.5,
+            "error": None,
+        },
+    ])
+    summary = mining._summary(
+        frame,
+        {"objective": {"metric": "sharpe", "aggregate": "median"}},
+    )
+    specs = {"max_gross_exposure": {"type": "float", "low": 0.25, "high": 1.0}}
+    params = mining._top_parameter_rows(summary, specs, 1)
+    assert params == [{"max_gross_exposure": 0.8}]
+    assert summary.loc[0, "max_gross_exposure_median"] == pytest.approx(0.3)
+    filtered = mining._summary(
+        frame,
+        {
+            "objective": {"metric": "sharpe", "aggregate": "median"},
+            "filters": [{"metric": "max_gross_exposure", "op": ">=", "value": 0.5}],
+        },
+    )
+    assert filtered.loc[0, "selection_status"] == "filtered"
+    study = create_coarse_study({"sampler": "tpe", "seed": 3, "n_startup_trials": 1})
+    assert seed_study_with_results(study, specs, params, [1.25]) == 1
 
 
 def test_rank_ic_observations_are_deduplicated_across_overlapping_windows():

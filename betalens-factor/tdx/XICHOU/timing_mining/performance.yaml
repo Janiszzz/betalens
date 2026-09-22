@@ -1,0 +1,19 @@
+runtime:
+  backend: process
+  workers: 16
+  chunk_size: 1
+  max_memory_ratio: 0.5
+
+cache:
+  data_enabled: true
+
+# daily_index 中的指数代码，和 parameter_space.target_codes 保持一致。
+universe: ["000300.SH"]
+
+output:
+  directory: outputs/mining
+
+logging:
+  level: INFO
+  task_logs: true
+  heartbeat_seconds: 30

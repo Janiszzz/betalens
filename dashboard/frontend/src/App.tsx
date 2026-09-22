@@ -800,8 +800,10 @@ function ParameterPanel({
         <select value={asString(params.rebal_freq)} onChange={(event) => onParam('rebal_freq', event.target.value)}>
           <option value="D">每天</option>
           <option value="W">每周</option>
-          <option value="ME">月末</option>
-          <option value="QE">季末</option>
+          <option value="M">月末</option>
+          <option value="Q">季末</option>
+          <option value="H">半年末</option>
+          <option value="Y">年末</option>
         </select>
       </label>
       {!isTiming ? (

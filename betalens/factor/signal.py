@@ -130,10 +130,30 @@ def _resolve_codes(
     requested = _normalize_codes(stock_code)
     if requested:
         return requested
+    requested = _normalize_codes(_setting(params, "target_codes"))
+    if requested:
+        return requested
     requested = _normalize_codes(universe)
     if requested:
         return [code for code in requested if code in factor_wide.columns]
     return [str(code) for code in factor_wide.columns]
+
+
+def _empty_signal_result(
+    factor_wide: pd.DataFrame,
+    signal_dates: Sequence[Any],
+    codes: Sequence[str] | None,
+    params: Mapping[str, Any] | None,
+) -> SignalWeightResult:
+    """Return a schema-stable empty timing result for empty signal input."""
+    signal_idx = _signal_index(signal_dates)
+    code_list = _resolve_codes(factor_wide, codes, params)
+    columns = [*dict.fromkeys([str(code) for code in code_list]), "cash"]
+    return SignalWeightResult(
+        weights=pd.DataFrame(index=signal_idx, columns=columns, dtype=float),
+        factor_values=pd.DataFrame(columns=BASE_FACTOR_VALUE_COLUMNS),
+        events={},
+    )
 
 
 def _daily_series(series: pd.Series) -> pd.Series:
@@ -156,7 +176,10 @@ def _finite_float(value: Any, default: float) -> float:
 
 
 def _max_weight(params: Mapping[str, Any] | None, default: float = 1.0) -> float:
-    value = _finite_float(_setting(params, "max_weight", default), default)
+    value = _finite_float(
+        _setting(params, "max_weight", default, aliases=("signal_max_weight",)),
+        default,
+    )
     return min(max(value, 0.0), 1.0)
 
 
@@ -242,6 +265,33 @@ def cash_from_weights(stock_weights: pd.DataFrame, *, scale: bool = True) -> pd.
     return out.fillna(0.0)
 
 
+def _apply_gross_cap(weights: pd.DataFrame, params: Mapping[str, Any] | None) -> pd.DataFrame:
+    """Apply a portfolio-level gross exposure cap for timing strategies."""
+    if weights is None or weights.empty:
+        return weights
+    # Timing strategies are unlevered by default.  A missing/None setting is
+    # therefore equivalent to the documented 1.0 gross-exposure cap.
+    cap = _finite_float(
+        _setting(params, "max_gross_exposure", 1.0, aliases=("signal_max_gross_exposure",)),
+        1.0,
+    )
+    if cap < 0:
+        raise ValueError("max_gross_exposure must be non-negative")
+    out = weights.copy()
+    stock_cols = [col for col in out.columns if str(col).lower() != "cash"]
+    if not stock_cols:
+        return out
+    stock = out[stock_cols].apply(pd.to_numeric, errors="coerce").fillna(0.0)
+    gross = stock.abs().sum(axis=1)
+    scale = pd.Series(1.0, index=stock.index)
+    over = gross > cap
+    scale.loc[over] = cap / gross.loc[over].replace(0.0, np.nan)
+    stock = stock.mul(scale, axis=0).fillna(0.0)
+    out = stock
+    out["cash"] = 1.0 - stock.sum(axis=1)
+    return out.fillna(0.0)
+
+
 def _with_execution_time(weights: pd.DataFrame, execution_delay: pd.Timedelta | None) -> pd.DataFrame:
     if execution_delay is None:
         return weights
@@ -288,7 +338,7 @@ def threshold_weight(
 ) -> SignalWeightResult:
     signal_idx = _signal_index(signal_dates)
     if signal_idx.empty:
-        raise ValueError("no signal dates for timing weights")
+        return _empty_signal_result(factor_wide, signal_dates, codes, params)
     code_list = _resolve_codes(factor_wide, codes, params)
     if not code_list:
         raise ValueError("no codes for timing weights")
@@ -342,7 +392,7 @@ def rolling_z_weight(
 ) -> SignalWeightResult:
     signal_idx = _signal_index(signal_dates)
     if signal_idx.empty:
-        raise ValueError("no signal dates for timing weights")
+        return _empty_signal_result(factor_wide, signal_dates, codes, params)
     code_list = _resolve_codes(factor_wide, codes, params)
     if not code_list:
         raise ValueError("no codes for timing weights")
@@ -393,6 +443,103 @@ def rolling_z_weight(
     weights = _with_execution_time(cash_from_weights(stocks), execution_delay)
     factor_values = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=BASE_FACTOR_VALUE_COLUMNS)
     return SignalWeightResult(weights=weights, factor_values=factor_values, events={})
+
+
+def stateful_weight(
+    *,
+    factor_wide: pd.DataFrame,
+    signal_dates: Sequence[Any],
+    codes: Sequence[str] | None = None,
+    params: Mapping[str, Any] | None = None,
+    price_wide: pd.DataFrame | None = None,
+    direction: str = "positive",
+    execution_delay: pd.Timedelta | None = pd.Timedelta(minutes=10),
+) -> SignalWeightResult:
+    """Generate timing weights with deterministic entry/exit state handling."""
+    signal_idx = _signal_index(signal_dates)
+    if signal_idx.empty:
+        return _empty_signal_result(factor_wide, signal_dates, codes, params)
+    code_list = _resolve_codes(factor_wide, codes, params)
+    if not code_list:
+        raise ValueError("no codes for timing weights")
+    state = _signal_config(params).get("state") or ((params or {}).get("state") if isinstance((params or {}).get("state"), Mapping) else None)
+    state = state if isinstance(state, Mapping) else {}
+    if not bool(state.get("enabled", True)):
+        # Explicitly disabled state machine falls back to level mapping.
+        return build_signal_weights(
+            factor_wide=factor_wide, signal_dates=signal_dates, codes=codes,
+            params=params, direction=direction, execution_delay=execution_delay,
+            # Resolve signal_method/signal_weight.method aliases instead of
+            # forcing the threshold method when state is disabled.
+            method=_resolve_method(params),
+        )
+    method = str(state.get("base_method") or _resolve_method(params)).strip()
+    base_params = dict(params or {})
+    if isinstance(base_params.get("signal_weight"), Mapping):
+        base_params["signal_weight"] = dict(base_params["signal_weight"])
+        base_params["signal_weight"]["method"] = method
+        base_params["signal_weight"].pop("state", None)
+    else:
+        base_params["method"] = method
+    base_params.pop("state", None)
+    # Build level signal first; state transitions are applied below.
+    level = build_signal_weights(
+        factor_wide=factor_wide, signal_dates=signal_dates, codes=code_list,
+        params=base_params, direction=direction, execution_delay=None,
+    )
+    level_values = level.factor_values
+    _, side_sign = resolve_side(params, direction=direction)
+    max_weight = _max_weight(params, 1.0)
+    min_hold = max(0, int(state.get("min_hold_days", 0) or 0))
+    max_hold_raw = state.get("max_hold_days")
+    max_hold = None if max_hold_raw in (None, "") else max(0, int(max_hold_raw))
+    cooldown = max(0, int(state.get("cooldown_days", 0) or 0))
+    stocks = pd.DataFrame(0.0, index=signal_idx, columns=code_list)
+    frames = []
+    for code in code_list:
+        factor = _daily_series(factor_wide[code]).reindex(signal_idx) if code in factor_wide else pd.Series(index=signal_idx, dtype=float)
+        active = level_values.loc[level_values["股票代码"].astype(str).eq(str(code))].set_index("信号日")["是否触发"].reindex(signal_idx).fillna(False) if not level_values.empty else pd.Series(False, index=signal_idx)
+        entry_threshold = state.get("entry_threshold")
+        exit_threshold = state.get("exit_threshold")
+        op = resolve_operator(direction, _setting(params, "operator", None, aliases=("trigger_operator",)))
+        entry = _event_active(factor, _finite_float(entry_threshold, np.nan), op) if entry_threshold is not None else active
+        if exit_threshold is None:
+            exit_active = ~active
+        else:
+            exit_active = _event_active(factor, _finite_float(exit_threshold, 0.0), "lt" if op == "gt" else "gt")
+        in_pos = False
+        held = 0
+        cool = 0
+        entry_price = np.nan
+        targets = pd.Series(0.0, index=signal_idx)
+        prices = _daily_series(price_wide[code]).reindex(signal_idx) if price_wide is not None and code in price_wide else pd.Series(index=signal_idx, dtype=float)
+        stop_loss = state.get("stop_loss")
+        take_profit = state.get("take_profit")
+        for day in signal_idx:
+            px = prices.get(day, np.nan)
+            is_cooling = cool > 0
+            if in_pos:
+                held += 1
+                risk_exit = False
+                if pd.notna(entry_price) and pd.notna(px):
+                    raw_ret = float(px / entry_price - 1.0) if entry_price else 0.0
+                    ret = raw_ret * side_sign
+                    risk_exit = (stop_loss is not None and ret <= -abs(_finite_float(stop_loss, 0.0))) or (take_profit is not None and ret >= abs(_finite_float(take_profit, 0.0)))
+                should_exit = (held >= min_hold and bool(exit_active.get(day, False))) or risk_exit or (max_hold is not None and held >= max_hold)
+                if should_exit:
+                    in_pos = False; held = 0; cool = cooldown; entry_price = np.nan
+                else:
+                    targets.loc[day] = side_sign * max_weight
+            elif not is_cooling and bool(entry.get(day, False)):
+                in_pos = True; held = 0; entry_price = px
+                targets.loc[day] = side_sign * max_weight
+            if is_cooling:
+                cool -= 1
+        stocks[code] = targets
+        frames.append(_factor_value_frame(signal_index=signal_idx, code=str(code), factor=factor, active=active, target_weight=targets, extras={"状态持仓": targets.ne(0.0), "冷却剩余": pd.Series(0, index=signal_idx)}))
+    weights = _with_execution_time(_apply_gross_cap(cash_from_weights(stocks), params), execution_delay)
+    fv = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=BASE_FACTOR_VALUE_COLUMNS)
+    return SignalWeightResult(weights=weights, factor_values=fv, events={})
 
 
 def _safe_div(numerator: float, denominator: float) -> float:
@@ -595,7 +742,7 @@ def event_history_weight(
 ) -> SignalWeightResult:
     signal_idx = _signal_index(signal_dates)
     if signal_idx.empty:
-        raise ValueError("no signal dates for timing weights")
+        return _empty_signal_result(factor_wide, signal_dates, codes, params)
     code_list = _resolve_codes(factor_wide, codes, params)
     if not code_list:
         raise ValueError("no codes for timing weights")
@@ -684,14 +831,30 @@ def build_signal_weights(
     codes: Sequence[str] | None = None,
     params: Mapping[str, Any] | None = None,
     high_wide: pd.DataFrame | None = None,
+    price_wide: pd.DataFrame | None = None,
     direction: str = "positive",
     method: str | None = None,
     side: str | None = None,
     execution_delay: pd.Timedelta | None = pd.Timedelta(minutes=10),
 ) -> SignalWeightResult:
+    state = (_signal_config(params).get("state") if params else None) or ((params or {}).get("state") if isinstance((params or {}).get("state"), Mapping) else None)
+    if isinstance(state, Mapping):
+        state_mode = str(state.get("mode", "stateful")).strip().lower()
+        if state_mode not in {"level", "stateful"}:
+            raise ValueError("state.mode supports level/stateful only")
+        if bool(state.get("enabled", False)) and state_mode == "stateful":
+            return stateful_weight(
+                factor_wide=factor_wide,
+                signal_dates=signal_dates,
+                codes=codes,
+                params=params,
+                price_wide=price_wide,
+                direction=direction,
+                execution_delay=execution_delay,
+            )
     resolved_method = _resolve_method(params, method)
     if resolved_method == "threshold":
-        return threshold_weight(
+        result = threshold_weight(
             factor_wide=factor_wide,
             signal_dates=signal_dates,
             codes=codes,
@@ -700,8 +863,10 @@ def build_signal_weights(
             direction=direction,
             execution_delay=execution_delay,
         )
+        result.weights = _apply_gross_cap(result.weights, params)
+        return result
     if resolved_method == "rolling_z":
-        return rolling_z_weight(
+        result = rolling_z_weight(
             factor_wide=factor_wide,
             signal_dates=signal_dates,
             codes=codes,
@@ -710,8 +875,10 @@ def build_signal_weights(
             direction=direction,
             execution_delay=execution_delay,
         )
+        result.weights = _apply_gross_cap(result.weights, params)
+        return result
     if resolved_method == "event_history":
-        return event_history_weight(
+        result = event_history_weight(
             factor_wide=factor_wide,
             high_wide=high_wide,
             signal_dates=signal_dates,
@@ -721,6 +888,8 @@ def build_signal_weights(
             direction=direction,
             execution_delay=execution_delay,
         )
+        result.weights = _apply_gross_cap(result.weights, params)
+        return result
     raise ValueError(f"unsupported signal_weight method: {resolved_method}")
 
 
@@ -735,16 +904,19 @@ def infer_signal_warmup(params: Mapping[str, Any] | None, minimum: int = 30) -> 
     return int(max(candidates))
 
 
-def standard_timing_weight_hook(weights: pd.DataFrame, task: Mapping[str, Any]) -> pd.DataFrame:
+def standard_timing_weight_hook(
+    weights: pd.DataFrame,
+    task: Mapping[str, Any],
+) -> pd.DataFrame | SignalWeightResult:
     del weights
-    context = task.get("context")
+    context = task.get("context") or task
     if not context:
         raise ValueError("standard timing weight hook requires mining task context")
 
     spec = context["spec"]
     params: dict[str, Any] = {}
     params.update(dict(getattr(spec, "compute_kwargs", {}) or {}))
-    params.update(dict(task.get("params", {}) or {}))
+    params.update(dict(context.get("params", task.get("params", {})) or {}))
 
     input_wides = context.get("input_wides") or {}
     high_wide = input_wides.get("high_wide")
@@ -752,15 +924,23 @@ def standard_timing_weight_hook(weights: pd.DataFrame, task: Mapping[str, Any]) 
     universe = context.get("universe")
     codes = _resolve_codes(factor_wide, params=params, universe=universe)
 
+    price_wide = input_wides.get("price_wide")
+    if price_wide is None:
+        price_wide = input_wides.get("close_wide")
     result = build_signal_weights(
         factor_wide=factor_wide,
         high_wide=high_wide,
+        price_wide=price_wide,
         signal_dates=context["signal_dates"],
         codes=codes,
         params=params,
         direction=getattr(spec, "direction", "positive"),
     )
-    return result.weights
+    # Keep the rich result so mining and direct pipeline callers can persist
+    # factor values and trigger events alongside the target weights.  The
+    # mining executor remains backward compatible with hooks returning a
+    # plain DataFrame.
+    return result
 
 
 __all__ = [
@@ -774,6 +954,7 @@ __all__ = [
     "resolve_operator",
     "resolve_side",
     "rolling_z_weight",
+    "stateful_weight",
     "standard_timing_weight_hook",
     "threshold_weight",
 ]

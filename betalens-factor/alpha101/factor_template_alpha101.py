@@ -36,6 +36,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import sys
+import inspect
 from pathlib import Path
 from typing import Any, Callable
 
@@ -268,9 +269,11 @@ def clean_inf(x):
 def _timing_codes(params, universe):
     import re
 
-    stock_code = str((params or {}).get("stock_code") or "").strip()
-    if stock_code:
-        return [stock_code]
+    raw = (params or {}).get("target_codes") or (params or {}).get("stock_code")
+    if raw:
+        if isinstance(raw, str):
+            return [part for part in re.split(r"[,\s，;；]+", raw.strip()) if part]
+        return [str(value).strip() for value in raw if str(value).strip()]
     if isinstance(universe, str):
         values = [part for part in re.split(r"[,\s，;；]+", universe.strip()) if part]
     else:
@@ -356,7 +359,8 @@ class TimingFactorPipeline:
         trade_days = sorted(get_absolute_trade_days(fetch_start, end_date, "D"))
         rebalance_dates = get_absolute_trade_days(start_date, end_date, rebal_freq)
         day_position = {day: i for i, day in enumerate(trade_days)}
-        signal_dates = [trade_days[day_position[day] - 1] for day in rebalance_dates if day_position.get(day, 0) > 0]
+        valid_rebalance_dates = [day for day in rebalance_dates if day_position.get(day, 0) > 0]
+        signal_dates = [trade_days[day_position[day] - 1] for day in valid_rebalance_dates]
         if not signal_dates:
             raise ValueError(f"no signal dates for {start_date}~{end_date}, rebal_freq={rebal_freq}")
 
@@ -400,7 +404,12 @@ class TimingFactorPipeline:
             )
             wides[arg_name] = mask_wide_by_pit_universe(labels, formula_pit_universe)
 
-        factor_wide = sp.compute(**wides, **params)
+        compute_params = dict(params)
+        signature = inspect.signature(sp.compute)
+        if not any(p.kind == inspect.Parameter.VAR_KEYWORD for p in signature.parameters.values()):
+            allowed = set(signature.parameters)
+            compute_params = {key: value for key, value in compute_params.items() if key in allowed}
+        factor_wide = sp.compute(**wides, **compute_params)
         if factor_wide is None or factor_wide.empty:
             raise ValueError(f"empty {sp.name} factor values")
         signal_result = build_signal_weights(
@@ -408,9 +417,22 @@ class TimingFactorPipeline:
             signal_dates=signal_dates,
             codes=target_codes,
             params=params,
+            price_wide=wides.get("close_wide"),
             direction=sp.direction,
         )
         weights = signal_result.weights
+        # Signals are computed on the previous trading day and executed at the
+        # rebalance date, ten minutes after the open, consistent with mining.
+        mapping = {
+            pd.Timestamp(signal).normalize(): pd.Timestamp(rebalance).normalize()
+            for signal, rebalance in zip(signal_dates, valid_rebalance_dates)
+        }
+        normalized = pd.DatetimeIndex(weights.index).normalize()
+        keep = normalized.isin(mapping)
+        weights = weights.loc[keep].copy()
+        weights.index = pd.DatetimeIndex([
+            mapping[day] + pd.Timedelta(minutes=10) for day in normalized[keep]
+        ])
         factor_values = signal_result.factor_values
         if weights.empty:
             raise ValueError("empty timing weights")
