@@ -20,6 +20,7 @@ dependencies = [
     "prettytable>=3.0.0",
     "openpyxl>=3.0.0",
     "PyYAML>=6.0",
+    "requests>=2.32",
 ]
 
 [project.optional-dependencies]
@@ -68,4 +69,4 @@ exclude = ["betalens-factor*"]
 include-package-data = true
 
 [tool.setuptools.package-data]
-betalens_db_manager = ["migrations/*.sql", "*.example.yaml", "assets/*.ico"]
+betalens_db_manager = ["*.example.yaml", "assets/*.ico"]

@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .manager import DatabaseManager
-from .schema import SchemaManager
+from .schema import SchemaManager, migration_disabled
 from .utils import json_default
 
 
@@ -30,40 +30,18 @@ def _database_overrides(args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
-def _add_schema_options(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument(
-        "--no-create-database",
-        action="store_true",
-        help="目标数据库不存在时失败",
-    )
-    parser.add_argument("--no-migrate-legacy", action="store_true", help="只安装基础 schema")
-    parser.add_argument("--no-compat-views", action="store_true", help="暂不切换 public 兼容视图")
-    parser.add_argument(
-        "--year",
-        dest="observation_years",
-        type=int,
-        action="append",
-        help="额外创建 observation 年度分区，可重复",
-    )
-
-
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m betalens_db_manager")
     subparsers = parser.add_subparsers(dest="command")
 
-    plan_parser = subparsers.add_parser("plan", help="只读预览 schema 与可选 Manifest")
+    plan_parser = subparsers.add_parser("plan", help="只读检查现有表并预检可选 Manifest")
     _add_database_arguments(plan_parser)
-    _add_schema_options(plan_parser)
-    plan_parser.add_argument("--manifest", type=Path, help="同时预检批量导入清单")
+    plan_parser.add_argument("--manifest", type=Path)
 
-    init_parser = subparsers.add_parser("init", help="初始化或升级本地数据库")
+    init_parser = subparsers.add_parser("init", help="已停用：不再自动建库或迁移")
     _add_database_arguments(init_parser)
-    _add_schema_options(init_parser)
-    init_parser.add_argument("--yes", action="store_true", help="确认 schema 变更及 upsert")
-    init_parser.add_argument("--manifest", type=Path, help="schema 完成后执行导入清单")
-    init_parser.add_argument("--resume", dest="resume", action="store_true", default=True)
-    init_parser.add_argument("--no-resume", dest="resume", action="store_false")
-    init_parser.add_argument("--report", type=Path, help="统一 JSON 运行报告路径")
+    init_parser.add_argument("--yes", action="store_true")
+    init_parser.add_argument("--manifest", type=Path)
 
     import_parser = subparsers.add_parser("import", help="预检并执行批量导入清单")
     _add_database_arguments(import_parser)
@@ -73,20 +51,13 @@ def _build_parser() -> argparse.ArgumentParser:
     import_parser.add_argument("--yes", action="store_true", help="确认 upsert 导入")
     import_parser.add_argument("--report", type=Path, help="JSON 导入报告路径")
 
-    verify_parser = subparsers.add_parser("verify", help="严格校验本地数据库 schema")
+    verify_parser = subparsers.add_parser("verify", help="已停用：请改用 inspect")
     _add_database_arguments(verify_parser)
-    verify_parser.add_argument("--deep", action="store_true", help="执行完整语义及覆盖核验")
-    verify_parser.add_argument("--no-compat-views", action="store_true")
-    verify_parser.add_argument("--report", type=Path, help="JSON 核验报告路径")
+    verify_parser.add_argument("--deep", action="store_true")
+
+    inspect_parser = subparsers.add_parser("inspect", help="只读检查现有表、字段类型和视图查询")
+    _add_database_arguments(inspect_parser)
     return parser
-
-
-def _target_version(args: argparse.Namespace) -> int | None:
-    if getattr(args, "no_migrate_legacy", False):
-        return 5
-    if getattr(args, "no_compat_views", False):
-        return 6
-    return None
 
 
 def _make_manager(args: argparse.Namespace) -> DatabaseManager:
@@ -98,23 +69,6 @@ def _make_manager(args: argparse.Namespace) -> DatabaseManager:
 
 def _json_print(payload: Mapping[str, Any]) -> None:
     print(json.dumps(payload, ensure_ascii=False, indent=2, default=json_default))
-
-
-def _confirm_schema(plan: Mapping[str, Any]) -> bool:
-    print(f"数据库: {plan['database']}")
-    print(f"当前版本: {plan['current_version']} -> 目标版本: {plan['target_version']}")
-    pending = plan.get("pending") or []
-    if pending:
-        print("待执行 migration:")
-        for item in pending:
-            print(f"  {item['version']:04d}_{item['name']}")
-    else:
-        print("schema 已是目标版本；仍会补齐分区并重新核验。")
-    try:
-        answer = input("继续? [y/N] ").strip().lower()
-    except EOFError:
-        return False
-    return answer in {"y", "yes"}
 
 
 def _has_upsert(manifest_plan: Mapping[str, Any] | None) -> bool:
@@ -134,42 +88,13 @@ def _confirm_upsert() -> bool:
 
 def _run_plan(args: argparse.Namespace) -> int:
     manager = _make_manager(args)
-    plan = manager.plan(
-        target_version=_target_version(args),
-        observation_years=args.observation_years,
-        manifest=args.manifest,
-        create_compat_views=not args.no_compat_views and not args.no_migrate_legacy,
-    )
+    plan = manager.plan(manifest=args.manifest)
     _json_print(plan)
-    return 0
+    return 0 if plan.get("ok") else 1
 
 
 def _run_init(args: argparse.Namespace) -> int:
-    manager = _make_manager(args)
-    plan = manager.plan(
-        target_version=_target_version(args),
-        observation_years=args.observation_years,
-        manifest=args.manifest,
-        create_compat_views=not args.no_compat_views and not args.no_migrate_legacy,
-    )
-    if not args.yes and not _confirm_schema(plan):
-        print("已取消。")
-        return 2
-    if _has_upsert(plan.get("manifest")) and not args.yes and not _confirm_upsert():
-        print("已取消。")
-        return 2
-    report = manager.bootstrap(
-        create_database_if_missing=not args.no_create_database,
-        migrate_legacy=not args.no_migrate_legacy,
-        create_compat_views=not args.no_compat_views and not args.no_migrate_legacy,
-        verify=True,
-        observation_years=args.observation_years,
-        report_path=args.report,
-        manifest=plan.get("manifest"),
-        resume=args.resume,
-    )
-    _json_print(report)
-    return 0 if report.get("status") == "completed" else 1
+    migration_disabled()
 
 
 def _run_import_command(args: argparse.Namespace) -> int:
@@ -188,14 +113,7 @@ def _run_import_command(args: argparse.Namespace) -> int:
 
 
 def _run_verify(args: argparse.Namespace) -> int:
-    manager = _make_manager(args)
-    report = manager.verify(
-        deep=args.deep,
-        require_compat_views=not args.no_compat_views,
-        report_path=args.report,
-    )
-    _json_print(report)
-    return 0 if report.get("status") == "completed" else 1
+    migration_disabled()
 
 
 def _load_manifest(path: Path, manager: SchemaManager | DatabaseManager | None = None) -> list[dict[str, Any]]:
@@ -234,6 +152,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(actual_argv)
     try:
+        if args.command == "inspect":
+            result = _make_manager(args).inspect_schema()
+            _json_print(result)
+            return 0 if result["ok"] else 1
         if args.command == "plan":
             return _run_plan(args)
         if args.command == "init":

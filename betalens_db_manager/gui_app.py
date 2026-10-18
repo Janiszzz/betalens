@@ -429,7 +429,7 @@ class ConnectionBar(AsyncPage):
 
 
 class TableCatalogPage(AsyncPage):
-    """Logical dataset list and safe one-click contract bootstrap."""
+    """Logical dataset list and read-only structure inspection."""
 
     schema_changed = Signal(object)
 
@@ -443,7 +443,7 @@ class TableCatalogPage(AsyncPage):
         self.metadata = QPlainTextEdit()
         self.metadata.setReadOnly(True)
         self.refresh_button = QPushButton("刷新表清单")
-        self.create_button = QPushButton("建立所选表")
+        self.create_button = QPushButton("检查所选表")
         self.status = QLabel("未连接；仍可查看 Betalens 的表契约")
 
         bar = QHBoxLayout()
@@ -470,7 +470,7 @@ class TableCatalogPage(AsyncPage):
         self.refresh()
 
     def _update_actions(self) -> None:
-        can_create = self.connection_state in {"online", "database_missing"}
+        can_create = self.connection_state == "online"
         creating = "create-table" in self._workers
         self.create_button.setEnabled(
             can_create and self._selected_table() is not None and not creating
@@ -507,7 +507,7 @@ class TableCatalogPage(AsyncPage):
         if self.connection_state != "online":
             self._set_catalog(self.controller.table_catalog())
             self.status.setText(
-                "数据库尚未建立，可选择任意逻辑表并建立完整 Betalens 结构"
+                "目标数据库不存在，请检查连接配置或恢复备份"
                 if self.connection_state == "database_missing"
                 else "未连接；这里显示的是 Betalens 表契约"
             )
@@ -553,21 +553,11 @@ class TableCatalogPage(AsyncPage):
     def create_selected(self) -> None:
         table = self._selected_table()
         if not table:
-            QMessageBox.warning(self, "请选择表", "请先在列表中选择要建立的逻辑表")
-            return
-        answer = QMessageBox.question(
-            self,
-            "建立数据库结构",
-            f"将按 Betalens 契约补齐“{table}”需要的数据库结构。\n"
-            "首次执行会建立完整基础结构，不会删除已有数据。继续？",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
-        if answer != QMessageBox.Yes:
+            QMessageBox.warning(self, "请选择表", "请先在列表中选择要检查的逻辑表")
             return
         self.create_button.setEnabled(False)
         self.refresh_button.setEnabled(False)
-        self.status.setText("正在建立数据库结构...")
+        self.status.setText("正在检查现有表和视图...")
         self.start_task(
             "create-table",
             lambda _progress: self.controller.create_selected_table(table),
@@ -578,7 +568,7 @@ class TableCatalogPage(AsyncPage):
     def _created(self, report: Mapping[str, Any]) -> None:
         warnings = [str(item) for item in report.get("warnings", [])]
         self.status.setText(
-            "数据库结构已建立；历史数据审计有警告" if warnings else "数据库结构已建立并完成核验"
+            "现有表检查完成；有警告" if warnings else "所选表、字段和视图查询检查通过"
         )
         connection = dict(self.controller.connection_details)
         if not connection:
@@ -587,7 +577,7 @@ class TableCatalogPage(AsyncPage):
         self.schema_changed.emit(connection)
 
     def _create_error(self, message: str) -> None:
-        self.status.setText("建立结构失败；未删除已有数据")
+        self.status.setText("现有表检查失败，请查看错误详情")
         self._update_actions()
         self.show_error(message)
 
@@ -1268,7 +1258,7 @@ class MainWindow(QMainWindow):
         if state == "online":
             warnings = list(result.get("bootstrap_warnings") or [])
             self.statusBar().showMessage(
-                "数据库结构已建立；历史数据审计有警告，详见运行报告"
+                "现有表检查完成；有警告，详见运行报告"
                 if warnings
                 else "已连接数据库"
             )

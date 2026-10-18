@@ -1,0 +1,239 @@
+# Betalens 数据库迭代计划：Tushare 数据接入与网页管理器
+
+状态：规划完成，数据库部署方式、历史补全范围和网页组织方式已由用户确认，未实施。勘察日期：2026-10-18，Asia/Shanghai。
+
+本期交付可追溯的原始数据、现有行情续接、可复用导入 API、首次回填脚本和网页管理器。因子计算、截面排序、标准化、参数挖掘和回测属于后续阶段。本计划中的表和接口名称是拟定设计，不代表已经存在。
+
+## 1. 已核实的环境、缺口与默认范围
+
+### 1.1 实际数据基线
+
+PostgreSQL `datafeed.market` 和 ClickHouse `betalens` 保存同一批宽表历史数据。以下数字来自已有导入核验报告，并用当前 ClickHouse 表元信息交叉核对；股票未复权日期范围另行实查。
+
+| 现有宽表 | 行数 | 证券数 | 当前最晚日期 |
+| --- | ---: | ---: | --- |
+| `stock_daily_unadjusted` | 18,613,980 | 5,893 | 2026-09-02 |
+| `stock_daily_hfq` | 18,453,249 | 5,868 | 2026-07-29 |
+| `etf_daily` | 1,405,439 | 1,604 | 2026-08-19 |
+| `index_daily` | 246,114 | 47 | 2026-08-19 |
+
+表级最晚日期不是每个证券的更新进度；例如平安银行后复权数据止于 2026-07-23。更新必须按证券、字段和数据源确定缺口。
+
+现有数据使用中文宽列、`numeric/Decimal`、`open_time/close_time`、`source_file_id/source_row`；审计表已有 `source_files`、`field_contract`、`import_batch`、`value_audit`。ETF 历史行情是后复权口径，证券代码使用 `.OF`。
+
+PostgreSQL `betalens` 下的实体、行情事实、观测事实、行业、交易状态和日历表当前为空；`public.daily_*` 等视图仍指向这些空表。现有 `betalens.datafeed` 会根据表是否存在选择 fact/dim 路径，因此单纯修改视图不能解决研究查询读不到宽表的问题。
+
+代码基线：管理器是 PySide6；研究 Dashboard 是 FastAPI + React/Vite；任务记录使用 SQLite。旧 schema 自动迁移已停用，工作区有未提交修改，应在此基础上增量开发，不恢复已删除迁移或覆盖现有改动。
+
+### 1.2 Tushare 实测权限与公式边界
+
+本轮仅用 Token 做小样本只读请求，没有持久化 Token、安装 SDK 或导入业务数据。
+
+- 返回数据成功：`trade_cal`、`stock_basic`、`daily`、`daily_basic`、`adj_factor`、`income`、`income_vip`、`balancesheet`、`cashflow`、`fina_indicator`、`index_daily`、`sw_daily`、`fund_daily`、`fund_adj`、`fund_nav`、`index_member_all`、`suspend_d`。
+- 明确拒绝：`factor_list`、`stk_premarket`，返回权限错误 `40203`。
+- 一次小样本成功仅证明当时接口可访问；其他 VIP 接口、退市股历史覆盖、分页能力和持续调用额度仍需实施时逐项探测。
+- [因子列表文档](https://tushare.pro/document/2?doc_id=486)宣称 272 个因子，但当前 HTML 表格只有 202 条公式：Alpha101 31 条，其他八类合计 171 条。缺失的 70 条不能用仓库中的经典 Alpha101 公式自动替代并标为 Tushare 已验证公式。
+- 文档还存在参数、命名和公式描述不一致的项目；目录应分别记录“原文可见”“口径待核实”“数据依赖齐全”，不能将这三者合并为一个完成标记。
+
+### 1.3 用户已确认的实施约束
+
+用户已明确确认以下三项，作为实施约束，无需再次确认：
+
+1. PostgreSQL 为唯一权威写入库，ClickHouse 为可重建的分析副本，避免两端分别下载和独立决定冲突。
+2. A 股包含上市、暂停上市及退市证券；延续现有 B 股排除策略。新增历史数据从 2004-01-01 开始，目标支持 2010 年以来研究及长窗口预热。已有更早数据保留；每个因子仍按实际所需交易日和财报期验证预热覆盖，不承诺所有证券从 2010 年即有完整值。
+3. 数据库管理器提供独立网页与启动入口，复用现有技术栈；研究 Dashboard 可提供跳转链接。
+
+ETF 和指数更新现有证券集合，并补充因子依赖的沪深300、上证指数及必要行业分类。港股、美股、期货、分钟数据和无依赖的宏观数据不进入首批下载。已有但为空的债券、宏观和因子结果数据集保留登记，本期不因此扩展到所有 Tushare 数据产品。
+
+首次任务结束日按交易日历和接口完整性确定；按本次检查日期，候选最新交易日为 2026-10-16。退市证券以退市日期或真实最后交易日结束，不要求补到当前日期。
+
+证券身份、名称变更及日历是上述日期默认值的例外：尽量取得完整可用历史，日历至少覆盖已有行情最早的 1990-12-19 至最新已公布年度。只为确有依据的交易所建立别名，不能将股票日历写入 NIB 等其他市场日历。
+
+## 2. 数据架构、表与字段映射
+
+### 2.1 三层数据组织
+
+数据流：官方 API → 不可变原始响应归档 → 标准化暂存与审计 → PostgreSQL 权威表 → ClickHouse 分区同步 → 管理查询及后续研究适配。
+
+- 原始响应存储在仓库外的 `betalens-infra/imports/tushare/<job_id>/`，按端点和请求分片保存压缩 JSON；附请求参数、字段列表、抓取时间和 SHA-256，全部去除 Token。
+- 标准化业务数据继续采用按数据域划分的宽表。行情不展开成海量指标长表；财报按报表存储，不把所有财务版本塞进现有无法完整表达版本键的观测表。
+- 映射合同使用版本控制内的 YAML，运行时记录合同 hash。每个字段声明源接口、源字段、目标表/列、类型、原单位、目标单位、转换、复权口径、日期含义、可用时间依据、空值语义和冲突规则。
+- SQLite `JobStore` 保存任务、计划和调度状态；PostgreSQL 保存数据来源、业务提交凭据和变更审计。数据库提交凭据是断点恢复的依据，避免 PostgreSQL 已提交、SQLite 尚未更新时重复写入。
+
+### 2.2 业务表设计
+
+| 数据域 | 官方 API | 本地表设计与关键用途 |
+| --- | --- | --- |
+| 证券身份 | `stock_basic`、`namechange`、`bse_mapping`、基金/指数基本信息 | 复用 `betalens.entity_dim/entity_name_history`；新增 `reference.security_alias`，记录供应商代码与本地代码映射及有效性依据 |
+| 交易日历 | `trade_cal` | 新增 `reference.exchange_calendar` 保存休市日、前交易日和来源；向现有 `trade_calendar_day` 发布开市日 |
+| 股票未复权行情 | `daily` | 新增 `tushare.stock_daily` 保存标准化 Tushare 序列；通过已验证映射续接 `market.stock_daily_unadjusted` |
+| 每日估值与股本 | `daily_basic` | 新增 `market.stock_daily_basic`，保留 PE/PE_TTM、PS/PS_TTM、股息率、总/流通/自由流通股本、市值、两种换手率；仅将等价字段同步到已有宽列 |
+| 复权与分红 | `adj_factor`、`fund_adj`、`dividend` | 新增 `market.adjustment_factor`、`fundamental.dividend_event`；保存因子版本、分红阶段及全部关键日期 |
+| 股票后复权 | `daily` + `adj_factor` | 新增 `tushare.stock_daily_hfq`，以 Tushare 基准生成可重建序列；旧 `market.stock_daily_hfq` 仅在基准衔接验证通过后续接 |
+| ETF 行情与净值 | `fund_daily`、`fund_adj`、`fund_nav`，以及已验证的份额接口 | 新增 `tushare.fund_daily`、`tushare.fund_daily_hfq`、`fundamental.fund_nav`；适配现有后复权 `market.etf_daily`，净值独立保留公告日 |
+| 指数行情 | `index_daily`、`sw_daily` | 新增 `tushare.index_daily`；分端点转换单位后续接 `market.index_daily`，保留指数体系/版本 |
+| 财务报表 | `income[_vip]`、`balancesheet[_vip]`、`cashflow[_vip]` | 新增 `fundamental.income_statement`、`balance_sheet`、`cashflow_statement`，按公告版本保存原始字段 |
+| 财务指标 | `fina_indicator[_vip]` | 新增 `fundamental.financial_indicator`；保存供应商指标，不能直接把年化 ROE、财务期累计值当作因子要求的 TTM 值 |
+| 行业及指数成分 | `index_classify`、`index_member_all`、`index_weight` | 复用行业和指数成分表，保存分类版本、进入/退出日期、快照日期及权重；月度权重不冒充精确调整公告 |
+| 交易状态 | `suspend_d` + 上退市信息 + 已成功获取的日行情 | 新增 `reference.suspension_event` 保留日内停复牌明细；向现有 `trade_status_event` 发布明确的日频状态，并记录覆盖区间 |
+
+新增 `catalog.factor_definition`、`catalog.factor_dependency`：记录因子名、类别、来源版本、公式可见性、依赖字段、窗口、派生步骤和未解决口径。完整原文只做本地来源快照；不在计划中逐条复制整页公式。
+
+新增 `ingest.api_batch`、`ingest.commit_receipt`、`ingest.cell_change`、`ingest.replica_checkpoint`：分别保存请求归档引用、事务提交与行数、旧/新值及理由、ClickHouse 同步状态。复用现有 `source_files` 注册原始归档，使已有 `source_file_id/source_row` 继续能定位到源记录；字段级变更另有来源，避免一个行情行混合多个接口却只保留一个模糊来源。
+
+键和类型约定：
+
+- 行情当前表按“证券 + 交易日”唯一；各供应商序列独立。原始修订通过 payload hash 和批次归档保存。
+- 财报业务键至少包含证券、报告期、报告类型、公告/实际公告日期和公司类型；同一业务键出现不同 payload 时追加版本，`update_flag` 作为属性保存。空日期规范化后生成稳定键，不依赖 NULL 唯一约束去重。
+- 所有财报字段完整采集，显式请求非默认字段。报表元信息、合并/母公司、累计/单季、调整前后版本均保留；本期不提前生成 Q/TTM 因子数据。
+- 原始数值文本完整归档，标准化使用 Decimal。类型按字段精度登记，超出目标精度进入拒收报告；不得把整个 API 强制压成现有四位小数或先通过 float64 再宣称无损。
+- 新增时间戳使用带时区类型；日期保留 `date`。现有无时区兼容字段明确按上海本地时间解释，不直接去除 UTC 时区信息。
+- 大型日频表按年分区，主键包含日期，分别提供证券/日期及日期/证券访问索引；小型维度不分区。财报按报告期年份分区并建立证券、公告日期、报告期索引。
+
+### 2.3 必须固化的字段口径
+
+| API 字段 | 标准化规则/本地列 | 边界 |
+| --- | --- | --- |
+| `daily.vol`、`fund_daily.vol`、`index_daily.vol` | ×100，分别为股、份、股 | 端点分别声明单位，不能把全部接口套同一个转换器 |
+| 上述接口 `amount` | ×1,000，金额为元 | 原始值与转换后值均可审计 |
+| `sw_daily.vol`、`sw_daily.amount` | 分别 ×10,000 转股、元 | 与普通指数接口不同 |
+| `daily_basic.total_share/float_share/free_share` | ×10,000，分别登记三种股本 | 自由流通股本、流通股本和全部 A 股股本不合并 |
+| `daily_basic.total_mv/circ_mv` | ×10,000 转元 | `circ_mv` 与旧“A股流通市值”只有定义核实后才能映射 |
+| `turnover_rate/turnover_rate_f/pct_chg` | 保留百分数单位 | 值 1 表示 1%，查询契约明确何时转小数 |
+| `pre_close` | 保留除权参考昨收语义 | 与前一个交易日原始收盘价分开；不互相覆盖 |
+| `pe/pe_ttm/ps/ps_ttm/pb` | 独立登记指标 | 不凭旧“市盈率/市销率”列名猜测其口径 |
+| `amount / volume` | 可生成独立的未复权成交均价 | 零成交量返回 NULL；不能与后复权 OHLC 混用为同一 VWAP |
+| `fund_nav.unit_nav/accum_nav/adj_nav` | 对应三种净值，保留 `nav_date/ann_date` | 复权净值需单独对账，不能用复权行情价格替代 |
+
+依据：[股票日线](https://tushare.pro/document/2?doc_id=27)、[每日指标](https://tushare.pro/document/2?doc_id=32)、[普通指数](https://tushare.pro/document/2?doc_id=95)、[申万日线](https://tushare.pro/document/2?doc_id=327)、[基金净值](https://tushare.pro/document/2?doc_id=119)。
+
+财务依赖至少覆盖以下已核实字段组，并以各接口全量字段采集兜底：
+
+- 利润表：`basic_eps/revenue/total_revenue/oper_cost/operate_profit/total_profit/n_income/n_income_attr_p/income_tax/ebit/ebitda/fin_exp_int_exp` 及销售、管理、财务费用和税金。
+- 资产负债表：`total_assets/total_liab/total_hldr_eqy_exc_min_int/total_hldr_eqy_inc_min_int/total_cur_assets/total_cur_liab/total_ncl/inventories/accounts_receiv/lt_rec/fix_assets/adv_receipts/prepayment/defer_tax_assets/money_cap/trad_asset`。
+- 现金流：`n_cashflow_act/n_cashflow_inv_act/n_cash_flows_fnc_act/c_inf_fr_operate_a/stot_inflows_inv_act/stot_out_inv_act/c_paid_to_for_empl`。将投资现金流出小计与资本开支分别保存。
+- 财务指标：`eps/q_eps/profit_dedt/ebit/ebitda/interst_income/current_ratio/quick_ratio/roe/roa/update_flag`。核实字段语义，不根据英文拼写猜测含义。
+
+依据：[利润表](https://tushare.pro/document/2?doc_id=33)、[资产负债表](https://tushare.pro/document/2?doc_id=36)、[现金流量表](https://tushare.pro/document/2?doc_id=44)、[财务指标](https://tushare.pro/document/2?doc_id=79)。
+
+### 2.4 旧数据续接和时间规则
+
+1. ETF `.OF` 与交易所代码通过基金基础信息建立显式别名，北交所通过官方对照建立身份映射；旧代码保留，不做全局字符串后缀替换。无法确认身份的记录隔离。
+2. 每种证券/接口先比较最近 60 个重叠交易日，覆盖可取得的分红、拆分和代码变更样本。旧值与新值相同则幂等跳过；已存在的非空旧源值默认保留，冲突入审计；只补已验证等价的缺失字段和新日期。
+3. 后复权先验证基准。拟衔接系数为旧后复权价与同日 Tushare 原价乘复权因子的比值，验证其跨窗口和公司行动的一致性；误差应落在两端公开数值精度推导的误差界内。不能只用一天价格比值续接。失败时仍导入独立 Tushare 序列，阻止混写旧复权表，并将旧表续接项标为未完成。
+4. 已发现实际差异：2026-07-23 平安银行本地后复权收盘价 945.4517，Tushare 原价 11.08、复权因子 139.008；2026-07-31 沪深300ETF 本地复权净值 2.1837，Tushare 为 2.18181。这些是小样本差异证据，不据此推断所有证券的转换规则。
+5. `open_time/close_time` 继续表示既有交易对齐规则，另存 `published_at`、`fetched_at`、`availability_basis` 和保守 `available_at`。15:00:01 不能代表接口真实发布时刻；收盘后基本面数据不得在当天开盘前可见。
+6. 财报分别保存报告期、公告日期、实际公告日期、首次观察时间与修订版本。仅有公告日期时，默认按下一交易日开盘前可用，并标注假设；缺公告日期的记录不发布到 PIT 查询。历史补拉时无法证明旧版本当时已公开的，标为历史可得性不足，不能仅靠今日抓取的修订表重建“严格历史 PIT”。
+7. `stk_premarket` 无权限时，日后取得的股本不能伪装为盘前股本。保存 `daily_basic` 的原始日归属，盘前消费只允许前一已可用值，并在因子依赖中标明口径差异。
+8. 无行情行可能是停牌、未上市、退市、漏数或权限问题；只有对账后明确的状态才能发布。日内停牌保持明细，不能一律变成整日不可交易。当前行业分类也不能回填所有历史日期。
+
+## 3. 可复用 API、导入任务与网页
+
+### 3.1 `betalens-datafeed-tushare`
+
+在同一仓库新增 Python 包 `betalens_datafeed_tushare`，作为可选依赖组件随 Betalens 安装；当前不单独维护 PyPI 发布流水线。与 `betalens_db_manager` 共享字段合同和写入服务，研究层保持只读。
+
+公开接口固定为：
+
+```python
+service = TushareImportService(db_config=..., token_env="TUSHARE_TOKEN")
+capabilities = service.probe(endpoints=[...])
+plan = service.plan(ImportRequest(
+    datasets=[...], start_date="2004-01-01", end_date=...,
+    universe="a_share_all_status", mode="fill_missing",
+))
+job = service.download(plan)           # 固定原始快照，可断点续传
+preview = service.preview(job.job_id)  # 对该快照做映射、冲突和时间审计
+result = service.commit(job.job_id, preview_token=preview.token)
+service.resume(job.job_id)
+service.cancel(job.job_id)
+```
+
+- `ImportRequest` 的模式为 `fill_missing`、`refresh_source`、`replace_selected`；默认前者。后两者分别限同源修订、显式选择的旧源冲突。
+- `ImportPlan` 包含目标数据库指纹、证券集合快照、端点分片、合同版本、依赖顺序、预计请求数和权限缺口；`Preview` 包含准确快照 hash、质量结果及新增/修改/跳过/拒收计数。
+- `ImportResult` 返回真实完成范围、部分失败、未解决冲突、跨库同步状态与报告位置，不能只返回笼统的成功布尔值。
+- 原始 HTTP 响应通过统一传输层归档，使用官方 HTTPS 接口，数值解析保留 Decimal；不通过安装包的 float 输出反推原始数字文本。
+- `.venv` 安装并锁定 `tushare` 及所需依赖。Token 写入本机私有环境文件，由终端启动器和 worker 服务加载为 `TUSHARE_TOKEN`；权限设为 0600，不进入 Git、前端、任务参数或日志。网页仅显示是否配置及脱敏状态。
+
+### 3.2 抓取、提交和重复运行
+
+- 全市场日频按日期切分，单证券历史按年份/时间窗口切分；财报优先使用已验证的 VIP 按报告期接口，权限不足时使用普通接口按证券、日期窗口拉取。普通/VIP 请求相同数据时按业务键去重。
+- 端点注册表声明行数上限、支持的分页方式和限频；不能假定每个接口都支持 `offset`。返回数量达到上限时继续拆分或使用经验证的分页，分片完整前不推进水位。
+- 默认全局每分钟 40 次请求、单下载 worker；端点可配置更严格限制。对限流和临时网络故障退避重试；权限错误直接标为不可用，不用高频重试消耗配额。
+- 入库默认每批最多 100,000 行，采用流式归档、读取与 COPY；首次计划估算请求数、磁盘及暂存空间，再用小批次实测更新耗时预估。不得一次加载全市场历史或同时按两库最高资源配置执行重负载任务。
+- 请求锁与数据库锁限定在目标数据集/时间分片，避免手动任务与调度任务重叠。下载成功、校验成功、PG 提交、CH 同步分别记录 checkpoint。
+- PG 每个完整分片以 staging + COPY + 集合式写入事务提交，同时写提交凭据。预览后若映射、请求快照或将修改的旧值变化，重新比较，不能使用过期预览盲写。
+- NULL 不覆盖已有非空值，除非显式修订任务含对应字段的清空理由。删除不属于日常更新操作。取消回滚当前写入分片，已完成分片保留，可恢复。
+- 日常行情回查最近 20 个交易日并按证券补缺；财报每周回查最近 8 个报告期、每月执行全历史修订扫描。复权因子改变时重建受影响序列范围，不能只改最新一天。
+- ClickHouse 当前表是普通 MergeTree，重复 INSERT 不具备更新语义。按 PG 已提交数据重建受影响年份暂存分区，校验键、行数及 hash 后替换分区；以分区 hash 和提交凭据实现可重试发布。两库为最终一致，PG 完成但 CH 失败显示“待同步”，重试不再次下载。
+- 原始归档和 before/after 审计支持受限回退：只撤销对应批次新增且未被后续修改的键，恢复变更前值时核对当前值；不通过按日期整段删除恢复。
+
+### 3.3 网页管理器
+
+采用 FastAPI + React/TypeScript/Vite，后端托管构建后的静态前端。正式入口为 `python -m betalens_db_manager serve --host 127.0.0.1 --port 8010`；无参数入口改为网页入口，保留既有 CLI 命令，移除对 PySide6 的强制依赖。
+
+网页按用户任务提供六个页面：
+
+| 页面 | 必须可检查的内容 |
+| --- | --- |
+| 数据总览 | 两库实际表、按证券/字段覆盖、数据量、同步状态、空 fact 与已存宽表区别 |
+| 字段与因子依赖 | API → 原字段 → 单位转换 → 本地表列 → 因子依赖；公式缺失和口径疑点 |
+| 文件导入 | 保留现有文件/文件夹/Manifest 预检与导入，新增宽表正确路由 |
+| Tushare 更新 | 数据集、证券、日期、回查窗口、权限、调用估算；下载预览及执行 |
+| 审计与查询 | 原始响应、标准化值、旧值/新值逐项对照；空值、重复、单位、复权、日期和公告对齐；CSV/JSON 下载 |
+| 任务与调度 | 进度、失败重试、取消/恢复、历史批次、计划启停、下一运行时间 |
+
+后端 `/api/db` 提供 `datasets/schema/query`、`sources/tushare/capabilities`、`mappings`、`imports/plan`、`imports/download`、`imports/{id}/preview`、`imports/{id}/commit`、`jobs/{id}`、`jobs/{id}/events`、`jobs/{id}/cancel`、`jobs/{id}/resume`、`schedules` 和审计分页/导出。长任务返回 job_id，日志使用 SSE，不占用请求直到导入结束。
+
+手工流程为“范围选择 → 下载与预检 → 查看差异 → 执行已选策略 → 入库后复核”。调度按已保存规则自动执行，遇到权限缺失、口径冲突或关键质量失败则保留快照并停止该分片发布；无需每晚重复人工确认。
+
+独立 worker 持久化调度，不依赖浏览器存活。默认每天 21:30 上海时间执行更新，周日复核财报，月首做全历史修订扫描；启动时补跑一次错过任务，不堆积所有遗漏触发。WSL 关闭或机器关机期间不能执行，重启后根据水位补缺。提供 systemd 用户服务模板与一条启动命令。
+
+默认只绑定回环地址；验证 Windows 浏览器经 WSL localhost 转发访问同一服务。目录导入支持 WSL 路径和 Windows 盘符路径转换，浏览器上传用于小文件；大历史文件直接从 `/mnt/<drive>/...` 读取。查询和预览分页，Decimal 通过字符串传前端；写操作校验同源 Origin，连接密码仅留后端。
+
+### 3.4 研究查询边界
+
+本期管理器和新包提供宽表查询、来源选择及日期/可用时间检查，足以验收入库数据；不把空 fact/dim 当作实际存储。
+
+现有 `betalens.datafeed` 的宽表路由适配单列为后续因子复现的前置任务：保持其只读属性和原查询时间边界，使用显式数据集映射取代“规范化表存在即使用”的判断。本期不通过把数千万行情行复制进旧 fact 表来回避这一问题，也不宣称旧研究查询已经可直接使用新数据。
+
+## 4. 实施顺序、一次性脚本与验收
+
+### 4.1 里程碑
+
+| 阶段 | 具体交付 | 完成条件 |
+| --- | --- | --- |
+| M0：冻结基线 | SDK/环境配置、两库结构及关键覆盖快照、接口权限矩阵、公式与依赖目录 | 原始资料可追溯，202 条可见项与 70 条缺失项明确区分 |
+| M1：表与合同 | 新表 DDL、字段映射 YAML、旧源衔接规则、查询/审计适配 | 显式安装脚本在验证库通过；不会在服务启动时自动升级 schema |
+| M2：导入服务 | 新 Python 包、端点适配、归档、预览、事务写入、恢复及副本同步 | 小样本涵盖普通股、退市股、北交所、ETF、两类指数与财报修订 |
+| M3：网页与调度 | 独立网页、后台 worker、审计页面、WSL/Windows 访问 | 手动及自动更新均可从网页追溯到请求与数据库记录 |
+| M4：首次回填 | 元数据/日历 → 行情/复权/每日指标 → 财报/分红 → 行业/状态；现有 ETF/指数同步续接 | 授权且有覆盖的数据写入完成，缺口、口径阻塞和权限阻塞全部形成逐项清单 |
+| M5：验收交付 | 数据覆盖报告、跨库一致性报告、运行说明及日常计划 | 重跑幂等，断点恢复有效，用户能在网页独立核对一条数据全过程 |
+
+新表使用本次专用、可重复运行的显式安装脚本及结构检查；不恢复已退役的 v1–v10 迁移。执行前保存 schema 和被更新数据的恢复依据。业务变更代码集中在新包与管理器，保留当前工作区改动。
+
+### 4.2 一次性导入材料
+
+在 `scripts/tushare_initial_load/` 保存三个薄脚本及一份配置：
+
+- `inspect_baseline.py`：只读清点两库、字段、证券及时间范围，生成基线报告。
+- `prepare_schema.py`：显式应用本次新增表和索引，先验证现有结构，失败回滚。
+- `run_initial_load.py`：调用正式 API，按配置执行下载、审计、提交、重试与跨库复核。
+- `initial_load.yaml`：日期、证券集合、数据集、回查窗口、映射版本及默认冲突规则；不包含 Token。
+
+一次性脚本不实现自己的 API 抓取或入库逻辑。归档、冲突样本、拒收样本、运行报告和断点放在仓库外，重新运行可复用同一批快照。
+
+### 4.3 验收测试
+
+1. 字段与单位：逐端点验证手/股/份、千元/万元/元、百分数、空值、异常占位值；对正常日期和除权日期区分昨收语义；Decimal 不因前端 JSON 数字丢精度。
+2. 身份与复权：ETF `.OF` 映射、北交所新旧代码、退市股均有样本；后复权基准不一致必须阻止混写；旧复权均价不误当作已复权 VWAP。
+3. 时间与版本：财报同日多报告期、同报告期多公告/修订、休市日公告、缺公告时间、同日报告类型并存均可保存；不会因“只留最新值”丢失版本或按报告期提前可见。
+4. 完整性：日请求达到上限、分页重复/乱序、空响应、限流、权限失效、退市无新行情、日内停牌都不推进错误水位；进度按证券和字段核验。
+5. 事务与幂等：相同快照重跑新增和修改为零；分别在下载后、PG 提交后、SQLite 写前、CH 发布中模拟中断，恢复后无重数和漏数；取消只影响当前分片。
+6. 审计与回退：抽查记录能定位到原始响应、合同版本、转换前后值、数据库提交及副本；同源修订可追溯，受后续任务修改的记录不能盲目回退。
+7. 网页与调度：WSL 和 Windows 浏览器可访问；浏览器关闭后后台任务继续；调度不重复触发，API/页面不返回 Token 或数据库密码；文件导入和原 CLI 基本行为回归通过。
+8. 数据验收：所有承诺分片有请求完整性证明及 PG/CH 行数、键集合、字段 hash 核验；覆盖图明确“无数据”“无权限”“未下载”“不适用”“待衔接”。不能以接口返回成功代替数据完整性。
+
+测试使用脱敏小样本与验证库，真实库只运行受限查询和经本流程发布的数据任务；新增测试需纳入当前 `.gitignore` 的测试白名单。前端执行 TypeScript 检查和生产构建，后台执行映射、事务、恢复及调度测试。
+
+最终交付判定分开报告：①已授权原始数据导入完成；②旧表续接完成比例与阻塞项；③公式/数据依赖覆盖。当前没有完整因子目录权限，不能把“全部 272 因子均可精确复现”写作本期已达到的验收结果。

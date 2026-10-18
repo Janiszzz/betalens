@@ -13,7 +13,6 @@ import pandas as pd
 import yaml
 
 from .constants import INSERT_ONLY, IMPORT_MODES
-from .contracts import LATEST_SCHEMA_VERSION
 from .import_adapters import ADAPTERS, infer_adapter, load_import_batches
 from .job_store import JobStore
 from .jobs import ImportJobRunner
@@ -88,7 +87,7 @@ class ManifestPlan:
     token: str
     entries: tuple[ManifestEntry, ...]
     target_database: str
-    schema_version: int
+    schema_version: int | None
     on_error: str = "continue"
     warnings: tuple[str, ...] = ()
     previews: tuple[dict[str, Any], ...] = ()
@@ -118,14 +117,14 @@ class ManifestRunner:
         checkpoint_store: CheckpointStore | None = None,
         *,
         target_database: str | None = None,
-        schema_version: int = LATEST_SCHEMA_VERSION,
+        schema_version: int | None = None,
     ) -> None:
         self.job_runner = job_runner or ImportJobRunner()
         inherited_store = getattr(getattr(self.job_runner, "store", None), "job_store", None)
         self.checkpoint_store = checkpoint_store or inherited_store or JobStore()
         client_config = getattr(getattr(self.job_runner, "client", None), "db_config", {})
         self.target_database = str(target_database or client_config.get("dbname") or "")
-        self.schema_version = int(schema_version)
+        self.schema_version = int(schema_version) if schema_version is not None else None
 
     @staticmethod
     def _normalize_options(options: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -429,7 +428,10 @@ class ManifestRunner:
             token=str(payload["token"]),
             entries=entries,
             target_database=str(payload.get("target_database", "")),
-            schema_version=int(payload.get("schema_version", LATEST_SCHEMA_VERSION)),
+            schema_version=(
+                int(payload["schema_version"])
+                if payload.get("schema_version") is not None else None
+            ),
             on_error=str(payload.get("on_error", "continue")),
             warnings=tuple(payload.get("warnings", ())),
             previews=tuple(payload.get("previews", ())),

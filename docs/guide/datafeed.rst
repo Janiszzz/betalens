@@ -1,7 +1,7 @@
 数据模块
 ========
 
-``betalens.datafeed`` 是研究运行时的只读数据访问层，负责连接 PostgreSQL、查询时间序列、读取交易日、处理行业和指数成分。建库、迁移、文件解析、批量写入和 GUI 管理由 ``betalens_db_manager`` 承担，详见 :doc:`db-manager`。
+``betalens.datafeed`` 是研究运行时的只读数据访问层，负责连接 PostgreSQL、查询时间序列、读取交易日、处理行业和指数成分。现有表检查、分区维护、文件解析、批量写入和 GUI 管理由 ``betalens_db_manager`` 承担，详见 :doc:`db-manager`。
 
 配置
 ----
@@ -14,7 +14,7 @@
    Copy-Item betalens\datafeed\config.example.json betalens\datafeed\config.local.json
 
 模板和 Database Manager 的默认数据库名均为 ``datafeed``。首次安装请先完成
-:doc:`../getting-started/installation` 中的 PostgreSQL 与 schema 初始化步骤。
+:doc:`../getting-started/installation` 中的 PostgreSQL 配置与现有表检查步骤。
 
 配置优先级：
 

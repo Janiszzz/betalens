@@ -30,6 +30,11 @@ htmlcov/
 .tox/
 test/
 tests/
+# Keep the migration retirement regression test reviewable.
+!/tests/
+/tests/*
+!/tests/test_db_manager_migration_retirement.py
+!/tests/test_wide_market.py
 
 #日志
 logs/

@@ -1,58 +1,41 @@
 数据库管理工具
 ==============
 
-``betalens_db_manager`` 是 Betalens 唯一的数据库管理层。建库、migration、分区、索引、
-兼容视图、文件导入、更新和条件删除都由该包负责；``betalens.datafeed`` 只读。
+``betalens_db_manager`` 是 Betalens 唯一的数据库管理层。当前 PostgreSQL schema 已在本地
+完成安装；该包负责现有结构检查、观测分区、文件导入、更新和条件删除，
+``betalens.datafeed`` 只读。
 
 统一服务
 --------
 
-Python、CLI、BAT 和 PySide6 GUI 最终调用同一个门面：
+当前工作区已停用 v1–v10 迁移、版本记录和旧 schema verifier。
+数据库结构由人工维护；已有数据导入、冲突检查、任务记录和查询继续使用原有实现。
 
 .. code-block:: python
 
    from betalens_db_manager import DatabaseManager
 
    manager = DatabaseManager()
-   schema_plan = manager.plan()
+   inspection = manager.inspect_schema()
    manifest_plan = manager.plan_manifest(r"D:\data\imports.yaml")
-   report = manager.bootstrap(
-       create_database_if_missing=True,
-       create_compat_views=True,
-       verify=True,
-       manifest=manifest_plan,
-   )
+   report = manager.run_manifest(manifest_plan)
 
-``SchemaManager``、``DatabaseClient``、``DatabaseWriter``、``ImportJobRunner``、
-``ImportRecordStore`` 和 ``QueryRequest`` 继续作为兼容 API。
+``inspect_schema()`` 只读检查现有表、字段类型和兼容视图能否查询。
+它不校验迁移历史、索引定义、指标种子或数据质量，也不会自动修补结构。
+``ensure_dataset(table)`` 只检查指定数据集；缺少表或字段会明确报错。
 
-手工一键初始化
---------------
+``bootstrap()``、``bootstrap_local()``、旧 ``verify()`` 和 CLI ``init/verify``
+已停用，调用时返回错误，不会创建空数据库后报告成功。
+``init_local.bat`` 同样退出并提示新的使用方式。
 
-先执行只读计划，再由用户手工初始化真实 ``datafeed`` 库：
+.. code-block:: console
 
-.. code-block:: powershell
+   python -m betalens_db_manager inspect
+   python -m betalens_db_manager plan --manifest D:\data\imports.yaml
+   python -m betalens_db_manager import --manifest D:\data\imports.yaml
 
-   python -m betalens_db_manager plan
-   .\betalens_db_manager\init_local.bat
-
-等价命令及独立核验：
-
-.. code-block:: powershell
-
-   python -m betalens_db_manager init --yes
-   python -m betalens_db_manager verify --deep
-
-``init_local.bat`` 优先使用仓库 ``.venv``，否则使用当前 ``python``，不会下载依赖。
-初始化可重复执行；migration checksum 使用规范化 LF，历史 ``0001`` 至 ``0008`` 兼容
-LF/CRLF checksum。``0009`` 的早期阻断式历史审计 checksum 也被接受，以便已部署数据库
-平滑升级；其余新版 migration 只接受规范 checksum，且禁止 schema 降级。
-
-初始化使用不可变的版本化 schema 契约，并在提交前后执行核验。报告区分
-``failed_before_commit``、``committed_verification_failed``、``completed_with_errors`` 和
-``completed``。这些内部实现不会出现在面向新手的 GUI 中。
-旧表等价审计发现差异时会记录警告，但不会再回滚完整的新 schema 建立；旧表仍保留在
-``betalens_legacy`` 供后续人工核对。
+新机器需先恢复数据库备份或单独准备所需结构。导入历史观测数据时，仍由
+``SchemaManager.ensure_observation_partitions()`` 为已存在的父表补充年度分区。
 
 配置和任务记录
 --------------
@@ -61,20 +44,20 @@ LF/CRLF checksum。``0009`` 的早期阻断式历史审计 checksum 也被接受
 GUI 顶部直接填写 host、port、dbname、user 和密码；这些值只用于当前进程，密码不会写入
 本地文件。
 
-schema、单文件和 Manifest 任务统一保存到
+单文件和 Manifest 导入任务统一保存到
 ``logs/database-manager/jobs.sqlite3``，逐文件 item、取消状态、报告路径和 resume checkpoint
 也在该 SQLite 文件中。PostgreSQL 不增加 job 表。
 
 物理结构
 --------
 
-``betalens`` schema 包含 15 张基础物理表：
+``betalens`` schema 包含 14 张基础物理表：
 
 * 维度：``entity_dim``、``entity_name_history``、``metric_dim``、``metric_alias``、
   ``industry_scheme_dim``、``industry_dim``。
 * 事实/PIT：``market_daily_fact``、``observation_fact``、``industry_membership``、
   ``index_snapshot``、``index_constituent``、``trade_status_event``。
-* 管理：``schema_migration``、``dataset_coverage``。
+* 管理：``dataset_coverage``。
 * 日历：``trade_calendar_day``，以 ``(exchange, trade_date)`` 保存每个交易所的交易日序列。
 
 ``market_daily_fact`` 以 ``(entity_id, trade_date)`` 为主键且不分区；
@@ -121,7 +104,6 @@ Manifest 当前版本是 ``version: 1``。路径相对清单目录解析；文�
 
    python -m betalens_db_manager plan --manifest D:\data\imports.yaml
    python -m betalens_db_manager import --manifest D:\data\imports.yaml --resume
-   python -m betalens_db_manager init --yes --manifest D:\data\imports.yaml
 
 每个文件只创建一次 staging；CSV/CSV.GZ/Parquet 默认每十万行分块 COPY，Excel 整表读取。
 数据库内统一完成去重、跨 chunk 冲突检查、维度解析、insert/upsert 和有限冲突采样。
@@ -184,15 +166,13 @@ GUI
 
 GUI 离线启动，不因目标库尚未创建而弹异常。界面只有四个标签页：
 
-* ``数据表``：显示逻辑表、物理存储、行数和契约元信息；选择任意表后可一键补齐其所需
-  的 Betalens 数据库结构，不删除已有数据。
+* ``数据表``：显示逻辑表、物理存储、行数和当前静态 schema 元信息；“检查所选表”仅执行只读检查。
 * ``文件导入``：可选择一个或多个文件，也可选择一个文件夹。文件夹会递归扫描 CSV、
   CSV.GZ、Excel 和 Parquet；选择目标表和文件类型后先检查，再导入通过检查的文件。
 * ``查询与诊断``：提供筛选查询、受限的只读 SQL 和脏数据检查，并可导出当前有限结果。
 * ``联网更新``：为后续数据源 API 接入预留，当前为空。
 
-GUI 不展示 migration 历史、旧库迁移、Manifest 编辑器或任务日志页面。``trade_status``
+GUI 不展示已停用的 migration 历史或旧库迁移、Manifest 编辑器或任务日志页面。``trade_status``
 覆盖仅截至 ``2015-06-01`` 时仍会在数据表的警告列中标红。
 
-仓库没有已删除 ``daily_market`` 的全量历史源。未提供 Manifest 时，一键初始化只复现完整
-空 schema，并报告缺少行情数据。
+仓库不附带历史行情数据。导入前请准备自己的源文件，并核对日期、代码、指标单位和可用时间。

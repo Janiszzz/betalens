@@ -27,15 +27,16 @@ python -m pip install --upgrade pip setuptools wheel
 python -m pip install -e ".[full]"
 ```
 
-复制数据库配置模板，填写本机 PostgreSQL 密码，然后初始化默认的 `datafeed` 数据库：
+复制数据库配置模板，填写本机 PostgreSQL 密码，然后检查已准备好的 `datafeed` 数据库：
 
 ```powershell
 Copy-Item betalens\datafeed\config.example.json betalens\datafeed\config.local.json
 notepad betalens\datafeed\config.local.json
 python -m betalens_db_manager plan
-.\betalens_db_manager\init_local.bat
-python -m betalens_db_manager verify
+python -m betalens_db_manager inspect
 ```
+
+当前工作区已停用旧 schema migration 和自动初始化。新环境需先恢复备份或单独准备表结构；`inspect` 只读检查表、字段和视图。
 
 数据库、依赖包、数据导入、Dashboard 和常见故障的逐步说明见[从零安装教程](docs/getting-started/installation.rst)。
 

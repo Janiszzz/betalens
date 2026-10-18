@@ -1,8 +1,8 @@
 """Unified database-manager service facade.
 
 The facade is deliberately Qt-free.  CLI, BAT and the desktop application all
-call these methods, so schema lifecycle, manifest preflight, import reporting
-and verification cannot silently diverge between entry points.
+call these methods for read-only structure inspection, manifest preflight
+and file imports. Schema migrations and bootstrap are retired.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from .job_store import JobStore
 from .jobs import ImportJobRunner
 from .profiles import ConnectionProfile, ConnectionResolver, ProfileStore, ResolvedConnection
 from .records import ImportRecordStore
-from .schema import SchemaManager
+from .schema import SchemaManager, migration_disabled
 from .registry import get_dataset
 from .utils import json_default
 
@@ -55,7 +55,7 @@ def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
 
 
 class DatabaseManager:
-    """Own the complete local database lifecycle and import workflow."""
+    """Inspect existing datasets and manage file imports."""
 
     def __init__(
         self,
@@ -155,17 +155,16 @@ class DatabaseManager:
         return self.schema.connect(dbname)
 
     def plan_schema(
-        self,
-        *,
-        target_version: int | None = None,
+        self, *, target_version: int | None = None,
         observation_years: Iterable[int] | None = None,
         create_compat_views: bool = True,
     ) -> dict[str, Any]:
-        plan = self.schema.plan_migration(target_version=target_version)
-        plan["observation_years"] = sorted({int(year) for year in (observation_years or ())})
-        plan["create_compat_views"] = bool(create_compat_views)
-        plan["connection"] = self.connection_info
-        return plan
+        """Inspect the installed structure without planning any DDL."""
+        if target_version is not None or observation_years is not None or not create_compat_views:
+            migration_disabled()
+        result = self.inspect_schema()
+        result["connection"] = self.connection_info
+        return result
 
     def plan(
         self,
@@ -189,8 +188,8 @@ class DatabaseManager:
         return result
 
     # Explicit aliases used by older callers and the GUI controller.
-    plan_migration = plan_schema
-    plan_schema_lifecycle = plan_schema
+    plan_migration = staticmethod(migration_disabled)
+    plan_schema_lifecycle = staticmethod(migration_disabled)
 
     def _report_path(self, requested: str | Path | None, prefix: str) -> Path:
         if requested is not None:
@@ -216,154 +215,23 @@ class DatabaseManager:
         self.job_store.start_job(job["job_id"])
         return self.job_store.get_job(job["job_id"]) or job
 
-    @staticmethod
-    def _schema_report_path(report_path: Path) -> Path:
-        return report_path.with_name(report_path.stem + ".schema.json")
+    def bootstrap(self, **kwargs):
+        """Retired; use run_manifest() to import into installed tables."""
+        migration_disabled()
 
-    def bootstrap(
-        self,
-        *,
-        create_database_if_missing: bool = True,
-        migrate_legacy: bool = True,
-        create_compat_views: bool = True,
-        verify: bool = True,
-        observation_years: Iterable[int] | None = None,
-        report_path: str | Path | None = None,
-        manifest: str | Path | Mapping[str, Any] | None = None,
-        resume: bool = True,
-        progress: ProgressCallback | None = None,
-    ) -> dict[str, Any]:
-        """Bootstrap schema, optionally import a manifest, then verify again."""
-
-        output_path = self._report_path(report_path, "run")
-        job = self._begin_job("bootstrap", output_path)
-        run_id = job["job_id"]
-        report: dict[str, Any] = {
-            "run_id": run_id,
-            "status": "running",
-            "database": self.db_config.get("dbname"),
-            "connection": self.connection_info,
-            "report_path": str(output_path),
-            "started_at": datetime.now().isoformat(sep=" ", timespec="seconds"),
-            "schema": None,
-            "manifest": None,
-            "verification": None,
-            "warnings": [],
-        }
-        # Persist a report before touching PostgreSQL.  This covers malformed
-        # migration resources, unreachable servers and invalid manifests.
-        _write_json(output_path, report)
-        try:
-            manifest_plan = None
-            if manifest is not None:
-                manifest_plan = (
-                    dict(manifest)
-                    if isinstance(manifest, Mapping)
-                    else self.plan_manifest(manifest)
-                )
-                report["manifest_plan"] = manifest_plan
-                _write_json(output_path, report)
-
-            if progress:
-                progress({"phase": "schema", "message": "开始建库/升级", "run_id": run_id})
-            schema_result = self.schema.bootstrap_local(
-                create_database_if_missing=create_database_if_missing,
-                migrate_legacy=migrate_legacy,
-                create_compat_views=create_compat_views,
-                verify=verify,
-                observation_years=observation_years,
-                report_path=self._schema_report_path(output_path),
-            )
-            report["schema"] = schema_result
-            report["warnings"].extend(schema_result.get("warnings", []))
-            _write_json(output_path, report)
-
-            if manifest_plan is not None:
-                if progress:
-                    progress({"phase": "manifest", "message": "开始批量导入", "run_id": run_id})
-                manifest_result = self._execute_manifest(
-                    manifest_plan,
-                    resume=resume,
-                    progress=progress,
-                    cancel=lambda: self.job_store.is_cancel_requested(run_id),
-                )
-                report["manifest"] = manifest_result
-                self._persist_manifest_items(run_id, manifest_result)
-                _write_json(output_path, report)
-
-            if verify:
-                if progress:
-                    progress({"phase": "verify", "message": "执行最终核验", "run_id": run_id})
-                report["verification"] = self.schema.verify_schema(
-                    require_compat_views=create_compat_views,
-                )
-                if not report["verification"].get("ok"):
-                    report["status"] = "committed_verification_failed"
-                    report["error"] = "提交后 schema 核验失败"
-                elif report.get("manifest") and report["manifest"].get("status") != "completed":
-                    report["status"] = report["manifest"].get("status", "completed_with_errors")
-                else:
-                    report["status"] = "completed"
-            else:
-                report["status"] = (
-                    report["manifest"].get("status", "completed_with_errors")
-                    if report.get("manifest") and report["manifest"].get("status") != "completed"
-                    else "completed"
-                )
-        except Exception as exc:
-            report["status"] = self._failure_status(report)
-            report["error"] = str(exc)
-            # SchemaManager writes its own diagnostic report; include it when
-            # available without replacing the original exception.
-            schema_path = self._schema_report_path(output_path)
-            if schema_path.exists():
-                try:
-                    report["schema"] = json.loads(schema_path.read_text(encoding="utf-8"))
-                except (OSError, json.JSONDecodeError):
-                    pass
-        finally:
-            report["finished_at"] = datetime.now().isoformat(sep=" ", timespec="seconds")
-            _write_json(output_path, report)
-            self.job_store.finish_job(
-                run_id,
-                report["status"],
-                result=report,
-                error=report.get("error"),
-            )
-        return report
-
-    @staticmethod
-    def _failure_status(report: Mapping[str, Any]) -> str:
-        schema = report.get("schema")
-        if isinstance(schema, Mapping) and schema.get("status") in {
-            "failed_before_commit", "committed_verification_failed"
-        }:
-            return str(schema["status"])
-        return "failed_before_commit" if not schema else "failed"
-
-    def bootstrap_local(self, **kwargs: Any) -> dict[str, Any]:
-        """Compatibility name for callers migrating from ``SchemaManager``."""
-
-        return self.bootstrap(**kwargs)
+    def bootstrap_local(self, **kwargs):
+        migration_disabled()
 
     def ensure_dataset(self, table: str, *, report_path: str | Path | None = None) -> dict[str, Any]:
-        """Install the contract dependencies required by one logical dataset.
-
-        PostgreSQL fact tables depend on shared dimensions, constraints and
-        compatibility views.  The safe operation is therefore an idempotent
-        contract bootstrap, not a brittle bare ``CREATE TABLE`` for one name.
-        """
-
+        """Check the selected dataset without creating any database objects."""
         spec = get_dataset(table, writable=False)
-        report = self.bootstrap(
-            create_database_if_missing=True,
-            migrate_legacy=True,
-            create_compat_views=True,
-            verify=True,
-            report_path=report_path,
-        )
+        report = self.schema.inspect_schema([table])
         report["requested_dataset"] = table
         report["physical_tables"] = list(spec.physical_tables)
+        if report_path is not None:
+            _write_json(Path(report_path).expanduser().resolve(), report)
+        if not report["ok"]:
+            raise RuntimeError("; ".join(report["errors"]))
         return report
 
     def _manifest_runner(self):
@@ -529,59 +397,15 @@ class DatabaseManager:
             progress=progress,
         )
 
-    def verify(
-        self,
-        *,
-        deep: bool = False,
-        require_compat_views: bool = True,
-        report_path: str | Path | None = None,
-    ) -> dict[str, Any]:
-        output_path = self._report_path(report_path, "verify")
-        job = self._begin_job("verify", output_path)
-        report: dict[str, Any] = {
-            "run_id": job["job_id"],
-            "status": "running",
-            "database": self.db_config.get("dbname"),
-            "deep": bool(deep),
-            "report_path": str(output_path),
-        }
-        _write_json(output_path, report)
-        try:
-            report["verification"] = self.schema.verify_schema(
-                require_compat_views=require_compat_views
-            )
-            if deep and report["verification"].get("database_exists"):
-                coverage = self.import_client.table_overview(include_checks=True)
-                report["coverage"] = coverage
-                stale = [row["table_name"] for row in coverage if row.get("coverage_stale")]
-                check_errors = [
-                    {"table": row["table_name"], "warnings": row.get("warnings", [])}
-                    for row in coverage
-                    if any("只读覆盖核验失败" in warning for warning in row.get("warnings", []))
-                ]
-                if stale:
-                    report["verification"]["errors"].append(
-                        f"dataset_coverage 与只读实查不一致: {stale}"
-                    )
-                if check_errors:
-                    report["verification"]["errors"].append(
-                        f"覆盖实查失败: {check_errors}"
-                    )
-                report["verification"]["ok"] = not report["verification"]["errors"]
-            report["status"] = "completed" if report["verification"].get("ok") else "failed"
-        except Exception as exc:
-            report["status"] = "failed_before_commit"
-            report["error"] = str(exc)
-        finally:
-            report["finished_at"] = datetime.now().isoformat(sep=" ", timespec="seconds")
-            _write_json(output_path, report)
-            self.job_store.finish_job(job["job_id"], report["status"], result=report, error=report.get("error"))
-        return report
+    def verify(self, **kwargs):
+        """Retired migration verification; use inspect_schema()."""
+        migration_disabled()
 
-    def verify_schema(self, **kwargs: Any) -> dict[str, Any]:
-        """Direct compatibility delegate without creating a local verify job."""
+    def verify_schema(self, **kwargs):
+        migration_disabled()
 
-        return self.schema.verify_schema(**kwargs)
+    def inspect_schema(self) -> dict[str, Any]:
+        return self.schema.inspect_schema()
 
     def dashboard_snapshot(self) -> dict[str, Any]:
         probe = self.probe_connection()
@@ -595,9 +419,10 @@ class DatabaseManager:
             snapshot["warnings"].append("目标数据库尚未可用，当前为离线状态")
             return snapshot
         try:
-            snapshot["schema"] = self.schema.verify_schema(require_compat_views=True)
+            snapshot["schema"] = self.inspect_schema()
             snapshot["coverage"] = self.client.table_overview()
             snapshot["warnings"].extend(snapshot["schema"].get("warnings", []))
+            snapshot["warnings"].extend(snapshot["schema"].get("errors", []))
         except Exception as exc:
             snapshot["warnings"].append(str(exc))
         return snapshot

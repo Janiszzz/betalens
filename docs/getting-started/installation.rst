@@ -43,8 +43,8 @@
      - ``python -c "import betalens"``
    * - 4
      - 数据库配置和 schema
-     - 建立 ``datafeed`` 库及标准表结构
-     - ``python -m betalens_db_manager verify``
+     - 连接已准备好的 ``datafeed`` 库及表结构
+     - ``python -m betalens_db_manager inspect``
    * - 5
      - 研究数据和 Dashboard
      - 让查询、因子和回测真正有数据可用
@@ -290,44 +290,19 @@ Windows 安装器中的关键选项
 ``BETALENS_CONFIG`` 指定文件 > 用户配置 > ``config.local.json`` > 旧配置 > 默认值。
 详见 :doc:`../guide/datafeed`。
 
-7. 初始化 Betalens 数据库
--------------------------
+7. 检查现有 Betalens 数据库
+---------------------------
 
-先查看只读计划。它不会修改 schema：
-
-.. code-block:: powershell
-
-   python -m betalens_db_manager plan
-
-确认输出中的目标数据库是 ``datafeed``，再执行初始化：
-
-.. code-block:: powershell
-
-   .\betalens_db_manager\init_local.bat
-
-等价的跨平台命令是：
+当前工作区已停用 v1–v10 迁移和自动初始化。新环境需先从备份恢复
+``datafeed`` 的表结构及指标定义，或单独准备结构，再检查连接：
 
 .. code-block:: console
 
-   python -m betalens_db_manager init --yes
+   python -m betalens_db_manager inspect
 
-初始化工具会按需创建 ``datafeed`` 数据库、执行版本化 migration、建立索引和兼容视图，
-最后自动核验。命令可以重复执行；已完成的 migration 不会重复破坏数据。
-
-再次独立验收：
-
-.. code-block:: powershell
-
-   python -m betalens_db_manager verify
-
-成功报告的 ``status`` 应为 ``completed``。数据库中会有 ``betalens`` schema，以及
-``daily_market``、``daily_index``、``daily_fund``、``daily_bond``、``fundamentals``、
-``macro``、``factors``、``industry``、``index_universe`` 和 ``trade_status`` 等只读兼容视图。
-
-.. admonition:: 已有旧数据库
-
-   初始化器会规划旧表迁移并保留旧结构用于审计。先运行 ``plan``，阅读待执行 migration；
-   生产数据库应先完成备份。数据库迁移、Manifest 和恢复细节见 :doc:`../guide/db-manager`。
+该命令只读检查表、字段类型和兼容视图查询。``ok: true`` 表示这些检查通过；
+它不认证索引、约束、指标种子或历史数据完整性。缺少结构时会报错而不会自动建表。
+旧 ``init``、``verify`` 和 ``init_local.bat`` 已停用。
 
 8. 导入研究数据
 ---------------
@@ -362,7 +337,7 @@ Windows 安装器中的关键选项
 
    python -m betalens_db_manager plan --manifest C:\data\imports.yaml
    python -m betalens_db_manager import --manifest C:\data\imports.yaml --yes
-   python -m betalens_db_manager verify --deep
+   python -m betalens_db_manager inspect
 
 ``--yes`` 会确认清单中的 upsert 可能更新已有值。第一次导入前务必阅读预检输出。各种输入
 格式、字段约束和失败恢复见 :doc:`../guide/db-manager`。
@@ -387,7 +362,7 @@ Python 包和数据库连接
 .. code-block:: powershell
 
    python -m betalens_db_manager --help
-   python -m betalens_db_manager verify
+   python -m betalens_db_manager inspect
 
 Dashboard
 ~~~~~~~~~
@@ -418,7 +393,7 @@ Dashboard
 
    Set-Location C:\dev\betalens
    .\.venv\Scripts\Activate.ps1
-   python -m betalens_db_manager verify
+   python -m betalens_db_manager inspect
 
 需要 Dashboard 时再执行 ``.\dashboard\run.bat``。拉取代码更新后执行：
 
@@ -428,7 +403,7 @@ Dashboard
    python -m pip install -e ".[full]"
    python -m betalens_db_manager plan
 
-确认数据库升级计划后，再运行 ``init_local.bat``。
+代码更新不会自动修改数据库结构；根据检查结果单独处理需要的表结构变更。
 
 macOS / Linux 命令对照
 ----------------------
@@ -452,9 +427,9 @@ PostgreSQL 的服务启动和用户创建方式因发行版而异，但后续 Be
    * - 完整安装
      - ``python -m pip install -e ".[full]"``
      - ``python -m pip install -e '.[full]'``
-   * - 初始化 schema
-     - ``.\betalens_db_manager\init_local.bat``
-     - ``python -m betalens_db_manager init --yes``
+   * - 检查已有 schema
+     - ``python -m betalens_db_manager inspect``
+     - ``python -m betalens_db_manager inspect``
    * - 启动数据库 GUI
      - ``.\betalens_db_manager\run.bat``
      - ``python -m betalens_db_manager``
@@ -482,12 +457,8 @@ PostgreSQL 服务未启动、host/port 错误或端口被防火墙拦截。Windo
 ``permission denied to create database``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-当前 PostgreSQL 用户没有 ``CREATEDB`` 权限。使用安装时创建的 ``postgres`` 用户初始化，
-或让管理员先创建空 ``datafeed`` 数据库，再执行：
-
-.. code-block:: powershell
-
-   python -m betalens_db_manager init --yes --no-create-database
+当前 PostgreSQL 用户没有 ``CREATEDB`` 权限。新环境由管理员准备数据库并恢复所需结构；
+日常查询、检查和文件导入不会自动创建数据库。
 
 ``No module named ...``
 ~~~~~~~~~~~~~~~~~~~~~~~
@@ -512,7 +483,7 @@ Node.js 太旧、代理不可用或安全软件锁定 ``node_modules``。核心 
 ~~~~~~~~~~~~~~~~
 
 Python 已连接到 PostgreSQL，但目标库尚未初始化，或配置指向了错误数据库。确认数据库名为
-``datafeed``，依次执行 ``plan``、``init --yes`` 和 ``verify``。
+``datafeed``，执行 ``inspect`` 检查缺少的结构，并从备份恢复或单独准备对应表。
 
 查询返回空表
 ~~~~~~~~~~~~
