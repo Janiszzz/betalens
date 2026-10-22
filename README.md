@@ -27,16 +27,17 @@ python -m pip install --upgrade pip setuptools wheel
 python -m pip install -e ".[full]"
 ```
 
-复制数据库配置模板，填写本机 PostgreSQL 密码，然后检查已准备好的 `datafeed` 数据库：
+数据基础设施独立安装和运行：
 
-```powershell
-Copy-Item betalens\datafeed\config.example.json betalens\datafeed\config.local.json
-notepad betalens\datafeed\config.local.json
-python -m betalens_db_manager plan
-python -m betalens_db_manager inspect
+```bash
+python -m pip install -e './betalens-db-manager[files]'
+# 按 infra.env.example 准备仓库外的私有环境文件
+betalens-db-manager --env /private/path/infra.env serve
 ```
 
-当前工作区已停用旧 schema migration 和自动初始化。新环境需先恢复备份或单独准备表结构；`inspect` 只读检查表、字段和视图。
+浏览器访问 `http://127.0.0.1:8010`，先查看结构计划并初始化，再手动下载、预览和入库。
+`betalens_db_manager` 已删除；新组件从零实现，不依赖研究层。
+研究层仍使用 `betalens/datafeed/config.local.json` 配置只读连接，新接口表需要独立的数据集适配。
 
 数据库、依赖包、数据导入、Dashboard 和常见故障的逐步说明见[从零安装教程](docs/getting-started/installation.rst)。
 
@@ -115,7 +116,7 @@ Dashboard 扫描 `betalens-factor/` 下的 YAML 因子配置，支持因子发�
 betalens/
 ├── betalens/              # 主包：datafeed / factor / backtest / analyst / eventstudy / robust
 ├── betalens-factor/       # 因子脚本、YAML 参数、运行产物和参数挖掘入口
-├── betalens_db_manager/   # 数据库管理工具；稳定 Python import 名为 betalens_db_manager
+├── betalens-db-manager/ # 独立发行的数据基础设施工具
 ├── dashboard/             # FastAPI + React/Vite Dashboard
 ├── docs/                  # Sphinx 文档
 ├── tests/                 # 测试
@@ -136,7 +137,7 @@ python -m sphinx -b html -n -W --keep-going docs docs\_build\html
 文档入口：
 
 - 快速开始：[项目全景](docs/getting-started/project-overview.rst) · [从零安装](docs/getting-started/installation.rst) · [10 分钟快速上手](docs/getting-started/quickstart.rst)
-- 用户指南：[Datafeed](docs/guide/datafeed.rst) · [Factor](docs/guide/factor.rst) · [Backtest](docs/guide/backtest.rst) · [Analyst](docs/guide/analyst.rst) · [Dashboard](docs/guide/dashboard.rst) · [因子管线](docs/guide/factor-pipeline.rst) · [参数挖掘](docs/guide/factor-mining.rst) · [数据库管理](docs/guide/db-manager.rst)
+- 用户指南：[Datafeed](docs/guide/datafeed.rst) · [Factor](docs/guide/factor.rst) · [Backtest](docs/guide/backtest.rst) · [Analyst](docs/guide/analyst.rst) · [Dashboard](docs/guide/dashboard.rst) · [因子管线](docs/guide/factor-pipeline.rst) · [参数挖掘](docs/guide/factor-mining.rst) · [数据库管理](docs/guide/infra.rst)
 - API 参考：[Datafeed](docs/api/datafeed.rst) · [Factor](docs/api/factor.rst) · [Backtest](docs/api/backtest.rst) · [Analyst](docs/api/analyst.rst) · [EventStudy](docs/api/eventstudy.rst) · [Robust](docs/api/robust.rst)
 
 ## 依赖
@@ -146,7 +147,7 @@ python -m sphinx -b html -n -W --keep-going docs docs\_build\html
 - `viz`：plotly 交互图。
 - `dashboard`：FastAPI / Uvicorn / Pydantic / PyArrow。
 - `db`：PostgreSQL 文件导入、Parquet 和旧 XLS 支持。
-- `gui`：PySide6 数据库管理 GUI。
+- 基础设施网页与 CLI：单独安装 `./betalens-db-manager`。
 - `full`：一次安装上述全部可选能力，推荐新用户使用。
 
 ## 许可证

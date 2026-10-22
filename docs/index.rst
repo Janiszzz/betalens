@@ -7,7 +7,7 @@ Betalens 文档
 --------
 
 * **Datafeed**：只读 PostgreSQL 数据访问、交易日、行业、指数成分和交易状态查询。
-* **Database Manager**：建库、迁移、Excel/EDE/Wind 数据适配、批量写入和条件删除。
+* **Infra**：独立的数据接入与管理组件，负责 PG/CH 建立、Tushare 接入、审计和副本维护。
 * **Factor**：可交易池、单/双/多因子分组、因子预处理、IC/回归/择时统计、参数挖掘。
 * **Backtest**：目标权重到日频净值，整数手成交，停牌状态处理，调仓审计日志。
 * **Analyst**：从回测实例生成指标表、Excel 报告和 plotly 交互 HTML。
@@ -96,7 +96,7 @@ Betalens 文档
    guide/dashboard
    guide/factor-pipeline
    guide/factor-mining
-   guide/db-manager
+   guide/infra
 
 .. toctree::
    :maxdepth: 2
@@ -108,7 +108,8 @@ Betalens 文档
    api/analyst
    api/eventstudy
    api/robust
-   api/db-manager
+   api/infra
+   api/infra
 
 索引
 ----

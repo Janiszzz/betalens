@@ -1,0 +1,23 @@
+# A finite, one-off history load. This never enables automatic scheduling.
+# Run again with the same file to resume its last incomplete batch.
+defaults:
+  targets: [postgres, clickhouse]
+  sources: [tushare]
+  mode: fill_missing
+  start_date: '2004-01-01'
+batches:
+  - label: security_and_calendar
+    datasets: [stock_basic, fund_basic, index_basic, bse_mapping, trade_cal]
+  - label: stock_and_fund_history
+    datasets: [daily, daily_basic, adj_factor, fund_daily, fund_adj, suspend_d]
+    batch_months: 1
+  - label: industry_history
+    datasets: [index_classify, index_member_all, ci_index_member]
+  - label: index_history
+    datasets: [index_daily]
+    all_codes_for: index
+    batch_months: 12
+  - label: financial_history
+    datasets: [income, balancesheet, cashflow, fina_indicator]
+    all_codes_for: stock
+    batch_months: 12

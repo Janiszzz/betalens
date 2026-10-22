@@ -1,0 +1,222 @@
+"""ClickHouse target with the same canonical logical table contracts as PG."""
+from __future__ import annotations
+
+import json
+from datetime import date, datetime, timezone
+from decimal import Decimal
+
+import requests
+
+from .canonical import CanonicalTable, canonical, load_canonical_catalog
+from .config import Settings
+from .comparison import compare as compare_rows, typed
+from .storage import columns, row_hash, row_key, CONTROL_DDL, control_spec
+from .util import digest, dumps, identifier, parse_date
+
+
+class ClickHouse:
+    def __init__(self, settings: Settings):
+        self.settings = settings
+
+    def execute(self, query: str, data: str | None = None, timeout: int = 180) -> str:
+        # ClickHouse treats the HTTP body as the SQL statement unless a query
+        # parameter is provided.  Inserts therefore send SQL in ``query`` and
+        # JSONEachRow in the body; sending the rows as the body alone makes the
+        # server parse the first JSON object as SQL.
+        params = {"query": query, "wait_end_of_query": "1", "date_time_input_format": "best_effort",
+                  "input_format_json_read_numbers_as_strings": "1"}
+        payload = data if data is not None else query
+        if data is None: params.pop("query")
+        response = requests.post(self.settings.ch_url, params=params, data=payload.encode(),
+                                 auth=(self.settings.ch_user, self.settings.ch_password), timeout=timeout)
+        if response.status_code != 200:
+            message = response.text[:500].replace(self.settings.ch_password, "[redacted]") if self.settings.ch_password else response.text[:500]
+            raise RuntimeError(f"ClickHouse HTTP {response.status_code}: {message}")
+        return response.text.strip()
+
+    def table(self, name: str) -> str:
+        return f"`{identifier(self.settings.ch_database)}`.`{identifier(name)}`"
+
+    def _type(self, field: dict, required: bool = False) -> str:
+        base = {"text": "String", "date": "Date32", "timestamp": "DateTime64(6, 'UTC')",
+                "numeric": "Decimal(38, 12)", "integer": "Int64"}[field["type"]]
+        if field["type"]=="numeric":base=f"Decimal({field.get('precision',38)}, {field.get('scale',12)})"
+        return base if required or not field.get("nullable", True) else f"Nullable({base})"
+
+    def ddl(self, spec: CanonicalTable) -> str:
+        definitions = [f"`{f['name']}` {self._type(f, f['name'] in spec.keys)}" for f in spec.fields]
+        keys = ",".join(f"`{key}`" for key in spec.keys)
+        partition = "toYYYYMM(`event_date`)" if any(f["name"]=="event_date" and not f.get("nullable",True) for f in spec.fields) else "tuple()"
+        return f"CREATE TABLE IF NOT EXISTS {self.table(spec.name)} ({','.join(definitions)}) ENGINE=ReplacingMergeTree PARTITION BY {partition} ORDER BY ({keys})"
+
+    def install(self, specs=None) -> dict:
+        self.execute(f"CREATE DATABASE IF NOT EXISTS `{identifier(self.settings.ch_database)}`")
+        for spec in (specs if specs is not None else load_canonical_catalog()).values():
+            self.execute(self.ddl(spec))
+            actions=[f"ADD COLUMN IF NOT EXISTS `{field['name']}` {self._type(field,field['name'] in spec.keys)}" for field in spec.fields]
+            self.execute(f"ALTER TABLE {self.table(spec.name)} "+','.join(actions))
+        for name in CONTROL_DDL:
+            spec = control_spec(name)
+            definitions = [f"`{f['name']}` {self._type(f, f['name'] in spec.keys)}" for f in spec.fields]
+            keys = ','.join(f'`{key}`' for key in spec.keys)
+            self.execute(f"CREATE TABLE IF NOT EXISTS {self.table(name)} ({','.join(definitions)}) ENGINE=ReplacingMergeTree ORDER BY ({keys})")
+            actions=[f"ADD COLUMN IF NOT EXISTS `{f['name']}` {self._type(f,f['name'] in spec.keys)}" for f in spec.fields]
+            self.execute(f'ALTER TABLE {self.table(name)} '+','.join(actions))
+        return self.status()
+
+    def status(self) -> dict:
+        raw = self.execute(f"SELECT name FROM system.tables WHERE database='{self.settings.ch_database}' FORMAT JSONEachRow")
+        names = {json.loads(line)["name"] for line in raw.splitlines() if line.strip()}
+        specs={**load_canonical_catalog(),**{name:control_spec(name) for name in CONTROL_DDL}}
+        missing=[name for name in specs if name not in names];missing_columns=[];mismatches=[]
+        present=self._json_rows(self.execute(f"SELECT table,name,type FROM system.columns WHERE database='{self.settings.ch_database}' FORMAT JSONEachRow"))
+        actual={(row['table'],row['name']):row['type'] for row in present}
+        for name,spec in specs.items():
+            if name in missing:continue
+            for field in spec.fields:
+                found=actual.get((name,field['name']));expected=self._type(field,field['name'] in spec.keys)
+                if found is None:missing_columns.append(f"{name}.{field['name']}")
+                elif found!=expected and not (expected=='Int64' and found=='Int32') and not (expected=='Nullable(Int64)' and found=='Nullable(Int32)'):
+                    mismatches.append(f"{name}.{field['name']}: 期望 {expected}，实际 {found}")
+        return {'ready':not(missing or missing_columns or mismatches),'missing':missing,'missing_columns':missing_columns,'mismatches':mismatches,'database':self.settings.ch_database}
+
+    def _parse(self, value, field_type):
+        if value is None: return None
+        if field_type == "date": return parse_date(value).isoformat()
+        if field_type == "timestamp":
+            if isinstance(value, datetime): return value.isoformat()
+            return str(value)
+        if field_type == "numeric": return format(Decimal(str(value)), "f")
+        return value
+
+    def _json_rows(self, text: str) -> list[dict]:
+        return [json.loads(line, parse_float=Decimal) for line in text.splitlines() if line.strip()]
+
+    def _find_existing(self, spec: CanonicalTable, rows: list[dict]) -> dict[tuple, dict]:
+        if not rows: return {}
+        result = {}
+        # Large snapshots such as stock_basic can contain tens of thousands
+        # of keys.  Keep each HTTP query bounded so ClickHouse does not reject
+        # the request body before SQL parsing.
+        keys = [tuple(row.get(k) for k in spec.keys) for row in rows]
+        for offset in range(0, len(keys), 500):
+            conditions = []
+            for key in keys[offset:offset + 500]:
+                conditions.append("(" + " AND ".join(f"`{field}`={self._literal(value)}" for field, value in zip(spec.keys, key)) + ")")
+            query = f"SELECT * FROM {self.table(spec.name)} FINAL WHERE {' OR '.join(conditions)} FORMAT JSONEachRow"
+            for row in self._json_rows(self.execute(query)):
+                row=typed(spec,row)
+                result[tuple(row.get(k) for k in spec.keys)] = row
+        return result
+
+    @staticmethod
+    def _literal(value):
+        if value is None: return "NULL"
+        if isinstance(value, (date, datetime)): value = value.isoformat()
+        text = str(value).replace("\\", "\\\\").replace("'", "\\'")
+        return "'" + text + "'"
+
+    def compare(self, spec, rows, mode="fill_missing"):
+        existing = self._find_existing(spec, rows)
+        return compare_rows(spec, rows, list(existing.values()), mode)
+
+    def commit_rows(self, task_id: str, target: str, spec: CanonicalTable, rows: list[dict], mode: str, signature: str) -> dict:
+        comparison = self.compare(spec, rows, mode)
+        if comparison["signature"] != signature: raise ValueError("预览后的 ClickHouse 数据已经变化，请重新预览")
+        changes = comparison["changes"]
+        if not changes: return comparison["counts"]
+        from collections import defaultdict
+        partitions = defaultdict(list)
+        for change in changes:
+            row = {name: self._parse(change["after"].get(name), next(f["type"] for f in spec.fields if f["name"] == name)) for name in columns(spec)}
+            partition = str(row.get('event_date', 'all'))[:7]
+            partitions[partition].append(dumps(row))
+        for lines in partitions.values():
+            for offset in range(0, len(lines), 5000):
+                self.execute(f"INSERT INTO {self.table(spec.name)} FORMAT JSONEachRow", "\n".join(lines[offset:offset + 5000]) + "\n")
+        return comparison["counts"]
+
+    def query(self, name: str, code: str | None = None, start: str | None = None, end: str | None = None, limit: int = 100, after: str | None = None) -> dict:
+        spec = canonical(name); conditions = []
+        offset = int(after or 0)
+        if offset < 0: raise ValueError("分页位置无效")
+        if code and "security_code" in columns(spec): conditions.append(f"`security_code`={self._literal(code)}")
+        if start and "event_date" in columns(spec): conditions.append(f"`event_date` >= {self._literal(parse_date(start))}")
+        if end and "event_date" in columns(spec): conditions.append(f"`event_date` <= {self._literal(parse_date(end))}")
+        where = " WHERE " + " AND ".join(conditions) if conditions else ""
+        query = f"SELECT * FROM {self.table(name)} FINAL{where} ORDER BY ({','.join('`'+k+'`' for k in spec.keys)}) LIMIT {max(1,min(limit,1000))+1} OFFSET {offset} FORMAT JSONEachRow"
+        rows = [typed(spec, row) for row in self._json_rows(self.execute(query))]; size = max(1, min(limit,1000))
+        return {"columns": columns(spec), "rows": rows[:size], "next": str(offset + size) if len(rows) > size else None}
+
+    def apply_rollback(self, spec, audits, rollback_task_id):
+        """Rebuild affected partitions in a staging table and atomically exchange.
+
+        Unaffected partitions are copied server-side. Source timestamps and the
+        prior import_task_id are restored exactly; rollback identity lives in
+        the immutable audit records.
+        """
+        import uuid
+        changes=[]; live=self._find_existing(spec,[a['after_value'] for a in audits])
+        for audit in audits:
+            after=audit['after_value']; key=tuple(typed(spec,after).get(k) for k in spec.keys)
+            current=live.get(key)
+            if current is None or row_hash(spec,current)!=audit['after_hash']: raise ValueError('目标行已被后续任务修改，禁止回退')
+            before=audit['before_value']
+            changes.append({'before':typed(spec,current),'after':typed(spec,before) if before else None,'row_key':audit['row_key'],
+                            'before_hash':row_hash(spec,current),'after_hash':row_hash(spec,before) if before else None})
+        temporary='rollback_'+uuid.uuid4().hex
+        temp_table=self.table(temporary)
+        self.execute(self.ddl(spec).replace(self.table(spec.name),temp_table,1))
+        try:
+            if any(f['name']=='event_date' and not f.get('nullable',True) for f in spec.fields):
+                partitions=sorted({str(a['after_value']['event_date'])[:7].replace('-','') for a in audits})
+                condition='toYYYYMM(event_date) IN ('+','.join(partitions)+')'
+            else: condition='1'
+            self.execute(f'INSERT INTO {temp_table} SELECT * FROM {self.table(spec.name)} FINAL WHERE NOT ({condition})')
+            affected=self._json_rows(self.execute(f'SELECT * FROM {self.table(spec.name)} FINAL WHERE {condition} FORMAT JSONEachRow'))
+            result={row_key(spec,row):row for row in affected}
+            for change in changes:
+                if change['after'] is None: result.pop(change['row_key'],None)
+                else: result[change['row_key']]=change['after']
+            all_rows=list(result.values())
+            for offset in range(0,len(all_rows),1000):
+                lines=[dumps({f['name']:self._parse(row.get(f['name']),f['type']) for f in spec.fields}) for row in all_rows[offset:offset+1000]]
+                self.execute(f'INSERT INTO {temp_table} FORMAT JSONEachRow','\n'.join(lines)+'\n')
+            fresh=self._find_existing(spec,[a['after_value'] for a in audits])
+            if any(row_hash(spec,fresh.get(tuple(typed(spec,a['after_value']).get(k) for k in spec.keys),{}))!=a['after_hash'] for a in audits):
+                raise ValueError('回退发布前目标行发生变化，已放弃发布')
+            self.execute(f'EXCHANGE TABLES {self.table(spec.name)} AND {temp_table}')
+        finally: self.execute(f'DROP TABLE IF EXISTS {temp_table}')
+        return changes
+
+    def drop_legacy(self) -> dict:
+        raw = self.execute(f"SELECT name FROM system.tables WHERE database='{self.settings.ch_database}' FORMAT JSONEachRow")
+        names = {json.loads(line)["name"] for line in raw.splitlines() if line.strip()}
+        keep = set(load_canonical_catalog())
+        dropped = []
+        for name in sorted(names - keep):
+            self.execute(f"DROP TABLE IF EXISTS `{identifier(self.settings.ch_database)}`.`{identifier(name)}`")
+            dropped.append(name)
+        return {"dropped": dropped}
+
+    def control_write(self, name, rows):
+        if name not in CONTROL_DDL: raise ValueError("未登记的管理表")
+        spec=control_spec(name)
+        json_fields={f[0] for f in CONTROL_DDL[name] if f[1]=="jsonb"}
+        for offset in range(0,len(rows),500):
+            lines=[]
+            for row in rows[offset:offset+500]:
+                lines.append(dumps({f["name"]:dumps(row.get(f["name"])) if f["name"] in json_fields and row.get(f["name"]) is not None else self._parse(row.get(f["name"]),f["type"]) for f in spec.fields}))
+            self.execute(f"INSERT INTO {self.table(name)} FORMAT JSONEachRow", "\n".join(lines)+"\n")
+
+    def refresh_coverage(self,name):
+        spec=canonical(name);names=columns(spec)
+        asset="coalesce(asset_type,'')" if 'asset_type' in names else "''"
+        code="coalesce(security_code,'')" if 'security_code' in names else "''"
+        dates="minOrNull(event_date) AS first_event_date,maxOrNull(event_date) AS last_event_date" if 'event_date' in names else "NULL AS first_event_date,NULL AS last_event_date"
+        records=self._json_rows(self.execute(f'SELECT {asset} AS asset_type,{code} AS security_code,{dates},count() AS rows FROM {self.table(name)} FINAL GROUP BY asset_type,security_code FORMAT JSONEachRow'))
+        if not records:records=[{'asset_type':'','security_code':'','first_event_date':None,'last_event_date':None,'rows':0}]
+        for row in records:row.update(table_name=name,updated_at=datetime.now(timezone.utc))
+        self.execute(f"ALTER TABLE {self.table('dataset_coverage')} DELETE WHERE table_name={self._literal(name)} SETTINGS mutations_sync=1")
+        self.control_write('dataset_coverage',records)
+        return records

@@ -10,14 +10,16 @@ Betalens 不是单一的回测类，而是一套以 PostgreSQL 为数据底座�
 
 .. code-block:: text
 
-   CSV / Excel / Parquet / EDE / Wind
+   Tushare / 显式合同文件
                     |
                     v
-      betalens_db_manager（建库、迁移、校验、导入）
+      betalens-db-manager（独立 Infra）
                     |
                     v
         PostgreSQL datafeed 数据库
-       betalens schema + public 兼容视图
+       供应商宽表 + 来源/版本/提交审计
+                    |
+          研究层显式适配数据集合同
                     |
                     v
        betalens.datafeed（只读、PIT 查询）
@@ -49,8 +51,8 @@ Betalens 不是单一的回测类，而是一套以 PostgreSQL 为数据底座�
    * - 模块
      - 负责
      - 不负责
-   * - ``betalens_db_manager``
-     - 建库、migration、schema 核验、文件预览与导入、冲突处理、GUI
+   * - ``betalens-db-manager``
+     - 建库建表、数据接入、来源归档、审计、任务和 PG/CH 副本维护
      - 研究运行时的行情查询和回测
    * - ``betalens.datafeed``
      - PostgreSQL 只读查询、交易日、行业、指数成分、交易状态
@@ -87,8 +89,8 @@ Betalens 不是单一的回测类，而是一套以 PostgreSQL 为数据底座�
 * ``daily_market``、``fundamentals``、``industry``、``trade_status`` 等兼容视图是
   Datafeed 和既有因子脚本使用的稳定逻辑名称。
 
-数据库结构必须通过 ``betalens_db_manager`` 安装和升级，不建议手工执行或改写 migration。
-完整物理表、导入契约和兼容视图见 :doc:`../guide/db-manager`。
+独立 Infra 使用自己的供应商表和管理合同，保留既有研究结构；新数据到研究查询的映射需要单独适配。
+初始化、接入与维护见 :doc:`../guide/infra`。
 
 一次标准研究如何运行
 --------------------
@@ -139,8 +141,8 @@ Dashboard 扫描类级和因子级 YAML，动态导入对应脚本，并把每�
      - 内容
    * - ``betalens/``
      - 可安装的主 Python 包
-   * - ``betalens_db_manager/``
-     - 可安装的数据库管理包、migration、导入适配器和 GUI
+   * - ``betalens-db-manager/``
+     - 独立发行包、配置、数据合同、接入服务及网页
    * - ``betalens-factor/``
      - 因子脚本、YAML、回测产物和参数挖掘入口
    * - ``dashboard/backend/``
@@ -165,6 +167,5 @@ Dashboard 扫描类级和因子级 YAML，动态导入对应脚本，并把每�
 * 因子、分组和统计：:doc:`../guide/factor`。
 * 成交、停牌和持仓：:doc:`../guide/backtest`。
 * 指标和报告：:doc:`../guide/analyst`。
-* 建库、导入和迁移：:doc:`../guide/db-manager`。
+* 建库、导入和迁移：:doc:`../guide/infra`。
 * 页面运行和下载：:doc:`../guide/dashboard`。
-

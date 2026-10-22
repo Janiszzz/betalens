@@ -8,7 +8,7 @@
 
 * 一个独立的 Python 虚拟环境；
 * 一个可连接的 PostgreSQL ``datafeed`` 数据库；
-* Betalens 主包、数据库管理器、Dashboard 和全部常用依赖；
+* Betalens 主包、独立 Infra 工具、Dashboard 和全部常用依赖；
 * 已初始化的表、索引和 ``daily_market`` 等兼容视图；
 * 一组可以逐项执行的安装验收命令。
 
@@ -44,7 +44,7 @@
    * - 4
      - 数据库配置和 schema
      - 连接已准备好的 ``datafeed`` 库及表结构
-     - ``python -m betalens_db_manager inspect``
+     - ``betalens-db-manager --env /private/path/infra.env doctor``
    * - 5
      - 研究数据和 Dashboard
      - 让查询、因子和回测真正有数据可用
@@ -140,7 +140,7 @@ Windows 安装器中的关键选项
    如果不使用 ``psql``，打开 pgAdmin 4，在左侧展开 Servers，连接本机服务器，再打开
    Query Tool 执行 ``SELECT version();``。结果与命令行验收等价。
 
-此时不必手工创建 ``datafeed`` 数据库。后面的 Betalens Database Manager 会在确认后创建
+此时不必手工创建 ``datafeed`` 数据库。后面的 独立 Infra 工具 会在确认后创建
 数据库并安装正确版本的 schema。默认 ``postgres`` 用户具备创建数据库的权限；如果使用
 公司分配的普通账号，需要管理员授予 ``CREATEDB``，或请管理员先创建空的 ``datafeed`` 库。
 
@@ -158,7 +158,7 @@ Windows 安装器中的关键选项
    git status
 
 ``git status`` 应显示当前分支和工作区状态。后续命令除非特别说明，都在仓库根目录执行，也就是
-能看到 ``pyproject.toml``、``betalens``、``betalens_db_manager`` 和 ``dashboard`` 的目录。
+能看到 ``pyproject.toml``、``betalens``、``betalens-db-manager`` 和 ``dashboard`` 的目录。
 
 .. warning::
 
@@ -214,7 +214,7 @@ Windows 安装器中的关键选项
 * ``db``：PostgreSQL 文件入库、Parquet 和旧 ``.xls`` 支持；
 * ``viz``：Plotly 交互图和 HTML 报告；
 * ``dashboard``：FastAPI 后端和大表分页；
-* ``gui``：PySide6 数据库管理桌面界面。
+* ``gui``：独立 Infra 网页。
 
 按需安装
 ~~~~~~~~
@@ -298,7 +298,7 @@ Windows 安装器中的关键选项
 
 .. code-block:: console
 
-   python -m betalens_db_manager inspect
+   betalens-db-manager --env /private/path/infra.env doctor
 
 该命令只读检查表、字段类型和兼容视图查询。``ok: true`` 表示这些检查通过；
 它不认证索引、约束、指标种子或历史数据完整性。缺少结构时会报错而不会自动建表。
@@ -310,37 +310,19 @@ Windows 安装器中的关键选项
 新建的 schema 是空的。没有行情、交易状态和因子输入数据时，框架可以导入，但无法完成实际
 回测。数据来源可以是自有 CSV/Excel/Parquet、EDE 导出或 Wind 数据。
 
-图形界面导入
-~~~~~~~~~~~~
+Infra 网页与 CLI
+~~~~~~~~~~~~~~
 
-完整安装后执行：
-
-.. code-block:: powershell
-
-   .\betalens_db_manager\run.bat
-
-也可以运行 ``python -m betalens_db_manager``。在界面中填写连接信息，先预览文件和目标表，
-检查字段映射、拒绝行和冲突，再执行导入。建议至少准备：
-
-* ``daily_market``：日行情，回测默认读取 ``收盘价(元)``；
-* ``trade_status``：上市、停牌等状态，可交易池和回测默认使用；
-* ``fundamentals`` 或 ``factors``：因子研究所需指标；
-* ``industry``、``index_universe``：行业中性化和指数成分研究按需导入。
-
-批量清单导入
-~~~~~~~~~~~~
-
-大量文件建议从 ``betalens_db_manager/import_manifest.example.yaml`` 复制一份 Manifest，修改
-数据路径、``target`` 和 ``adapter`` 后先预检：
+安装独立工具后执行：
 
 .. code-block:: powershell
 
-   python -m betalens_db_manager plan --manifest C:\data\imports.yaml
-   python -m betalens_db_manager import --manifest C:\data\imports.yaml --yes
-   python -m betalens_db_manager inspect
+   python -m pip install -e ".\betalens-db-manager[files]"
+   copy betalens-db-manager\infra.env.example C:\private\infra.env
+   betalens-db-manager --env C:\private\infra.env serve
 
-``--yes`` 会确认清单中的 upsert 可能更新已有值。第一次导入前务必阅读预检输出。各种输入
-格式、字段约束和失败恢复见 :doc:`../guide/db-manager`。
+浏览器打开 ``http://127.0.0.1:8010``，先查看结构计划并初始化，再在“手动更新”中下载、预览和入库。
+文件接入使用显式列映射，支持 CSV、CSV.GZ、XLSX 和 Parquet；详见 :doc:`../guide/infra`。
 
 9. 完整验收
 ------------
@@ -356,13 +338,13 @@ Python 包和数据库连接
 
 空数据库会打印空表，但不应出现连接或 relation 错误。导入数据后应看到一行结果。
 
-数据库管理 CLI
+Infra CLI
 ~~~~~~~~~~~~~~
 
 .. code-block:: powershell
 
-   python -m betalens_db_manager --help
-   python -m betalens_db_manager inspect
+   betalens-infra --help
+   betalens-db-manager --env /private/path/infra.env doctor
 
 Dashboard
 ~~~~~~~~~
@@ -393,7 +375,7 @@ Dashboard
 
    Set-Location C:\dev\betalens
    .\.venv\Scripts\Activate.ps1
-   python -m betalens_db_manager inspect
+   betalens-db-manager --env /private/path/infra.env doctor
 
 需要 Dashboard 时再执行 ``.\dashboard\run.bat``。拉取代码更新后执行：
 
@@ -401,7 +383,7 @@ Dashboard
 
    git pull
    python -m pip install -e ".[full]"
-   python -m betalens_db_manager plan
+   betalens-db-manager --env /private/path/infra.env schema plan
 
 代码更新不会自动修改数据库结构；根据检查结果单独处理需要的表结构变更。
 
@@ -428,11 +410,11 @@ PostgreSQL 的服务启动和用户创建方式因发行版而异，但后续 Be
      - ``python -m pip install -e ".[full]"``
      - ``python -m pip install -e '.[full]'``
    * - 检查已有 schema
-     - ``python -m betalens_db_manager inspect``
-     - ``python -m betalens_db_manager inspect``
-   * - 启动数据库 GUI
-     - ``.\betalens_db_manager\run.bat``
-     - ``python -m betalens_db_manager``
+     - ``betalens-db-manager --env /private/path/infra.env doctor``
+     - ``betalens-db-manager --env /private/path/infra.env doctor``
+   * - 启动 Infra 网页
+     - ``betalens-db-manager --env C:\private\infra.env serve``
+     - ``betalens-db-manager --env /private/path/infra.env``
    * - 启动 Dashboard
      - ``.\dashboard\run.bat``
      - 分别运行后端和 ``dashboard/frontend`` 下的 ``npm run dev``
@@ -457,8 +439,7 @@ PostgreSQL 服务未启动、host/port 错误或端口被防火墙拦截。Windo
 ``permission denied to create database``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-当前 PostgreSQL 用户没有 ``CREATEDB`` 权限。新环境由管理员准备数据库并恢复所需结构；
-日常查询、检查和文件导入不会自动创建数据库。
+当前 PostgreSQL 用户没有 ``CREATEDB`` 权限。请管理员创建空库，随后 Infra 工具仍可执行结构初始化。
 
 ``No module named ...``
 ~~~~~~~~~~~~~~~~~~~~~~~
@@ -466,12 +447,6 @@ PostgreSQL 服务未启动、host/port 错误或端口被防火墙拦截。Windo
 通常是虚拟环境未激活，或安装命令用了另一套 Python。检查
 ``python -c "import sys; print(sys.executable)"``，再在正确环境执行
 ``python -m pip install -e ".[full]"``。始终使用 ``python -m pip``，不要混用裸 ``pip``。
-
-安装卡在 PySide6
-~~~~~~~~~~~~~~~~
-
-PySide6 体积较大，只用于数据库 GUI。可以先安装 ``.[db,viz,dashboard]`` 并使用 CLI；网络
-恢复后再执行 ``python -m pip install -e ".[gui]"``。
 
 ``npm install`` 或 Vite 启动失败
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -503,4 +478,4 @@ schema 已安装但没有导入数据，或者代码、日期、指标名与数�
 
 安装和数据准备完成后，进入 :doc:`quickstart` 跑通“取数 → 分组 → 权重 → 回测 → 报告”。
 模块职责、真实 API 和进阶流程可从文档首页按 Datafeed、Factor、Backtest、Analyst、
-Database Manager 和 Dashboard 继续阅读。
+Infra 工具 和 Dashboard 继续阅读。

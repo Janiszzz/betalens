@@ -1,7 +1,7 @@
 数据模块
 ========
 
-``betalens.datafeed`` 是研究运行时的只读数据访问层，负责连接 PostgreSQL、查询时间序列、读取交易日、处理行业和指数成分。现有表检查、分区维护、文件解析、批量写入和 GUI 管理由 ``betalens_db_manager`` 承担，详见 :doc:`db-manager`。
+``betalens.datafeed`` 是研究运行时的只读数据访问层，负责连接 PostgreSQL、查询时间序列、读取交易日、处理行业和指数成分。数据库建立、接入、审计与维护由独立的 ``betalens-db-manager`` 承担，详见 :doc:`infra`。
 
 配置
 ----
@@ -13,7 +13,7 @@
 
    Copy-Item betalens\datafeed\config.example.json betalens\datafeed\config.local.json
 
-模板和 Database Manager 的默认数据库名均为 ``datafeed``。首次安装请先完成
+模板的默认数据库名为 ``datafeed``。首次安装请先完成
 :doc:`../getting-started/installation` 中的 PostgreSQL 配置与现有表检查步骤。
 
 配置优先级：
@@ -132,20 +132,7 @@ Datafeed 查询
 
 ``get_index_universe_panel`` 返回 ``{date: set[str]}``。规范化数据库使用单次批量查询；旧表结构自动逐日回退。也可通过 ``Datafeed("index_universe").get_index_universe_panel(...)`` 调用。
 
-入库建议使用数据库管理工具：
-
-.. code-block:: python
-
-   from betalens_db_manager import ImportJobRunner
-
-   runner = ImportJobRunner()
-   record = runner.run(
-       path="中证800成分.xlsx",
-       import_type="index_universe",
-       table="index_universe",
-       options={"index_code": "000906.SH", "index_name": "中证800"},
-       mode="insert_only",
-   )
+指数成分来源接入由独立 Infra 工具处理；研究层使用的数据集需单独完成映射。
 
 交易状态
 --------
@@ -166,27 +153,12 @@ Datafeed 查询
 
 回测和 ``get_tradable_pool`` 都依赖该表。停牌持仓在 ``BacktestBase`` 中由 ``trade_status_mode`` 控制。
 
-文件与 Wind 入库
-----------------
+数据接入边界
+------------
 
-``Datafeed`` 不提供文件解析或写入方法。Excel/CSV、EDE 和 Wind 适配器位于 ``betalens_db_manager.adapters``，文件任务由数据库管理器统一执行预览、校验、冲突检查和写入。
+``Datafeed`` 只读，不提供文件解析、建表或写入方法。Tushare 和显式文件合同接入由独立
+``betalens-db-manager`` 完成，见 :doc:`infra`。旧管理器已删除，旧 EDE/Wind 隐式适配
+及其 Python 入口随之退役。
 
-.. code-block:: python
-
-   from betalens_db_manager import ImportJobRunner
-
-   runner = ImportJobRunner()
-   preview = runner.preview("data.xlsx", import_type="ede")
-   record = runner.run("data.xlsx", import_type="ede", table="daily_market")
-
-在线 Wind 数据先转换为标准六列长表，再交给写入器：
-
-.. code-block:: python
-
-   from betalens_db_manager import DatabaseWriter
-   from betalens_db_manager.adapters import fetch_daily_market
-
-   frame = fetch_daily_market(["000001.SZ"], "2024-01-01", "2024-01-31")
-   result = DatabaseWriter().write("daily_market", frame, mode="upsert")
-
-更多 API 细节请参阅 :doc:`../api/datafeed`，数据库管理流程见 :doc:`db-manager`。
+Infra 写入供应商宽表与审计结构，现有研究查询的数据集路由、复权和可用时间需要独立适配，
+不能以新表安装成功代替研究链路已经可用。更多查询 API 见 :doc:`../api/datafeed`。

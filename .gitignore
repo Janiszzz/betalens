@@ -33,8 +33,13 @@ tests/
 # Keep the migration retirement regression test reviewable.
 !/tests/
 /tests/*
-!/tests/test_db_manager_migration_retirement.py
-!/tests/test_wide_market.py
+!/betalens-db-manager/tests/
+!/betalens-db-manager/tests/**
+**/.venv/
+**/node_modules/
+**/.pytest_cache/
+**/*.egg-info/
+**/__pycache__/
 
 #日志
 logs/
@@ -76,3 +81,8 @@ betalens-factor/tdx/XICHOU/**
 # itself is explicitly unignored above.
 betalens-factor/tdx/XICHOU/timing_mining/outputs/
 
+
+# DB manager browser artifacts and private runtime files
+**/playwright-report/
+**/test-results/
+**/credentials.env
