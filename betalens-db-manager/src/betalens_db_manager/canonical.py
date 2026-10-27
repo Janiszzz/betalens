@@ -170,7 +170,8 @@ _TABLES = [
         _f("security_code", "text", "证券代码", nullable=False), _f("event_type", "text", "事件类型", nullable=False),
         _f("event_date", "date", "数据发生日期", nullable=False), _f("effective_date", "date", "生效日期"),
         _f("adjustment_factor", "numeric", "复权因子"), _f("old_name", "text", "旧名称"), _f("new_name", "text", "新名称"),
-        _f("cash_dividend", "numeric", "现金分红", "元"), _f("share_dividend", "numeric", "送股比例"),
+        _f("cash_dividend", "numeric", "税后每股现金分红", "元/股", description="dividend.cash_div；税后每股现金分红"),
+        _f("share_dividend", "numeric", "每股送股比例", "股/股", description="dividend.stk_bo_rate；仅送股，不含资本公积转增"),
         _f("available_at", "timestamp", "数据实际可得时间"), _f("downloaded_at", "timestamp", "数据下载时间", nullable=False),
         _f("availability_basis", "text", "可得时间依据"), _f("import_task_id", "text", "导入任务 ID", nullable=False),
         _f("source_name", "text", "数据来源", nullable=False), _f("source_endpoint", "text", "源接口", nullable=False),
@@ -200,6 +201,16 @@ FINANCIAL_ALIASES = {"total_revenue":"total_revenue", "n_income":"net_income", "
                      "total_liab":"total_liabilities", "n_cashflow_act":"operating_cashflow"}
 
 
+def financial_column(endpoint: str, source_field: str) -> str:
+    """Source names do not prove semantic equivalence across financial APIs."""
+    if source_field == "rd_exp":
+        return {
+            "income": "research_and_development_expense",
+            "fina_indicator": "research_and_development_investment",
+        }.get(endpoint.removesuffix("_vip"), source_field)
+    return FINANCIAL_ALIASES.get(source_field, source_field)
+
+
 @lru_cache(maxsize=1)
 def builtin_catalog() -> dict[str, CanonicalTable]:
     result = {}
@@ -215,16 +226,27 @@ def builtin_catalog() -> dict[str, CanonicalTable]:
     added = []
     for endpoint in ("income","balancesheet","cashflow","fina_indicator"):
         for field in catalog[endpoint].fields:
-            name = FINANCIAL_ALIASES.get(field["name"], field["name"])
+            name = financial_column(endpoint, field["name"])
             if field["type"] != "numeric" or name in known: continue
             known.add(name)
-            added.append(_f(name, "numeric", field["description"], field.get("unit", ""), description=field["description"]))
+            description = field["description"]
+            if field["name"] == "rd_exp":
+                description += f"；来源 {endpoint}.rd_exp，两个接口含义不同，禁止合并"
+            added.append(_f(name, "numeric", field["description"], field.get("unit", ""), description=description))
+    # Kept for existing data/audit compatibility. New imports never populate this
+    # ambiguous legacy column; historical values require an audited migration.
+    added.append(_f("rd_exp", "numeric", "研发指标（已弃用）", description=
+                    "deprecated：历史 income.rd_exp 与 fina_indicator.rd_exp 共用列；保留历史值，"
+                    "新数据分别写 research_and_development_expense（研发费用）和 "
+                    "research_and_development_investment（研发投入合计）"))
     result["fundamental_periodic"] = replace(financial, fields=financial.fields + tuple(added))
     # A query's complete fields stay together at their original business grain.
     contracts = [
         ('stock_basic','stock_profile','股票档案',('security_code',)),
         ('fund_basic','fund_profile','基金档案',('security_code',)),
         ('index_basic','index_profile','指数档案',('security_code',)),
+        ('etf_basic','etf_profile','ETF档案',('security_code',)),
+        ('bak_daily','stock_quote_supplement_daily','股票备用行情',('security_code','trade_date')),
         ('dividend','dividend_event','分红方案',('security_code','record_version')),
         ('suspend_d','suspension_event','停复牌事件',('security_code','record_version')),
         ('namechange','security_name_history','证券名称历史',('security_code','record_version')),
@@ -244,6 +266,13 @@ def builtin_catalog() -> dict[str, CanonicalTable]:
         if 'event_date' not in known:
             fields.extend([dict(f,nullable=True) for f in COMMON_DAILY])
         result[name]=CanonicalTable(name,label,label+'；完整保存查询字段和版本','源记录业务粒度',tuple(fields),keys)
+    supplement = result['stock_quote_supplement_daily']
+    result[supplement.name] = replace(supplement,
+        description='股票备用行情完整源字段；2017年中左右开始，早期可能缺日；保留源端单位，单位未明确字段不得自动投影统一行情',
+        grain='每个股票和交易日一行')
+    etf = result['etf_profile']
+    result[etf.name] = replace(etf, description='境内交易所ETF完整基础信息，含QDII；当前快照不代表历史档案',
+                              grain='每个ETF一行')
     financial=result['fundamental_periodic']
     result['fundamental_periodic']=replace(financial,fields=financial.fields+(
         _f('actual_announcement_date','date','实际公告日期'),_f('end_type','text','报告期类型'),))

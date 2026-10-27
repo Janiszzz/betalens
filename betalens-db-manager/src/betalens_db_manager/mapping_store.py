@@ -5,12 +5,13 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from pathlib import Path
 import copy
-import yaml
+from . import safe_yaml as yaml
 from .mapping import all_source_mappings
 from .canonical import FINANCIAL_ALIASES
 from .registry import GENERATED
 from .private import atomic_private
 from .util import digest, parse_date, now
+from .processors import validate_binding, resolve
 
 DETAILS={'stock_basic':'stock_profile','fund_basic':'fund_profile','index_basic':'index_profile','dividend':'dividend_event','suspend_d':'suspension_event','namechange':'security_name_history','fund_nav':'fund_nav_observation','index_member_all':'industry_membership_record','ci_index_member':'industry_membership_record'}
 
@@ -38,6 +39,7 @@ class MappingStore:
         groups['industry_scheme_dim'].append(('index_classify',{'source_field':'src','column':'scheme_code'}))
         for endpoint in ('daily','fund_daily','index_daily','sw_daily'):
             groups['trade_status_daily'].extend((endpoint,{'source_field':source,'column':column}) for source,column in (('ts_code','security_code'),('trade_date','trade_date')))
+            groups['market_daily_post_adjusted'].extend((endpoint,{'source_field':source,'column':column,'required':True}) for source,column in (('ts_code','security_code'),('trade_date','trade_date')))
         for name,fields in groups.items():
             if self.path(name).exists():continue
             by={}
@@ -48,7 +50,7 @@ class MappingStore:
             for endpoint,rules in by.items():
                 contract=self.sources.endpoint('tushare',endpoint)
                 asset='fund' if endpoint.startswith('fund_') else 'index' if endpoint in {'index_basic','index_daily','sw_daily','index_weight'} else 'stock' if endpoint in {'stock_basic','daily','daily_basic','adj_factor','suspend_d','income','balancesheet','cashflow','fina_indicator'} or endpoint.endswith('_vip') else None
-                bindings.append({'source_id':'tushare','endpoint':endpoint,'priority':0,'scope':{'asset_type':asset} if asset else {},'strategy':contract.get('strategy','snapshot'),'fields':list(rules.values())})
+                bindings.append({'source_id':'tushare','endpoint':endpoint,'priority':0,'scope':{'asset_type':asset} if asset else {},'strategy':contract.get('strategy','snapshot'),'fields':list(rules.values()),**({'mapping_mode':'direct'} if endpoint in {'etf_basic','bak_daily'} else {})})
             if name=='industry_scheme_dim':
                 for b in bindings:b['processor']='industry_scheme_definition'
             # Finance description fields and industry catalog flags were previously archive-only.
@@ -62,6 +64,8 @@ class MappingStore:
                         for f in self.sources.endpoint('tushare','index_classify')['fields']:
                             if f['name'] not in known:b['fields'].append({'source_field':f['name'],'column':'classification_code' if f['name']=='industry_code' else f['name']})
             value={'format_version':1,'table':name,'bindings':bindings,'ignored_fields':[]}
+            from .field_lineage import producers_for
+            value['producer_version']=1;value['producers']=producers_for(self.registry.spec(name),value)
             atomic_private(self.path(name),yaml.safe_dump(value,allow_unicode=True,sort_keys=False))
 
     def path(self,name):return self.root/(self.registry.get(name)['name']+'.yaml')
@@ -69,6 +73,9 @@ class MappingStore:
     def validate(self,value):
         if not isinstance(value,dict) or value.get('format_version') not in (1,2):raise ValueError('映射 format_version 必须为 1 或 2')
         value=copy.deepcopy(value);spec=self.registry.spec(value['table']);columns={f['name']:f for f in spec.fields}
+        if 'producers' in value:
+            from .field_lineage import validate_producers
+            validate_producers(value['producers'],spec,self.sources)
         if value.get('overlap_policy','priority') not in {'reject','priority'}:raise ValueError('重复列策略只能是 reject 或 priority')
         bindings=value.get('bindings',[])
         if not isinstance(bindings,list) or not all(isinstance(b,dict) for b in bindings):raise ValueError('bindings 必须是查询绑定对象列表')
@@ -85,6 +92,8 @@ class MappingStore:
             scope=b.get('scope',{})
             if set(scope)-{'asset_type'} or (scope.get('asset_type') and scope['asset_type'] not in {'stock','fund','index'}):raise ValueError('资产范围只能是 stock/fund/index')
             contract=self.sources.endpoint(b['source_id'],b['endpoint']);fields={f['name']:f for f in contract['fields']}
+            from .security import validate_parameters
+            validate_parameters(b.get('parameters',{}),path='binding.parameters',auth=self.sources.values[b['source_id']].get('auth'))
             if not isinstance(b.get('fields',[]),list) or not all(isinstance(f,dict) for f in b.get('fields',[])):raise ValueError('映射 fields 必须是规则对象列表')
             ignored=b.get('ignored_fields',{})
             if not isinstance(ignored,dict) or any(k not in fields or not isinstance(v,str) or not v.strip() for k,v in ignored.items()):raise ValueError('忽略字段必须登记源字段和非空原因')
@@ -110,6 +119,7 @@ class MappingStore:
                 if not factor.is_finite():raise ValueError('单位乘数必须有限')
                 if columns[column]['type']!='numeric' and factor!=1:raise ValueError('单位转换仅适用于数值字段')
                 if rule.get('timezone'):ZoneInfo(rule['timezone'])
+            validate_binding(value['table'],b)
             joins=b.get('join_keys')
             if joins is not None:
                 if not isinstance(joins,list) or not all(isinstance(k,dict) for k in joins):raise ValueError('共同键必须是 source_field / column 对象列表')
@@ -119,6 +129,9 @@ class MappingStore:
                     if k['column'] in local_keys or k['source_field'] in source_keys:raise ValueError('共同键重复')
                     if not any(r['source_field']==k['source_field'] and r['column']==k['column'] and not r.get('builtin') for r in b['fields']):raise ValueError('共同键必须与字段连线一致')
                     local_keys.add(k['column']);source_keys.add(k['source_field'])
+        if 'producers' in value:
+            from .field_lineage import reconcile_direct_producers
+            value['producers']=reconcile_direct_producers(spec,value)
         value.pop('version',None);value['version']=digest(value)
         return value
 
@@ -149,7 +162,7 @@ class MappingStore:
         def issue(b,code,message,field='',severity='error'):
             issues.append(dict(severity=severity,code=code,source_id=b.get('source_id',''),endpoint=b.get('endpoint',''),field=field,message=message))
         for b in selected:
-            direct=b.get('mapping_mode')=='direct' or mapping['table'] not in builtin_catalog()
+            direct=resolve(mapping['table'],b) is None
             rules=b.get('fields',[]);mapped={r['source_field'] for r in rules};columns={r['column'] for r in rules};covered|=columns
             if b.get('scope',{}).get('asset_type'):covered.add('asset_type')
             if not direct:continue  # Registered built-in processors also produce keys/derived columns.
@@ -168,7 +181,8 @@ class MappingStore:
                 overlap=[other for other in owners[:i] if not (b.get('scope',{}).get('asset_type') and other.get('scope',{}).get('asset_type') and b['scope']['asset_type']!=other['scope']['asset_type'])]
                 if overlap and mapping.get('overlap_policy','priority')=='reject':issue(b,'duplicate_target','多个查询源写入同一业务列；请移除重复连线或显式选择主备策略',column)
                 elif overlap and (strict or b.get('mapping_mode')=='direct') and any(o.get('priority',0)==b.get('priority',0) for o in overlap):issue(b,'ambiguous_priority','重复业务列必须配置不同的来源优先级',column)
-        if selected and all(b.get('mapping_mode')=='direct' or mapping['table'] not in builtin_catalog() for b in selected):
+        if selected:
+            covered|={p['column'] for p in mapping.get('producers',[]) if p['kind'] in {'constant','copy','computed','system','not_applicable','unavailable'}}
             for f in spec.fields:
                 if f['name'] not in GENERATED and not f.get('system') and f['name'] not in covered:
                     issue({},'unmapped_target','本地字段尚无来源',f['name'],'error' if f['name'] in spec.keys or not f.get('nullable',True) else 'warning')
@@ -212,15 +226,18 @@ class MappingStore:
                 value=value.replace(tzinfo=ZoneInfo(rule['timezone']))
             return value.astimezone(timezone.utc)
         if field['type']=='integer':
-            number=Decimal(str(value))
-            if not number.is_finite() or number!=int(number):raise ValueError('需要有限整数')
-            return int(number)
+            from .integer_contract import validate_int64
+            return validate_int64(value,field['name'])
         return str(value)
 
-    def map_row(self,spec,raw,binding):
+    def map_row(self,spec,raw,binding,*,processor=False):
+        registered=validate_binding(spec.name,binding)
         fields={f['name']:f for f in spec.fields};result={};evidence=[]
         for rule in sorted(binding.get('fields',[]),key=lambda r:r.get('priority',0)):
-            if rule.get('builtin'):continue
+            if rule.get('builtin'):
+                if not processor or registered is None:raise ValueError('内置映射必须由注册处理器执行')
+                if rule.get('required') and raw.get(rule['source_field']) in (None,''):raise ValueError('必需源字段为空：'+rule['source_field'])
+                continue
             source,column=rule['source_field'],rule['column']
             if rule.get('required') and raw.get(source) in (None,''):raise ValueError('必需源字段为空：'+source)
             try:converted=self.convert(raw.get(source),rule,fields[column])

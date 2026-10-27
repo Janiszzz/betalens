@@ -40,19 +40,31 @@ def create_app(service: TushareImportService | None = None) -> FastAPI:
     @app.exception_handler(Exception)
     async def failed(_, exc): return JSONResponse({"detail": service.safe_error(exc)}, status_code=500)
 
-    def response(value): return Response(dumps(value), media_type="application/json")
+    def response(value):
+        from .security import public_data
+        definitions=getattr(getattr(service,'sources',None),'values',{}).values()
+        return Response(dumps(public_data(value,service.settings,definitions)), media_type="application/json")
+
+    @app.get('/api/write-capabilities')
+    def write_capabilities():
+        return response([{'target':'postgres','available':True,'status':'transactional'},service.ch.write_capability()])
+
+    @app.post('/api/jobs/{job}/sync-audit')
+    def sync_audit(job:str):
+        service._job(job)
+        return response({'task':service.state.enqueue(job,'sync_audit')})
 
     @app.get("/api/config")
     def config(): return response(service.settings.public())
 
     @app.post("/api/config")
     def save_config(payload: dict = Body(...)):
-        allowed = {"PGHOST", "PGPORT", "PGDATABASE", "PGUSER", "PGPASSWORD", "PGSCHEMA", "CLICKHOUSE_URL", "CLICKHOUSE_DB", "CLICKHOUSE_USER", "CLICKHOUSE_PASSWORD", "TUSHARE_TOKEN", "TUSHARE_RPM", "BETALENS_INFRA_STATE", "BETALENS_INFRA_ARCHIVE", "WIND_API_KEY", "WIND_USER", "BETALENS_DB_MANAGER_CONFIG", "BETALENS_DB_MANAGER_STATE"}
+        allowed = {"PGHOST", "PGPORT", "PGDATABASE", "PGUSER", "PGPASSWORD", "PGSCHEMA", "CLICKHOUSE_URL", "CLICKHOUSE_DB", "CLICKHOUSE_USER", "CLICKHOUSE_PASSWORD", "CLICKHOUSE_WRITER_MODE", "TUSHARE_TOKEN", "TUSHARE_RPM", "BETALENS_INFRA_STATE", "BETALENS_INFRA_ARCHIVE", "WIND_API_KEY", "WIND_USER", "BETALENS_DB_MANAGER_CONFIG", "BETALENS_DB_MANAGER_STATE"}
         allowed |= {v.get("auth",{}).get("env") for v in service.sources.values.values()} if hasattr(service,"sources") else set()
         unknown = set(payload) - allowed
         if unknown: raise ValueError("未知配置字段：" + ",".join(sorted(unknown)))
         from dataclasses import replace
-        value_fields={'PGHOST':'pg_host','PGPORT':'pg_port','PGDATABASE':'pg_database','PGSCHEMA':'pg_schema','PGUSER':'pg_user','PGPASSWORD':'pg_password','CLICKHOUSE_URL':'ch_url','CLICKHOUSE_DB':'ch_database','CLICKHOUSE_USER':'ch_user','CLICKHOUSE_PASSWORD':'ch_password','TUSHARE_TOKEN':'token','TUSHARE_RPM':'requests_per_minute'}
+        value_fields={'PGHOST':'pg_host','PGPORT':'pg_port','PGDATABASE':'pg_database','PGSCHEMA':'pg_schema','PGUSER':'pg_user','PGPASSWORD':'pg_password','CLICKHOUSE_URL':'ch_url','CLICKHOUSE_DB':'ch_database','CLICKHOUSE_USER':'ch_user','CLICKHOUSE_PASSWORD':'ch_password','CLICKHOUSE_WRITER_MODE':'ch_writer_mode','TUSHARE_TOKEN':'token','TUSHARE_RPM':'requests_per_minute'}
         candidate_values={value_fields[k]:int(v) if k in {'PGPORT','TUSHARE_RPM'} else str(v) for k,v in payload.items() if k in value_fields and v not in (None,'')}
         replace(service.settings,**candidate_values)  # Validate before publishing a private file.
         path = service.settings.write_private_env(payload)
@@ -68,7 +80,7 @@ def create_app(service: TushareImportService | None = None) -> FastAPI:
         from .storage import Postgres
         from .clickhouse import ClickHouse
         fields={'PGHOST':'pg_host','PGPORT':'pg_port','PGDATABASE':'pg_database','PGSCHEMA':'pg_schema','PGUSER':'pg_user','PGPASSWORD':'pg_password',
-                'CLICKHOUSE_URL':'ch_url','CLICKHOUSE_DB':'ch_database','CLICKHOUSE_USER':'ch_user','CLICKHOUSE_PASSWORD':'ch_password','TUSHARE_TOKEN':'token','TUSHARE_RPM':'requests_per_minute'}
+                'CLICKHOUSE_URL':'ch_url','CLICKHOUSE_DB':'ch_database','CLICKHOUSE_USER':'ch_user','CLICKHOUSE_PASSWORD':'ch_password','CLICKHOUSE_WRITER_MODE':'ch_writer_mode','TUSHARE_TOKEN':'token','TUSHARE_RPM':'requests_per_minute'}
         candidate={fields[key]:int(value) if key in {'PGPORT','TUSHARE_RPM'} else str(value) for key,value in payload.items() if key in fields and value not in (None,'')}
         settings=replace(service.settings,**candidate);result={}
         for name,target in [('postgres',Postgres(settings)),('clickhouse',ClickHouse(settings))]:
@@ -255,7 +267,10 @@ def create_app(service: TushareImportService | None = None) -> FastAPI:
             metadata=json.loads(path.with_suffix(".meta.json").read_text())
             if not metadata.get("wire_archive"):raise ValueError("该归档没有独立的 HTTP 原文；Tushare 归档本身即原始响应")
             path=Path(metadata["wire_archive"])
-        return FileResponse(path,filename=path.name)
+        from .security import archive_export
+        data,original,exported=archive_export(path,service.settings,getattr(getattr(service,'sources',None),'values',{}).values())
+        return Response(data,media_type='application/gzip',headers={'Content-Disposition':'attachment; filename="'+path.name+'"',
+            'X-Original-SHA256':original,'X-Export-SHA256':exported})
 
     @app.get("/api/jobs/{job}/events")
     async def events(job: str):
@@ -263,13 +278,33 @@ def create_app(service: TushareImportService | None = None) -> FastAPI:
         async def generate():
             last = None
             for _ in range(120):
-                item = service.state.job(job); content = dumps(item)
+                from .security import public_data
+                item = service.state.job(job); content = dumps(public_data(item,service.settings,getattr(getattr(service,'sources',None),'values',{}).values()))
                 if content != last: yield "data: " + content + "\n\n"; last = content
                 await asyncio.sleep(2)
         return StreamingResponse(generate(), media_type="text/event-stream")
 
     @app.get("/api/query/{dataset}")
     def query(dataset: str, code: str | None = None, start: str | None = None, end: str | None = None, limit: int = 100, after: str | None = None, target: str = "postgres"):
+        from .reference_contracts import TABLES, MODULE_TABLE
+        if dataset in TABLES:
+            from .reference_service import ReferenceWorkflow
+            from .util import parse_date
+            snapshot=ReferenceWorkflow(service).store(target).snapshot()
+            module=next(k for k,v in MODULE_TABLE.items() if v==dataset)
+            rows=[r for r in snapshot['rows'] if r.get('module')==module]
+            if code:rows=[r for r in rows if r.get('security_code')==code]
+            # Industry intervals are selected by overlap, never valid_from alone.
+            if module=='industry':
+                if start:rows=[r for r in rows if r.get('valid_to') is None or str(r['valid_to'])>=str(parse_date(start))]
+                if end:rows=[r for r in rows if r.get('valid_from') is None or str(r['valid_from'])<=str(parse_date(end))]
+            else:
+                if start:rows=[r for r in rows if r.get('event_date') and str(r['event_date'])>=str(parse_date(start))]
+                if end:rows=[r for r in rows if r.get('event_date') and str(r['event_date'])<=str(parse_date(end))]
+            offset=int(after or 0)
+            if offset<0:raise ValueError('分页偏移无效')
+            size=max(1,min(limit,1000))
+            return response({'rows':rows[offset:offset+size],'next':str(offset+size) if offset+size<len(rows) else None,'trusted_only':True})
         if target == "clickhouse": return response(service.ch.query(dataset, code, start, end, limit, after))
         if target != "postgres": raise ValueError("目标库无效")
         return response(service.pg.query(dataset, code, start, end, limit, after))
@@ -286,6 +321,8 @@ def create_app(service: TushareImportService | None = None) -> FastAPI:
     if hasattr(service,"registry"):
         from .management_api import install_routes
         install_routes(app,service,response)
+        from .reference_api import install_routes as install_reference_routes
+        install_reference_routes(app,service,response)
     # Public task routes and legacy job records share one durable store.
     for route in list(app.routes):
         path=getattr(route,"path","")
@@ -297,7 +334,7 @@ def create_app(service: TushareImportService | None = None) -> FastAPI:
             return FileResponse(web / "index.html", media_type="text/html", headers={"Cache-Control":"no-cache"})
         # Only known UI paths receive the application shell; missing API routes
         # and assets must retain their real 404 response.
-        for path in ("/", "/tables", "/tasks", "/mappings", "/sources", "/settings", "/schedules"):
+        for path in ("/", "/tables", "/tasks", "/mappings", "/sources", "/settings", "/schedules", "/integrity"):
             app.add_api_route(path, manager_page, methods=["GET", "HEAD"], include_in_schema=False)
         app.mount("/", StaticFiles(directory=web, html=True), name="web")
     else:

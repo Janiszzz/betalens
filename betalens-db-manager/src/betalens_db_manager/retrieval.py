@@ -16,11 +16,12 @@ def request_rate(value):
 def tushare_policy(endpoint):
     spec = load_catalog()[endpoint]
     cap = {'bse_mapping': 1000, 'fund_daily': 5000, 'index_basic': 8000}.get(endpoint, spec.limit)
-    mode = 'offset' if endpoint == 'fund_adj' else 'offset_probe' if endpoint.endswith('_vip') or endpoint in {'fund_basic', 'index_basic'} else 'partition'
-    return {'version': '2026-10-21.1', 'endpoint': endpoint, 'row_limit': cap,
+    mode = 'offset' if endpoint in {'fund_adj', 'bak_daily'} else 'offset_probe' if endpoint.endswith('_vip') or endpoint in {'fund_basic', 'index_basic'} else 'partition'
+    vip_probe = endpoint.endswith('_vip')
+    return {'version': '2026-10-25.1', 'endpoint': endpoint, 'row_limit': cap,
             'mode': mode, 'endpoint_rpm': 50 if endpoint == 'stock_basic' else None,
-            'basis': 'documented_offset' if mode == 'offset' else 'runtime_verified_offset' if mode == 'offset_probe' else 'documented_filters',
-            'limit_basis': 'conservative_guard_not_published' if endpoint == 'fund_nav' else 'documented_or_verified_cap',
+            'basis': 'runtime_probe_required' if vip_probe else 'documented_offset' if mode == 'offset' else 'runtime_verified_offset' if mode == 'offset_probe' else 'documented_filters',
+            'limit_basis': 'conservative_guard_not_published' if endpoint == 'fund_nav' or vip_probe else 'documented_or_verified_cap',
             'document': spec.document}
 
 
@@ -39,6 +40,7 @@ def partition(endpoint, params, contract):
         'stock_basic': [('list_status', ['L', 'D', 'P', 'G', 'UN']), ('exchange', ['SSE', 'SZSE', 'BSE'])],
         'fund_basic': [('market', ['E', 'O']), ('status', ['L', 'D', 'I'])],
         'index_basic': [('market', ['MSCI', 'CSI', 'SSE', 'SZSE', 'CICC', 'SW', 'OTH', 'CNI'])],
+        'etf_basic': [('list_status', ['L', 'D', 'P']), ('exchange', ['SH', 'SZ'])],
         'index_classify': [('level', ['L1', 'L2', 'L3'])],
     }
     for field, values in filters.get(endpoint, []):

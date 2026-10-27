@@ -1,6 +1,6 @@
 import {test,expect,type Page,type APIRequestContext} from '@playwright/test';
 async function selectMapping(page:Page,field:string,column:string){const select=page.getByLabel('映射 '+field,{exact:true});await select.focus();await select.selectOption(column);}
-async function waitForTaskIdle(page:Page,request:APIRequestContext){const heading=await page.getByRole('heading',{name:/^任务 [a-f0-9]{32}$/}).innerText();const id=heading.split(' ')[1];await expect.poll(async()=>{const job=await (await request.get('/api/tasks/'+id)).json();return job.status==='completed'&&!job.tasks.some((t:any)=>['queued','running'].includes(t.status));}).toBeTruthy();}
+async function waitForTaskIdle(page:Page,request:APIRequestContext,status="completed"){const heading=await page.getByRole('heading',{name:/^任务 [a-f0-9]{32}$/}).innerText();const id=heading.split(' ')[1];await expect.poll(async()=>{const job=await (await request.get('/api/tasks/'+id)).json();return job.status===status&&!job.tasks.some((t:any)=>['queued','running'].includes(t.status));}).toBeTruthy();}
 test('更新任务可设置每分钟请求次数并固定获取策略',async({page,request},info)=>{
  page.on('dialog',d=>d.accept());
  await page.goto('/tasks?table=security_dim');
@@ -168,9 +168,39 @@ test('各页面独立路径、直接访问、刷新和历史导航；已绘制�
    await page.locator('.binding-chip').last().getByRole('button',{name:/移除查询源/}).click();
    await expect(page.getByRole('heading',{name:'字段映射',exact:true})).toBeVisible();
  }
- await expect(page.getByTestId('mapping-edge')).toHaveCount(0);
+ // Derived declarations remain visible even after all API bindings are removed.
+ await expect(page.locator('[data-testid="mapping-edge"][data-kind="direct"]')).toHaveCount(0);
  await page.getByLabel('选择本地表',{exact:true}).selectOption('dividend_event');await expect.poll(()=>page.getByTestId('mapping-edge').count()).toBeGreaterThan(0);
  await page.screenshot({path:info.outputPath('mapping-table-switch.png'),fullPage:true});
  expect(errors).toEqual([]);
+ await page.close({runBeforeUnload:true});await expect.poll(()=>page.isClosed()).toBeTruthy();
+});
+
+test('数据写入后审计同步失败 → 网页补同步 → 不重复业务写入',async({page,request},info)=>{
+ page.on('dialog',d=>d.accept());
+ const created=await request.post('/api/tasks',{data:{tables:['browser_prices'],source_id:'browser_vendor',targets:['postgres'],start_date:'2026-10-16',end_date:'2026-10-16'}});
+ expect(created.ok()).toBeTruthy();const task=await created.json();
+ await request.get('http://127.0.0.1:18082/audit-sync-fault?enabled=true');
+ try{
+   await page.goto('/tasks?table=browser_prices');
+   await page.getByRole('button',{name:new RegExp(task.id.slice(0,12))}).click();
+   await page.getByRole('button',{name:'开始拉取',exact:true}).click();
+   await expect(page.getByRole('button',{name:'确认增量入库',exact:true})).toBeVisible({timeout:30000});
+   await page.getByRole('button',{name:'确认增量入库',exact:true}).click();
+   await expect.poll(async()=>(await (await request.get('/api/tasks/'+task.id)).json()).status,{timeout:30000}).toBe('audit_pending');
+   await waitForTaskIdle(page,request,'audit_pending');
+   const url='/api/query/browser_prices?target=postgres&start=2026-10-16&end=2026-10-16';
+   const before=(await (await request.get(url)).json()).rows;expect(before).toHaveLength(1);
+   await page.getByRole('button',{name:'查看写入结果',exact:true}).click();
+   await page.screenshot({path:info.outputPath('audit-pending.png'),fullPage:true});
+   await request.get('http://127.0.0.1:18082/audit-sync-fault?enabled=false');
+   await page.getByRole('button',{name:'重试同步审计',exact:true}).click();
+   await expect.poll(async()=>(await (await request.get('/api/tasks/'+task.id)).json()).status).toBe('completed');
+   expect((await (await request.get(url)).json()).rows).toEqual(before);
+   const result=await (await request.get('/api/tasks/'+task.id)).json();
+   expect(result.audit_sync_status).toBe('synced');
+   await info.attach('audit-sync-result',{body:JSON.stringify({task_id:task.id,status:result.status,audit_sync_status:result.audit_sync_status,rows:before.length,business_rows_unchanged:true}),contentType:'application/json'});
+   await page.screenshot({path:info.outputPath('audit-synced.png'),fullPage:true});
+ }finally{await request.get('http://127.0.0.1:18082/audit-sync-fault?enabled=false');}
  await page.close({runBeforeUnload:true});await expect.poll(()=>page.isClosed()).toBeTruthy();
 });

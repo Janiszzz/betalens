@@ -70,8 +70,8 @@ def test_http_429_and_minute_quota_waits_count_retries(tmp_path, clock, monkeypa
     assert 'secret-never-log' not in dumps(logs)
 
 
-def test_policy_covers_29_contracts_and_partitions_are_disjoint():
-    assert len(load_catalog()) == 29
+def test_policy_covers_31_contracts_and_partitions_are_disjoint():
+    assert len(load_catalog()) == 31
     assert tushare_policy('fund_adj')['mode'] == 'offset'
     assert tushare_policy('fund_daily')['row_limit'] == 5000
     assert tushare_policy('bse_mapping')['row_limit'] == 1000

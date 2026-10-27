@@ -30,7 +30,8 @@ def table_list(service):
                         if not found:return False
                         expected=pg_type(field) if target=='postgres' else service.ch._type(field,field['name'] in v['keys'])
                         return found['physical_type']==expected or (target=='postgres' and field['type']=='numeric' and found['physical_type']=='numeric' and found.get('precision')==field.get('precision',38) and found.get('scale')==field.get('scale',12))
-                    row['status']='ready' if set(by_name)=={f['name'] for f in v['fields']} and all(matches(f) for f in v['fields']) and actual['keys']==v['keys'] else 'drifted'
+                    from .schema_contract import compare_structure
+                    row['status']='ready' if compare_structure(v,actual,target)['ready'] else 'drifted'
                     datecol=v.get('time_field');has_ingested=any(f['name']=='ingested_at' for f in actual['fields'])
                     if target=='postgres':
                         from psycopg2 import sql
@@ -128,6 +129,12 @@ def install_routes(app,service,response):
     @app.get('/api/tables/{name}/mapping')
     def mapping(name:str):return response(service.mappings.document(name))
 
+    @app.get('/api/tables/{name}/field-coverage')
+    def field_coverage(name:str,job:str|None=None,target:str|None=None):
+        from .field_lineage import coverage
+        if target is not None and target not in {'postgres','clickhouse'}:raise ValueError('目标库无效')
+        return response(coverage(service,name,job,target))
+
     @app.post('/api/tables/{name}/mapping')
     def save_mapping(name:str,payload:dict=Body(...)):
         value=yaml.safe_load(payload['yaml']) if 'yaml' in payload else payload['mapping']
@@ -182,37 +189,7 @@ def install_routes(app,service,response):
 
     @app.post('/api/tasks/{job}/replay')
     def replay(job:str):
-        original=service._job(job)
-        from .source_registry import identity_matches
-        for sid,version in original['plan'].get('source_instances',{}).items():
-            if not identity_matches(service.sources.values.get(sid,{}),version):raise ValueError('来源身份或地址已变化，不能把旧归档标为新来源；请创建新的拉取任务')
-        for key,contract in original['plan'].get('source_contracts',{}).items():
-            if ':' not in key:continue
-            current=service.sources.endpoint(*key.split(':',1))
-            if any(current.get(k)!=contract.get(k) for k in ('path','method')):raise ValueError('查询地址或方法已变化，请创建新的拉取任务')
-        request=dict(original['plan']['request'])
-        item=service.plan(request)
-        with service.state.connect() as conn:
-            plan=dict(item['plan']);plan['parent_task_id']=job
-            if original['plan'].get('archive_backfill'):plan['archive_backfill']=True
-            if 'requests' in original['plan']:plan['requests']=original['plan']['requests']
-            if original['plan'].get('revision')=='manager-v1':
-                plan['source_contracts']={key:service.sources.endpoint(*key.split(':',1)) for key in original['plan']['source_contracts']}
-            conn.execute('UPDATE jobs SET plan=? WHERE id=?',(__import__('json').dumps(plan,default=str),item['id']))
-        for part in original['slices']:
-            blocked_reason=(part.get('result') or {}).get('blocked','')
-            status=part['status']
-            if status=='contract_blocked' and not any(word in blocked_reason for word in ('上限','截断','分页')):status='downloaded'
-            if part.get('archive') and Path(part['archive']).exists():
-                service.state.slice(item['id'],digest([part['request'].get('source_id','tushare'),part['dataset'],part['request'].get('parameters',part['request'])])[:24] if plan.get('revision')=='manager-v1' and not plan.get('archive_backfill') else part['id'],part['dataset'],part['request'],status=status,archive=part['archive'],sha=part['sha'],rows=part['rows'],result=part.get('result'))
-        from .source import read_archive
-        from .util import dumps
-        for part in service.state.job(item['id'])['slices']:
-            if not part.get('archive'):continue
-            path=Path(part['archive']);data=read_archive(path,part['sha']);metadata=json.loads(path.with_suffix('.meta.json').read_text())
-            service.state.ledger_put('import_source_archive',digest([item['id'],part['id']]),{'task_id':item['id'],'dataset':part['dataset'],'endpoint':part['dataset'],'request_hash':digest(part['request']),'archive_path':str(path),'response_sha256':part['sha'],'response_fields':','.join(data['fields']),'fetched_at':metadata['fetched_at'],'rows':len(data['items'])})
-        service.state.update_job(item['id'],status='downloaded')
-        return response(service.state.job(item['id']))
+        return response(service.replay_archive(job))
 
     @app.get('/api/tasks/{job}/logs')
     def logs(job:str,after:int=0):return response(service.state.logs(job,after))
@@ -257,6 +234,8 @@ def install_routes(app,service,response):
 
     @app.websocket('/api/live/{job}')
     async def live(websocket:WebSocket,job:str):
+        from .security import public_data
+        def safe(value):return public_data(value,service.settings,service.sources.values.values())
         origin=websocket.headers.get('origin')
         if origin and urlsplit(origin).netloc!=websocket.headers.get('host'):await websocket.close(code=1008);return
         await websocket.accept();after=0;last=None
@@ -264,10 +243,10 @@ def install_routes(app,service,response):
             while True:
                 rows=service.state.logs(job,after)
                 for row in rows:
-                    await websocket.send_text(__import__('betalens_db_manager.util',fromlist=['dumps']).dumps({'type':'log','record':row}));after=row['id']
+                    await websocket.send_text(__import__('betalens_db_manager.util',fromlist=['dumps']).dumps(safe({'type':'log','record':row})));after=row['id']
                 item=service.state.job(job)
                 signature=digest([item['updated'],[(p['id'],p['status'],p['rows']) for p in item['slices']],item['tasks']])
                 if signature!=last:
-                    await websocket.send_text(__import__('betalens_db_manager.util',fromlist=['dumps']).dumps({'type':'task','record':item}));last=signature
+                    await websocket.send_text(__import__('betalens_db_manager.util',fromlist=['dumps']).dumps(safe({'type':'task','record':item})));last=signature
                 await asyncio.sleep(1)
         except (WebSocketDisconnect,RuntimeError):pass

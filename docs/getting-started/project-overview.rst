@@ -10,14 +10,14 @@ Betalens 不是单一的回测类，而是一套以 PostgreSQL 为数据底座�
 
 .. code-block:: text
 
-   Tushare / 显式合同文件
+   Tushare / 其他 API / 显式合同文件
                     |
                     v
       betalens-db-manager（独立 Infra）
                     |
                     v
-        PostgreSQL datafeed 数据库
-       供应商宽表 + 来源/版本/提交审计
+    PostgreSQL betalens + ClickHouse betalens
+       统一表 + 来源/版本/可信发布审计
                     |
           研究层显式适配数据集合同
                     |
@@ -52,7 +52,7 @@ Betalens 不是单一的回测类，而是一套以 PostgreSQL 为数据底座�
      - 负责
      - 不负责
    * - ``betalens-db-manager``
-     - 建库建表、数据接入、来源归档、审计、任务和 PG/CH 副本维护
+     - 建库建表、来源映射、审计、任务、PG/CH 独立提交、参考域可信发布与完整性检查
      - 研究运行时的行情查询和回测
    * - ``betalens.datafeed``
      - PostgreSQL 只读查询、交易日、行业、指数成分、交易状态
@@ -79,18 +79,19 @@ Betalens 不是单一的回测类，而是一套以 PostgreSQL 为数据底座�
 数据库结构
 ----------
 
-默认连接的 PostgreSQL 数据库名是 ``datafeed``。其内部 ``betalens`` schema 保存规范化的
-物理表，``public`` schema 暴露研究代码使用的兼容视图。
+当前管理器使用 PostgreSQL ``betalens`` 库的 ``betalens`` schema，
+以及 ClickHouse ``betalens`` 库。两库是同等目标，按任务分别选择、核验与提交。
 
-* 维度表维护证券、名称、指标和行业定义。
-* ``market_daily_fact`` 保存日频市场事实。
-* ``observation_fact`` 保存带 ``available_at`` 的 PIT 观测，并按年度分区。
-* 行业、指数成分和交易状态使用独立事实/事件表。
-* ``daily_market``、``fundamentals``、``industry``、``trade_status`` 等兼容视图是
-  Datafeed 和既有因子脚本使用的稳定逻辑名称。
+* 统一宽表包括证券档案、原始行情、后复权行情、财报、行业及事件明细。
+* 股票历史行业、交易日历、股票停牌区间新增三个版本表，只追加，不覆盖旧版本。
+* 三域可见性由目标库的修订、范围和不可变发布凭证共同决定，不以任务总状态放行。
+* SQLite 保存本地编排、执行尝试、日志和索引，YAML 保存通用表定义及来源映射。
+* 不自动建立 ``daily_market/fundamentals/industry/trade_status`` 等旧研究兼容视图。
 
-独立 Infra 使用自己的供应商表和管理合同，保留既有研究结构；新数据到研究查询的映射需要单独适配。
-初始化、接入与维护见 :doc:`../guide/infra`。
+研究包中既有 ``Datafeed``、``BacktestBase`` 和旧 fact/dim 示例仍使用原查询合同，
+不等于当前物理库已经提供该合同。管理器建表和导入成功后，研究查询适配是独立工作。
+部署及完整表清单见 :doc:`../guide/local-databases`；接入流程见
+:doc:`../guide/infra`；三域语义见 :doc:`../guide/db-manager-reference`。
 
 一次标准研究如何运行
 --------------------

@@ -41,6 +41,10 @@ class State:
                     next_run TEXT, last_job TEXT);
                 CREATE TABLE IF NOT EXISTS rate_limit(id INTEGER PRIMARY KEY CHECK(id=1), next REAL NOT NULL);
                 CREATE TABLE IF NOT EXISTS request_rate(scope TEXT PRIMARY KEY, next REAL NOT NULL);
+                CREATE TABLE IF NOT EXISTS sync_outbox(
+                    task TEXT NOT NULL,target TEXT NOT NULL,revision INTEGER NOT NULL DEFAULT 1,
+                    acknowledged INTEGER NOT NULL DEFAULT 0,error TEXT,last_attempt TEXT,
+                    PRIMARY KEY(task,target));
             """)
 
     def connect(self):
@@ -68,6 +72,10 @@ class State:
                 item["request"] = json.loads(item["request"])
                 item["result"] = json.loads(item["result"]) if item["result"] else None
             result["tasks"] = [dict(r) for r in conn.execute("SELECT id,operation,status,error FROM tasks WHERE job=? ORDER BY created", (job,))]
+            result['audit_sync']=[dict(r) for r in conn.execute('SELECT * FROM sync_outbox WHERE task=? ORDER BY target',(job,))]
+            result['audit_sync_status']='pending' if any(r['revision']>r['acknowledged'] for r in result['audit_sync']) else 'synced'
+            recorded=conn.execute("SELECT value FROM ledger WHERE table_name='publication_result' AND row_key=?",(job,)).fetchone()
+            result['data_status']=json.loads(recorded[0])['status'] if recorded else result['status']
             return result
 
     def jobs(self, limit: int = 100, target: str | None = None, offset: int = 0) -> list[dict]:
@@ -136,6 +144,45 @@ class State:
     def ledger_put(self, table: str, key: str, value: dict):
         with self.connect() as conn:
             conn.execute('INSERT INTO ledger VALUES(?,?,?) ON CONFLICT(table_name,row_key) DO UPDATE SET value=excluded.value', (table,key,dumps(value)))
+            if table in {'import_task','import_source_archive','import_target_status','import_row_audit','import_rollback','meta_source_mapping','meta_source_capability'}:
+                task=value.get('task_id') or value.get('source_task_id')
+                if task:
+                    targets=[value['target']] if value.get('target') in {'postgres','clickhouse'} else self._job_targets(conn,task)
+                    self._queue_sync(conn,task,targets)
+                if table=='import_rollback':self._queue_sync(conn,value['rollback_task_id'],[value['target']])
+
+    @staticmethod
+    def _job_targets(conn,task):
+        row=conn.execute('SELECT plan FROM jobs WHERE id=?',(task,)).fetchone()
+        return json.loads(row[0]).get('request',{}).get('targets',[]) if row else []
+
+    @staticmethod
+    def _queue_sync(conn,task,targets):
+        for target in set(targets):
+            conn.execute('INSERT INTO sync_outbox(task,target) VALUES(?,?) ON CONFLICT(task,target) DO UPDATE SET revision=revision+1',(task,target))
+
+    def request_sync(self,task,target):
+        with self.connect() as conn:self._queue_sync(conn,task,[target])
+
+    def record_result(self,task,status,error,record):
+        """Persist data outcome and its control-sync obligation atomically."""
+        with self.connect() as conn:
+            conn.execute('BEGIN IMMEDIATE')
+            conn.execute('UPDATE jobs SET status=?,error=?,updated=? WHERE id=?',(status,error,now(),task))
+            for table,value in [('publication_result',{'task_id':task,'status':status,'error':error}),('import_task',record)]:
+                conn.execute('INSERT INTO ledger VALUES(?,?,?) ON CONFLICT(table_name,row_key) DO UPDATE SET value=excluded.value',(table,task,dumps(value)))
+            self._queue_sync(conn,task,self._job_targets(conn,task))
+
+    def sync_records(self,task=None):
+        with self.connect() as conn:
+            return [dict(r) for r in conn.execute('SELECT * FROM sync_outbox'+(' WHERE task=?' if task else '')+' ORDER BY task,target', (task,) if task else ())]
+
+    def sync_result(self,task,target,revision,error=None):
+        with self.connect() as conn:
+            if error:
+                conn.execute('UPDATE sync_outbox SET error=?,last_attempt=? WHERE task=? AND target=?',(error,now(),task,target))
+            else:
+                conn.execute('UPDATE sync_outbox SET acknowledged=max(acknowledged,?),error=CASE WHEN revision<=? THEN NULL ELSE error END,last_attempt=? WHERE task=? AND target=?',(revision,revision,now(),task,target))
 
     def ledger_rows(self, table: str, task: str | None = None):
         query='SELECT value FROM ledger WHERE table_name=?'
@@ -152,23 +199,41 @@ class State:
                                              'after':{k:v for k,v in change['after'].items() if v is not None} if change['after'] is not None else None} for change in comparison['changes']]}
         sparse.pop('conflicts',None)
         record = {'task':task,'target':target,'table':table,'status':'prepared','comparison':sparse}
-        self.ledger_put('table_commit',key,record)
+        with self.connect() as conn:
+            conn.execute('BEGIN IMMEDIATE')
+            old=conn.execute("SELECT value FROM ledger WHERE table_name='table_commit' AND row_key=?",(key,)).fetchone()
+            if old:
+                if json.loads(old[0])['comparison']!=json.loads(dumps(sparse)):raise ValueError('持久化提交意图不可覆盖，请核验原操作')
+                return json.loads(old[0])
+            conn.execute('INSERT INTO ledger VALUES(?,?,?)',('table_commit',key,dumps(record)))
         return record
+
+    def table_commits(self,task,target=None):
+        with self.connect() as conn:
+            query="SELECT value FROM ledger WHERE table_name='table_commit' AND json_extract(value,'$.task')=?"
+            params=[task]
+            if target:query+=" AND json_extract(value,'$.target')=?";params.append(target)
+            return [json.loads(r[0]) for r in conn.execute(query,params)]
 
     def table_commit(self, task: str, target: str, table: str):
         with self.connect() as conn:
             row = conn.execute('SELECT value FROM ledger WHERE table_name=? AND row_key=?',('table_commit',dumps([task,target,table]))).fetchone()
         return json.loads(row[0]) if row else None
 
-    def finish_commit(self, task: str, target: str, table: str):
+    def finish_commit(self, task: str, target: str, table: str, applied_keys=None):
         record=self.table_commit(task,target,table)
+        if record is None:raise ValueError('缺少持久化提交记录')
         record['status']='completed'
+        if applied_keys is not None:
+            record['applied_keys']=sorted(applied_keys)
+            record['status']='reconciled'
         with self.connect() as conn:
             conn.execute('BEGIN IMMEDIATE')
             conn.execute('UPDATE ledger SET value=? WHERE table_name=? AND row_key=?',(dumps(record),'table_commit',dumps([task,target,table])))
             audit_id=conn.execute('SELECT coalesce(max(id),0) FROM audit_sequence').fetchone()[0]
             values=[]
             for change in record['comparison']['changes']:
+                if applied_keys is not None and change['row_key'] not in applied_keys:continue
                 key=dumps([task,target,table,change['row_key']])
                 if conn.execute('SELECT 1 FROM ledger WHERE table_name=? AND row_key=?',('import_row_audit',key)).fetchone(): continue
                 audit_id=int(digest([task,target,table,change['row_key']])[:15],16)
@@ -179,6 +244,7 @@ class State:
                 values.append(('import_row_audit',key,dumps(value)))
             conn.executemany('INSERT INTO ledger VALUES(?,?,?)',values)
             conn.execute('INSERT OR IGNORE INTO audit_sequence VALUES(?)',(audit_id,))
+            self._queue_sync(conn,task,[target])
 
     def audits(self, task: str, target: str | None = None, after: int = 0, limit: int | None = None):
         query="SELECT value FROM ledger WHERE table_name='import_row_audit' AND json_extract(value,'$.task_id')=? AND CAST(json_extract(value,'$.id') AS INTEGER)>?"
@@ -198,6 +264,8 @@ class State:
 
     def log(self,job,event,**values):
         # Every record is durable before it is streamed to a browser.
+        from .security import redact
+        values=redact(values)
         with self.connect() as conn:
             conn.execute('CREATE TABLE IF NOT EXISTS event_log(id INTEGER PRIMARY KEY AUTOINCREMENT,job TEXT NOT NULL,created TEXT NOT NULL,event TEXT NOT NULL,value TEXT NOT NULL)')
             conn.execute('INSERT INTO event_log(job,created,event,value) VALUES(?,?,?,?)',(job,now(),event,dumps(values)))

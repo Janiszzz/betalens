@@ -19,15 +19,18 @@ class Dataset:
     versioned: bool
     document: str
     input_fields: tuple[str, ...]
+    filter_date_field: str | None = None
 
     @property
     def hash(self) -> str:
         return digest(self.as_dict())
 
     def as_dict(self) -> dict:
-        return dict(name=self.name, fields=self.fields, keys=self.keys, date_field=self.date_field,
+        value=dict(name=self.name, fields=self.fields, keys=self.keys, date_field=self.date_field,
                     strategy=self.strategy, limit=self.limit, versioned=self.versioned,
                     document=self.document, input_fields=self.input_fields)
+        if self.filter_date_field:value['filter_date_field']=self.filter_date_field
+        return value
 
 
 @lru_cache(maxsize=1)
@@ -53,9 +56,11 @@ def load_catalog() -> dict[str, Dataset]:
         versioned=False, document="https://tushare.pro/document/2?doc_id=373",
         input_fields=("l1_code", "l2_code", "l3_code", "ts_code", "is_new"),
     ))
-    # Official quarterly bulk endpoints share their ordinary endpoint fields.
-    # A 1,000-row page has been verified against each endpoint; offset paging
-    # is checked for repeated responses before any snapshot is published.
+    # Official quarterly bulk endpoints share their ordinary endpoint fields
+    # and document the same filters, with a 5,000-point permission requirement.
+    # Their documents do not publish offset/limit support or a 1,000-row cap:
+    # 1,000 is only a client guard. Every task must prove advancing, disjoint
+    # offset pages and a terminal empty page before publishing a snapshot.
     for name in ("income", "balancesheet", "cashflow", "fina_indicator"):
         base = result[name]
         result[name + "_vip"] = replace(base, name=name + "_vip", strategy="periodic", limit=1000,

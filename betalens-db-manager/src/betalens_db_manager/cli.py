@@ -17,12 +17,21 @@ def main(argv=None):
     parser.add_argument("--env", type=Path, help="私有环境文件；不依赖研究框架配置")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("doctor", help="检查配置、数据库及磁盘")
+    commands.add_parser('migration-preview',help='只读盘点两库物理类型、可空性与待迁移字段，不执行DDL')
+    repair=commands.add_parser('mapping-repair',help='预览或发布逐列生产规则和已核对的映射修复；不执行DDL或补写')
+    repair.add_argument('action',choices=['preview','apply'])
+    repair.add_argument('--plan',type=Path,help='预览输出文件或要确认的计划文件')
+    repair.add_argument('--token',help='预览内容令牌；发布必须提供')
+    commands.add_parser('historical-repair-preview',help='只读生成历史错误值及待迁移列的修正建议')
+    credential_scan=commands.add_parser("credentials-audit", help="只读盘点当前配置和任务中的旧凭据位置及迁移建议")
+    credential_scan.add_argument('--max-values',type=int,default=2000000)
+    credential_scan.add_argument('--max-seconds',type=float,default=60)
     schema = commands.add_parser("schema", help="显式结构计划或建库建表")
     schema.add_argument("action", choices=["plan", "apply"])
     schema.add_argument("--token", help="schema plan 输出的结构计划令牌")
     plan = commands.add_parser("plan", help="创建数据导入计划，不自动下载")
     plan.add_argument("request", type=Path, help="JSON/YAML 请求文件")
-    for name in ["download", "preview", "commit", "resume", "cancel", "job"]:
+    for name in ["download", "preview", "commit", "resume", "cancel", "job", "sync-audit"]:
         command = commands.add_parser(name)
         command.add_argument("job")
         if name == "commit": command.add_argument("--token", required=True)
@@ -49,11 +58,39 @@ def main(argv=None):
     serve = commands.add_parser("serve"); serve.add_argument("--port", type=int, default=8010)
     serve.add_argument("--no-worker", action="store_true", help="外部已管理 worker 时使用")
     args = parser.parse_args(argv)
+    if args.command == "credentials-audit":
+        # The normal service constructor seeds YAML and SQLite ledger records.
+        # This command must not initialize it or print configuration exceptions,
+        # which can themselves contain credential values.
+        try:
+            from .credential_audit import audit_credentials
+            print(dumps(audit_credentials(Settings.from_env(args.env),max_values=args.max_values,max_seconds=args.max_seconds)))
+            return 0
+        except Exception:
+            print(dumps({"error": "凭据审计初始化失败；请检查配置路径和权限"}), file=sys.stderr)
+            return 1
     settings = Settings.from_env(args.env)
     service = DatabaseManagerService(settings)
     try:
         result = None
         if args.command == "doctor": result = service.doctor()
+        elif args.command == 'migration-preview':
+            from .deployment_preview import migration_preview
+            result=migration_preview(service)
+        elif args.command=='mapping-repair':
+            from .config_migration import preview,apply
+            if args.action=='preview':
+                result=preview(service)
+                if args.plan:
+                    from .private import atomic_private
+                    atomic_private(args.plan,dumps(result))
+                    result={k:v for k,v in result.items() if k!='files'}|{'files':[{'path':v['path'],'changes':v['changes']} for v in result['files']],'plan':str(args.plan)}
+            else:
+                if not args.plan or not args.token:raise ValueError('发布需要--plan和--token')
+                result=apply(service,json.loads(args.plan.read_text()),args.token)
+        elif args.command=='historical-repair-preview':
+            from .deployment_preview import historical_repair_preview
+            result=historical_repair_preview(service)
         elif args.command == "schema":
             result = service.schema_plan() if args.action == "plan" else service.initialize(args.token or "")
         elif args.command == "plan":
@@ -63,6 +100,7 @@ def main(argv=None):
         elif args.command == "preview": result = service.preview(args.job)
         elif args.command == "commit": result = {"task":service.state.enqueue(args.job,"commit",{"token":args.token,"owner":"cli"})}
         elif args.command == "resume": result = {"task":service.state.enqueue(args.job,"resume",{"owner":"cli"})}
+        elif args.command == "sync-audit":result={'task':service.state.enqueue(args.job,'sync_audit',{'owner':'cli'})}
         elif args.command == "cancel": service.state.cancel(args.job); result = {"cancel_requested": True}
         elif args.command == "job": result = service._job(args.job)
         elif args.command == "jobs": result = service.state.jobs()
@@ -116,7 +154,9 @@ def main(argv=None):
                     except subprocess.TimeoutExpired:
                         child.kill();child.wait(timeout=5)
                 signal.signal(signal.SIGTERM, previous_term)
-        if result is not None: print(dumps(result))
+        if result is not None:
+            from .security import public_data
+            print(dumps(public_data(result,service.settings,service.sources.values.values())))
         return 0
     except Exception as exc:
         print(dumps({"error": service.safe_error(exc)}), file=sys.stderr)

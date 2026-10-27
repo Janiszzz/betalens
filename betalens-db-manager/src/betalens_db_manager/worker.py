@@ -107,12 +107,23 @@ def execute_task(settings,task):
     try:
         service.state.check_cancel(task['job'])
         operation,job=task['operation'],task['job']
-        if operation in {'download','update','file_download'}:
+        if operation.startswith('reference_'):
+            from .reference_service import ReferenceWorkflow
+            reference=ReferenceWorkflow(service)
+            if operation=='reference_download':reference.download(job);reference.preview(job)
+            elif operation=='reference_preview':reference.preview(job)
+            elif operation=='reference_commit':reference.commit(job,task['payload']['token'],task['payload'].get('accept_partial',False))
+            elif operation=='reference_rollback':reference.rollback(job,task['payload'].get('targets'))
+            else:raise ValueError('未知参考表任务操作')
+        elif operation in {'download','update','file_download'}:
             service.download(job);service.preview(job)
         elif operation=='commit':service.commit(job,task['payload']['token'],task['payload'].get('accept_partial',False))
         elif operation=='resume':service.resume(job)
         elif operation=='preview':service.preview(job)
         elif operation=='rollback':service.rollback(job,task['payload'].get('targets'))
+        elif operation=='sync_audit':
+            from .publishing import operation_lock,retry_audit_sync
+            with operation_lock(service):retry_audit_sync(service,job)
         else:raise ValueError('未知操作')
         service.state.finish(task['id'])
         status='completed';error=None
@@ -132,6 +143,9 @@ def clean_cache(service):
     for summary in service.state.jobs(limit=1000):
         if summary['status'] not in {'completed','rolled_back'} or datetime.fromisoformat(summary['updated'])>cutoff:continue
         item=service.state.job(summary['id'])
+        # Reference archives and normalized snapshots are durable audit/rollback
+        # evidence. Their retention is separate from the legacy transient cache.
+        if item['plan'].get('revision','').startswith('reference-'):continue
         if item['plan'].get('cache_purged'):continue
         if any(p.get('archive') in protected for p in item['slices']):continue
         for part in item['slices']:
@@ -144,6 +158,14 @@ def clean_cache(service):
                 if item['id'] in stored.parts:stored.unlink(missing_ok=True)
         item['plan']['cache_purged']=True
         with service.state.connect() as conn:conn.execute('UPDATE jobs SET plan=? WHERE id=?',(dumps(item['plan']),item['id']))
+
+
+def interrupt_attempts(service,job,reason):
+    """Record hard exits durably, including the reference publisher's attempt."""
+    for kind in ('execution_attempt','reference_attempt'):
+        for attempt in service.state.ledger_rows(kind,job):
+            if attempt.get('status')=='running':
+                service.state.ledger_put(kind,attempt['attempt_id'],{**attempt,'status':'interrupted','finished_at':now(),'error':reason})
 
 
 def work(service: TushareImportService, once: bool = False):
@@ -160,6 +182,7 @@ def work(service: TushareImportService, once: bool = False):
             abandoned=[r[0] for r in conn.execute("SELECT DISTINCT job FROM tasks WHERE status='running'")]
             conn.execute("UPDATE tasks SET status='interrupted',error='执行器已退出，需显式恢复并核验目标库' WHERE status='running'")
             for job in abandoned:conn.execute("UPDATE jobs SET status='interrupted',error='执行器已退出，需显式恢复并核验目标库',updated=? WHERE id=? AND status NOT IN ('completed','rolled_back')",(now(),job))
+        for job in abandoned:interrupt_attempts(service,job,'执行器已退出，目标写入待核验')
         scheduler=Scheduler(service);scheduler.reset_missed();was_online=False;cleaned=0
         config_stamp=service.settings.env_file.stat().st_mtime_ns if service.settings.env_file and service.settings.env_file.exists() else None
         while not stop:
@@ -201,8 +224,7 @@ def work(service: TushareImportService, once: bool = False):
                         conn.execute("UPDATE tasks SET status='interrupted',error='进程中断；写入状态须在恢复前核验' WHERE id=?",(task['id'],))
                 if running and running[0]=='running':
                     service.state.update_job(task['job'],status='interrupted',error='进程中断；已保存检查点，恢复前核验目标库')
-                    for attempt in service.state.ledger_rows('execution_attempt',task['job']):
-                        if attempt.get('status')=='running':service.state.ledger_put('execution_attempt',attempt['attempt_id'],{**attempt,'status':'interrupted','finished_at':now(),'error':'进程中断，目标写入待核验'})
+                    interrupt_attempts(service,task['job'],'进程中断，目标写入待核验')
                 if once:break
             elif once:break
             else:

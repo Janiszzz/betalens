@@ -8,7 +8,7 @@ from __future__ import annotations
 from .catalog import load_catalog
 
 
-VERSION = "canonical-v2"
+VERSION = "canonical-v3"
 
 
 FIELD_MAP = {
@@ -78,10 +78,12 @@ FIELD_MAP = {
     },
     "namechange": {
         "ts_code": ("corporate_action", "security_code"), "start_date": ("corporate_action", "event_date"),
-        "end_date": ("corporate_action", "effective_date"), "name": ("corporate_action", "new_name"),
+        "name": ("corporate_action", "new_name"),
     },
     "dividend": {
-        "ts_code": ("corporate_action", "security_code"), "end_date": ("corporate_action", "event_date"),
+        "ts_code": ("corporate_action", "security_code"), "ex_date": ("corporate_action", "event_date"),
+        "cash_div": ("corporate_action", "cash_dividend"),
+        "stk_bo_rate": ("corporate_action", "share_dividend"),
     },
 }
 
@@ -98,12 +100,20 @@ for source,target in (("close","close"),("turnover_rate_f","turnover_rate_free")
     FIELD_MAP["daily_basic"][source] = ("market_daily_raw",target)
 for source,target in (("ah_vol","ah_volume"),("ah_amount","ah_amount")):
     FIELD_MAP["daily"][source] = ("market_daily_raw",target)
-from .canonical import FINANCIAL_ALIASES
+from .canonical import financial_column
 for endpoint in ("income", "balancesheet", "cashflow", "fina_indicator"):
-    FIELD_MAP[endpoint] = {"ts_code": ("fundamental_periodic", "security_code"), "end_date": ("fundamental_periodic", "period_end"), "ann_date": ("fundamental_periodic", "announcement_date"), "f_ann_date": ("fundamental_periodic", "announcement_date"), "report_type": ("fundamental_periodic", "report_type"), "comp_type": ("fundamental_periodic", "company_type"), "update_flag": ("fundamental_periodic", "update_flag")}
+    FIELD_MAP[endpoint] = {"ts_code": ("fundamental_periodic", "security_code"), "end_date": ("fundamental_periodic", "period_end"), "ann_date": ("fundamental_periodic", "announcement_date"), "f_ann_date": ("fundamental_periodic", "actual_announcement_date"), "report_type": ("fundamental_periodic", "report_type"), "comp_type": ("fundamental_periodic", "company_type"), "update_flag": ("fundamental_periodic", "update_flag")}
     for field in load_catalog()[endpoint].fields:
         if field["type"] == "numeric":
-            FIELD_MAP[endpoint][field["name"]] = ("fundamental_periodic",FINANCIAL_ALIASES.get(field["name"],field["name"]))
+            FIELD_MAP[endpoint][field["name"]] = ("fundamental_periodic",financial_column(endpoint,field["name"]))
+
+# Complete source contracts are stored without inferring undocumented units.
+# The supplementary quote API is intentionally not joined into canonical prices.
+for endpoint, table in (("etf_basic", "etf_profile"), ("bak_daily", "stock_quote_supplement_daily")):
+    FIELD_MAP[endpoint] = {
+        field["name"]: (table, "security_code" if field["name"] == "ts_code" else field["name"])
+        for field in load_catalog()[endpoint].fields
+    }
 
 
 for endpoint in ('income','balancesheet','cashflow','fina_indicator'):
@@ -125,12 +135,12 @@ def all_source_mappings() -> list[dict]:
             table, column = target if target else ("__raw_archive_only__", "__unmapped__")
             multiplier = field.get("multiplier", "1")
             target_field = next((f for f in canonical[table].fields if f["name"] == column), {}) if table in canonical else {}
-            source_unit = "万份" if endpoint=='fund_share' and source_field=='fd_share' else "万股" if endpoint=='sw_daily' and source_field=='vol' else '万元' if endpoint=='sw_daily' and source_field in {'amount','float_mv','total_mv'} else "手" if source_field in {"vol","ah_vol"} and endpoint in {"daily","fund_daily","index_daily"} else "千元" if source_field in {"amount","ah_amount"} and endpoint in {"daily","fund_daily","index_daily"} else "万股" if endpoint == "daily_basic" and source_field in {"total_share","float_share","free_share"} else "万元" if endpoint == "daily_basic" and source_field in {"total_mv","circ_mv"} else field.get("unit", "")
+            source_unit = "万份" if endpoint=='fund_share' and source_field=='fd_share' else "万股" if endpoint=='sw_daily' and source_field=='vol' else '万元' if endpoint=='sw_daily' and source_field in {'amount','float_mv','total_mv'} else "手" if source_field in {"vol","ah_vol"} and endpoint in {"daily","fund_daily","index_daily"} else "千元" if source_field in {"amount","ah_amount"} and endpoint in {"daily","fund_daily","index_daily"} else "万股" if endpoint == "daily_basic" and source_field in {"total_share","float_share","free_share"} else "万元" if endpoint == "daily_basic" and source_field in {"total_mv","circ_mv"} else field.get("source_unit", field.get("unit", ""))
             transform = f"Decimal(value)*{multiplier}" if field["type"] == "numeric" and str(multiplier) != "1" else "identity"
             rows.append({"source_name": "tushare", "source_endpoint": endpoint, "source_field": source_field,
                          "canonical_table": table, "canonical_column": column, "source_type": field["type"],
                          "target_type": target_field.get("type", field["type"]), "source_unit": source_unit, "target_unit": target_field.get("unit", ""),
-                         "transform_expression": transform, "date_role": "announcement_date" if source_field in {'ann_date','f_ann_date'} else 'valid_to' if source_field=='out_date' else "event_date" if source_field in {"trade_date", "cal_date", "end_date", "in_date", "start_date", "nav_date"} else "",
+                         "transform_expression": transform, "date_role": "actual_announcement_date" if source_field=='f_ann_date' else "announcement_date" if source_field=='ann_date' else 'valid_to' if source_field=='out_date' else "event_date" if source_field in {"trade_date", "cal_date", "end_date", "in_date", "start_date", "nav_date", "ex_date"} else "",
                          "required": 1 if target else 0, "mapping_version": VERSION,
                          "description": field.get("description", "")})
     for endpoint in ('index_member_all','ci_index_member'):
@@ -144,6 +154,11 @@ def all_source_mappings() -> list[dict]:
         for source_field,column in (('ts_code','security_code'),('trade_date','event_date'),('adj_factor','adjustment_factor')):
             base=next(r for r in rows if r['source_endpoint']==endpoint and r['source_field']==source_field)
             rows.append({**base,'canonical_table':'corporate_action','canonical_column':column})
+    # One source date legitimately supplies both event and effective dates;
+    # these are built-in event projections, not a user-defined one-to-one map.
+    for endpoint, source_field in (('namechange', 'start_date'), ('dividend', 'ex_date')):
+        base = next(r for r in rows if r['source_endpoint'] == endpoint and r['source_field'] == source_field)
+        rows.append({**base, 'canonical_column': 'effective_date', 'date_role': 'effective_date'})
     for endpoint in ('daily','fund_daily','index_daily','sw_daily'):
         for column in ('open','high','low','close','previous_close','change'):
             source_field='pre_close' if column=='previous_close' else column
@@ -162,6 +177,8 @@ def source_capabilities() -> list[dict]:
         {"source_name": "tushare", "endpoint": "trade_cal", "capability": "trade_calendar", "status": "available", "permission_note": "交易日历"},
         {"source_name": "tushare", "endpoint": "daily", "capability": "stock_raw_daily", "status": "probe_required", "permission_note": "日线行情"},
         {"source_name": "tushare", "endpoint": "daily_basic", "capability": "daily_valuation", "status": "probe_required", "permission_note": "每日指标"},
+        {"source_name": "tushare", "endpoint": "etf_basic", "capability": "etf_profile", "status": "probe_required", "permission_note": "ETF完整档案快照；至少5000积分，单次最多5000行"},
+        {"source_name": "tushare", "endpoint": "bak_daily", "capability": "stock_quote_supplement_daily", "status": "probe_required", "permission_note": "备用行情完整源字段；至少5000积分，单次最多7000行，支持offset/limit；2017年中左右开始，早期有缺日；单位未明字段不写统一行情"},
         {"source_name": "tushare", "endpoint": "adj_factor", "capability": "stock_post_adjusted", "status": "probe_required", "permission_note": "股票复权因子"},
         {"source_name": "tushare", "endpoint": "fund_daily", "capability": "fund_raw_daily", "status": "probe_required", "permission_note": "基金日线行情"},
         {"source_name": "tushare", "endpoint": "fund_adj", "capability": "fund_post_adjusted", "status": "probe_required", "permission_note": "基金复权因子"},

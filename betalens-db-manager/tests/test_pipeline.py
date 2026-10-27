@@ -114,12 +114,15 @@ def live(tmp_path):
     if os.environ.get("BETALENS_INFRA_INTEGRATION") != "1": pytest.skip("set BETALENS_INFRA_INTEGRATION=1 for isolated PG/CH integration")
     base = Settings.from_env()
     suffix = uuid.uuid4().hex[:12]
-    settings = replace(base, pg_database="infra_test_" + suffix, ch_database="infra_test_" + suffix, state_dir=tmp_path)
+    settings = replace(base, pg_database="infra_test_" + suffix, ch_database="infra_test_" + suffix, state_dir=tmp_path,config_dir=tmp_path/'config',env_file=None,archive_dir=None)
     service = TushareImportService(settings, FakeSource())
     plan = service.schema_plan()
     service.initialize(plan["token"])
+    from controlled_ch import configure_writer
+    cleanup=configure_writer(service)
     try: yield service
     finally:
+        cleanup()
         service.ch.execute(f"DROP DATABASE IF EXISTS `{settings.ch_database}`")
         import psycopg2
         from psycopg2 import sql

@@ -7,9 +7,9 @@
 完成后，你将拥有：
 
 * 一个独立的 Python 虚拟环境；
-* 一个可连接的 PostgreSQL ``datafeed`` 数据库；
+* 一个可连接的 PostgreSQL ``betalens`` 库，以及按需配置的 ClickHouse ``betalens`` 库；
 * Betalens 主包、独立 Infra 工具、Dashboard 和全部常用依赖；
-* 已初始化的表、索引和 ``daily_market`` 等兼容视图；
+* 经明确确认建立的统一表和可审计更新任务；旧研究查询合同需另行适配；
 * 一组可以逐项执行的安装验收命令。
 
 .. contents:: 本页目录
@@ -39,11 +39,11 @@
      - ``python -c "import sys; print(sys.executable)"``
    * - 3
      - Python 依赖和 Betalens
-     - 安装主包、数据库、Dashboard、GUI 依赖
+     - 安装主包、数据库和 Dashboard 依赖；管理器独立安装
      - ``python -c "import betalens"``
    * - 4
      - 数据库配置和 schema
-     - 连接已准备好的 ``datafeed`` 库及表结构
+     - 配置 ``betalens`` 两库并预览确认结构
      - ``betalens-db-manager --env /private/path/infra.env doctor``
    * - 5
      - 研究数据和 Dashboard
@@ -140,9 +140,9 @@ Windows 安装器中的关键选项
    如果不使用 ``psql``，打开 pgAdmin 4，在左侧展开 Servers，连接本机服务器，再打开
    Query Tool 执行 ``SELECT version();``。结果与命令行验收等价。
 
-此时不必手工创建 ``datafeed`` 数据库。后面的 独立 Infra 工具 会在确认后创建
-数据库并安装正确版本的 schema。默认 ``postgres`` 用户具备创建数据库的权限；如果使用
-公司分配的普通账号，需要管理员授予 ``CREATEDB``，或请管理员先创建空的 ``datafeed`` 库。
+此时不必手工创建 ``betalens`` 数据库。独立 DB Manager 可在确认后建立通用结构；
+参考域的 create-only 安装要求 PG 目标数据库已存在。若日常账号没有 ``CREATEDB``，
+请管理员先创建空库，再单独预览并确认建表。账号分权与具体权限由部署者配置。
 
 3. 下载 Betalens 源码
 ---------------------
@@ -246,83 +246,65 @@ Windows 安装器中的关键选项
 
 预期看到 Betalens 版本、``Python dependencies OK`` 和 ``No broken requirements found.``。
 
-6. 配置数据库连接
------------------
+6. 配置并启动独立 DB Manager
+-----------------------------
 
-推荐先复制仓库提供的模板。``config.local.json`` 已被 Git 忽略，不会被正常提交：
+DB Manager 不随主包安装，使用独立虚拟环境，以开发模式安装：
 
 .. code-block:: powershell
 
-   Copy-Item betalens\datafeed\config.example.json betalens\datafeed\config.local.json
-   notepad betalens\datafeed\config.local.json
-
-把连接信息改成自己的值。默认数据库名是 ``datafeed``，不是 ``betalens``：
-
-.. code-block:: json
-
-   {
-     "database": {
-       "dbname": "datafeed",
-       "user": "postgres",
-       "password": "替换为安装 PostgreSQL 时设置的密码",
-       "host": "localhost",
-       "port": "5432"
-     },
-     "logging": {
-       "log_dir": "./logs",
-       "log_level": "INFO"
-     }
+   python -m venv betalens-db-manager\.venv
+   $infraPython = ".\betalens-db-manager\.venv\Scripts\python.exe"
+   & $infraPython -m pip install -e ".\betalens-db-manager[files]"
+   $privateDir = Join-Path $env:LOCALAPPDATA "Betalens\DBManager\config"
+   New-Item -ItemType Directory -Force $privateDir
+   $privateEnv = Join-Path $privateDir "credentials.env"
+   # 仅初次创建时复制，保留已有私密配置
+   if (-not (Test-Path $privateEnv)) {
+       Copy-Item betalens-db-manager\infra.env.example $privateEnv
    }
+   & $infraPython -m betalens_db_manager --env $privateEnv serve --port 8010
 
-保存后关闭记事本。不要把含真实密码的配置文件发送给别人或强制加入 Git。
+访问 ``http://localhost:8010/settings``，填写数据库连接、密码及 API Token。
+PG 的数据库与 schema 使用 ``betalens``，CH 数据库使用 ``betalens``；按需选择 CH 受控写入模式。
+网页只显示秘密是否配置，密码框留空保留旧值。凭据保存到仓库外私有环境文件，
+不得放在 Git 工作树内，即使该路径已被忽略。Windows 使用受限 ACL；WSL 使用 Linux
+文件系统上的 ``0600`` 文件和 ``0700`` 目录。
 
-也可以不用配置文件，只在当前 PowerShell 会话设置环境变量：
+Linux/WSL 对应启动及本机目录见 :doc:`../guide/infra` 和
+:doc:`../guide/local-databases`。Windows 浏览器访问 WSL 服务时仍使用 WSL 配置。
+DB Manager 的 ``PG*/CLICKHOUSE_*/TUSHARE_*`` 与研究层 ``BETALENS_DB_*``
+是独立配置，不会相互自动同步。
 
-.. code-block:: powershell
+7. 检查连接并确认结构
+---------------------
 
-   $env:BETALENS_DB_NAME = "datafeed"
-   $env:BETALENS_DB_USER = "postgres"
-   $env:BETALENS_DB_PASSWORD = "替换为你的密码"
-   $env:BETALENS_DB_HOST = "localhost"
-   $env:BETALENS_DB_PORT = "5432"
-
-环境变量会覆盖配置文件。完整优先级是：运行时参数 > ``BETALENS_DB_*`` >
-``BETALENS_CONFIG`` 指定文件 > 用户配置 > ``config.local.json`` > 旧配置 > 默认值。
-详见 :doc:`../guide/datafeed`。
-
-7. 检查现有 Betalens 数据库
----------------------------
-
-当前工作区已停用 v1–v10 迁移和自动初始化。新环境需先从备份恢复
-``datafeed`` 的表结构及指标定义，或单独准备结构，再检查连接：
-
-.. code-block:: console
-
-   betalens-db-manager --env /private/path/infra.env doctor
-
-该命令只读检查表、字段类型和兼容视图查询。``ok: true`` 表示这些检查通过；
-它不认证索引、约束、指标种子或历史数据完整性。缺少结构时会报错而不会自动建表。
-旧 ``init``、``verify`` 和 ``init_local.bat`` 已停用。
-
-8. 导入研究数据
----------------
-
-新建的 schema 是空的。没有行情、交易状态和因子输入数据时，框架可以导入，但无法完成实际
-回测。数据来源可以是自有 CSV/Excel/Parquet、EDE 导出或 Wind 数据。
-
-Infra 网页与 CLI
-~~~~~~~~~~~~~~
-
-安装独立工具后执行：
+可在网页配置页测试连接，或在组件环境中执行：
 
 .. code-block:: powershell
 
-   python -m pip install -e ".\betalens-db-manager[files]"
-   copy betalens-db-manager\infra.env.example C:\private\infra.env
-   betalens-db-manager --env C:\private\infra.env serve
+   & $infraPython -m betalens_db_manager --env $privateEnv doctor
+   & $infraPython -m betalens_db_manager --env $privateEnv schema plan
 
-浏览器打开 ``http://127.0.0.1:8010``，先查看结构计划并初始化，再在“手动更新”中下载、预览和入库。
-文件接入使用显式列映射，支持 CSV、CSV.GZ、XLSX 和 Parquet；详见 :doc:`../guide/infra`。
+查看结构预览后，再按生成的令牌明确执行 ``schema apply --token <plan-token>``，
+或在网页本地表页面确认建表。``/integrity`` 页为三个业务参考域单独预览和安装六张
+版本/发布表，不迁移旧表。普通服务启动与 ``doctor`` 不会替代建表确认，
+连接成功也不表示数据完整。遇到现有结构漂移先预览迁移，不能用删除重建代替检查。
+
+8. 下载、审计与确认入库
+-----------------------
+
+``/tasks`` 管理通用本地表，``/integrity`` 管理股票历史行业、交易日历和股票停牌区间。
+选择目标库、来源、证券和日期，登记请求后显式开始提数；核对实时 HTTP 日志、归档字段、
+单位、时间、标准化值及 before/after，再确认入库。PG/CH 默认双选，但每库独立记录结果。
+文件接入必须显式映射字段；Wind 未配置时不能执行。详见 :doc:`../guide/infra`。
+
+三域版本追加后需经目标库核验及可信发布才能业务读取；旧行、未发布行和已撤销版本仍保留供审计。
+完整性检查按请求范围凭证，不能用表中某天存在一行代替所选股票完整。
+自动更新默认关闭；手动更新和首次安装不会恢复历史补全。
+
+新建统一表不生成 ``daily_market/trade_status`` 等旧视图。研究层的 Datafeed 和
+BacktestBase 尚需显式适配；先验证管理链路，再按实际业务合同准备研究查询。
 
 9. 完整验收
 ------------
@@ -330,21 +312,22 @@ Infra 网页与 CLI
 Python 包和数据库连接
 ~~~~~~~~~~~~~~~~~~~~
 
-下面的命令会真正打开只读数据库连接，并读取最多一行行情：
+下面的命令适用于**已经准备好旧研究查询合同的数据库**，会打开只读连接并读取最多一行行情。
+仅完成新 DB Manager 建表时，不应将缺少 ``daily_market`` 视为管理器安装失败：
 
 .. code-block:: powershell
 
    python -c "from betalens.datafeed import Datafeed; feed=Datafeed('daily_market'); print(feed.query_time_range(limit=1)); feed.close()"
 
-空数据库会打印空表，但不应出现连接或 relation 错误。导入数据后应看到一行结果。
+只有目标研究库已具备相应查询结构时，空数据会打印空表；新统一库需完成查询适配后再使用该示例。
 
 Infra CLI
 ~~~~~~~~~~~~~~
 
 .. code-block:: powershell
 
-   betalens-infra --help
-   betalens-db-manager --env /private/path/infra.env doctor
+   & $infraPython -m betalens_db_manager --help
+   & $infraPython -m betalens_db_manager --env $privateEnv doctor
 
 Dashboard
 ~~~~~~~~~
@@ -375,7 +358,7 @@ Dashboard
 
    Set-Location C:\dev\betalens
    .\.venv\Scripts\Activate.ps1
-   betalens-db-manager --env /private/path/infra.env doctor
+   & .\betalens-db-manager\.venv\Scripts\python.exe -m betalens_db_manager --env $privateEnv doctor
 
 需要 Dashboard 时再执行 ``.\dashboard\run.bat``。拉取代码更新后执行：
 
@@ -383,7 +366,7 @@ Dashboard
 
    git pull
    python -m pip install -e ".[full]"
-   betalens-db-manager --env /private/path/infra.env schema plan
+   & .\betalens-db-manager\.venv\Scripts\python.exe -m betalens_db_manager --env $privateEnv schema plan
 
 代码更新不会自动修改数据库结构；根据检查结果单独处理需要的表结构变更。
 
@@ -409,12 +392,12 @@ PostgreSQL 的服务启动和用户创建方式因发行版而异，但后续 Be
    * - 完整安装
      - ``python -m pip install -e ".[full]"``
      - ``python -m pip install -e '.[full]'``
-   * - 检查已有 schema
-     - ``betalens-db-manager --env /private/path/infra.env doctor``
-     - ``betalens-db-manager --env /private/path/infra.env doctor``
+   * - 检查管理连接
+     - ``betalens-db-manager --env <private-env> doctor``
+     - ``betalens-db-manager --env <private-env> doctor``
    * - 启动 Infra 网页
      - ``betalens-db-manager --env C:\private\infra.env serve``
-     - ``betalens-db-manager --env /private/path/infra.env``
+     - ``betalens-db-manager --env /private/path/infra.env serve``
    * - 启动 Dashboard
      - ``.\dashboard\run.bat``
      - 分别运行后端和 ``dashboard/frontend`` 下的 ``npm run dev``
@@ -458,13 +441,14 @@ Node.js 太旧、代理不可用或安全软件锁定 ``node_modules``。核心 
 ~~~~~~~~~~~~~~~~
 
 Python 已连接到 PostgreSQL，但目标库尚未初始化，或配置指向了错误数据库。确认数据库名为
-``datafeed``，执行 ``inspect`` 检查缺少的结构，并从备份恢复或单独准备对应表。
+管理连接是否为 ``betalens``，再查看表定义和结构预览；旧 Datafeed 查询还需确认其研究合同。
+当前组件没有 ``inspect`` 子命令，不能用旧文档命令代替结构检查。
 
 查询返回空表
 ~~~~~~~~~~~~
 
 schema 已安装但没有导入数据，或者代码、日期、指标名与数据库不一致。这不是安装失败。
-先用数据库管理 GUI 查看表行数，再核对中文 metric 名和证券代码格式。
+先用数据库管理网页查看业务日期、可信发布范围和行数，再核对研究合同、metric 和代码格式。
 
 卸载或重建虚拟环境
 ~~~~~~~~~~~~~~~~~~

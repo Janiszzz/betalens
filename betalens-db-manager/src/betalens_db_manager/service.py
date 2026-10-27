@@ -19,6 +19,8 @@ from .sources import TushareSourceAdapter
 from .state import State
 from .storage import Postgres, columns, relation, row_hash
 from .util import atomic_json, digest, dumps, now, parse_date
+from .business_semantics import corporate_action_partial, daily_average_price, financial_record
+from .time_scope import row_in_scope
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 DEFAULT_DATASETS = [
@@ -271,10 +273,13 @@ class TushareImportService:
     def _requests(self, name: str, request: dict, universe: list[str], calendar: list[date]):
         spec = dataset(name); start, end = parse_date(request["start_date"]), parse_date(request["end_date"])
         custom = request.get("parameters", {}).get(name, {})
+        if request.get('codes'):
+            parameter='index_code' if spec.strategy=='index' else 'ts_code'
+            if custom.get(parameter) and set(str(custom[parameter]).split(','))!=set(request['codes']):raise ValueError('接口证券参数与任务证券范围不一致：'+name)
         if spec.strategy == "stock_basic":
-            if request["codes"] and not custom:
+            if request["codes"]:
                 for code in request["codes"]:
-                    for status in ('L','D','P'):yield {'ts_code':code,'list_status':status}
+                    for status in ([custom['list_status']] if 'list_status' in custom else ('L','D','P')):yield {**custom,'ts_code':code,'list_status':status}
             else:
                 for status in ([custom["list_status"]] if "list_status" in custom else ("L","D","P")):
                     yield {"list_status":status,**custom}
@@ -282,7 +287,11 @@ class TushareImportService:
             for exchange in ["SSE", "SZSE", "BSE"]:
                 for year in range(start.year, end.year + 1): yield {"exchange": exchange, "start_date": max(start,date(year,1,1)).strftime("%Y%m%d"), "end_date": min(end,date(year,12,31)).strftime("%Y%m%d"), **custom}
         elif spec.strategy == "snapshot":
-            if name in {"fund_basic","index_basic"}:
+            if name=='etf_basic':
+                if request['codes']:
+                    for code in request['codes']:yield {'ts_code':code,**custom}
+                else:yield dict(custom)
+            elif name in {"fund_basic","index_basic"}:
                 if request["codes"]:
                     for code in request["codes"]: yield {"ts_code":code,**custom}
                 elif name=="fund_basic":
@@ -314,6 +323,12 @@ class TushareImportService:
             if not codes and name == "index_weight" and "index_code" in custom: codes = [custom["index_code"]]
             if not codes and name == "ci_index_member": yield {**custom}; return
             if not codes: raise ValueError(f"{name} 需要显式证券代码；不会自动下载全部基金或指数")
+            if name=='namechange':
+                # API dates filter announcements, while local rows describe
+                # effective name intervals. Full single-security history is
+                # bounded and avoids missing earlier announcements.
+                for code in codes:yield {'ts_code':code,**custom}
+                return
             for code in codes:
                 if name in {'income','balancesheet','cashflow','fina_indicator'}:
                     if custom.get('period'):
@@ -478,7 +493,10 @@ class TushareImportService:
 
     def _map_part(self, endpoint: str, source_rows: list[dict], job: str, downloaded: str, calendar: list[date], source_name: str = "tushare"):
         if endpoint.endswith('_vip'):
-            output,factors=self._map_part(endpoint.removesuffix('_vip'),source_rows,job,downloaded,calendar,source_name)
+            # Dispatch only the base projection here.  Calling self._map_part
+            # would re-enter DatabaseManagerService and apply the YAML overlay
+            # and version derivation twice for VIP rows.
+            output,factors=TushareImportService._map_part(self,endpoint.removesuffix('_vip'),source_rows,job,downloaded,calendar,source_name)
             for rows in output.values():
                 for row in rows:row['source_endpoint']=endpoint
             return output,factors
@@ -548,17 +566,15 @@ class TushareImportService:
                 continue
             if endpoint in {"income", "balancesheet", "cashflow", "fina_indicator"}:
                 target = canonical("fundamental_periodic")
-                partial = {mapping[1]:source.get(field) for field,mapping in FIELD_MAP[endpoint].items()}
-                partial.update(announcement_date=source.get("f_ann_date") or source.get("ann_date"),
-                               report_type=source.get("report_type") or "unspecified", statement_type=endpoint,
-                               )
-                # Keep historical report keys stable while separating both date meanings.
-                partial['version_id']=digest(partial)
-                partial.update(announcement_date=source.get('ann_date'),actual_announcement_date=source.get('f_ann_date'),end_type=source.get('end_type'))
+                partial = financial_record(endpoint, source, FIELD_MAP[endpoint])
                 output[target.name].append(self._canonical_record(target, partial, endpoint, job, downloaded, row_no, raw, event_date, available, basis, source_name)); continue
             if endpoint in {"namechange", "dividend"}:
-                target = canonical("corporate_action"); partial = {"security_code": source.get("ts_code"), "event_type": endpoint, "event_date": source.get("start_date") or source.get("end_date"), "effective_date": source.get("end_date"), "old_name": source.get("old_name"), "new_name": source.get("name"), "cash_dividend": source.get("cash_div")}
-                output[target.name].append(self._canonical_record(target, partial, endpoint, job, downloaded, row_no, raw, event_date, available, basis, source_name)); continue
+                partial = corporate_action_partial(endpoint, source)
+                if partial is None: continue
+                target = canonical("corporate_action")
+                if endpoint == 'dividend' and source.get('imp_ann_date'):
+                    available,basis = _event_available(parse_date(source['imp_ann_date']), 'implementation_announcement_next_calendar_day_assumed;historical_revision_not_proven')
+                output[target.name].append(self._canonical_record(target, partial, endpoint, job, downloaded, row_no, raw, partial['event_date'], available, basis, source_name)); continue
             if endpoint in {'fund_nav','fund_share','bse_mapping'}:
                 mapping=FIELD_MAP[endpoint];target=canonical(next(iter(mapping.values()))[0])
                 partial={dest[1]:source.get(field) for field,dest in mapping.items()}
@@ -599,6 +615,8 @@ class TushareImportService:
                         event=partial.get('event_date') or partial.get('trade_date') or partial.get('period_end') or partial.get('valid_from') or partial.get('nav_date')
                         event=parse_date(event) if event else None
                         row=self._canonical_record(target,partial,metadata.get('source_endpoint','file'),item['id'],metadata['fetched_at'],index+int(metadata.get('source_row_start',1))-1,original,event,partial.get('available_at'),partial.get('availability_basis') or 'unknown_file_availability','file')
+                        normalized=typed(target,row)
+                        row['_field_origins']={rule['column']:{'selected':normalized.get(rule['column']) is not None,'source_null':original.get(source) in (None,''),'value_hash':digest(normalized.get(rule['column'])),'origins':['file:'+target.name+':'+source]} for source,rule in rules.items()}
                         tables[target.name].append(row)
                     except (ValueError, InvalidOperation) as exc:
                         rejects.append({'dataset':target.name,'source_row':index,'reason':str(exc),'raw':original})
@@ -614,14 +632,14 @@ class TushareImportService:
             for name, rows in mapped.items(): tables[name].extend(rows)
             factors.update(found_factors)
         # Merge daily and daily_basic into a single raw wide row.
+        if tables.get('fund_nav_daily'):
+            from .nav_semantics import resolve_nav_rows
+            tables['fund_nav_daily'],conflicts=resolve_nav_rows(tables['fund_nav_daily']);rejects.extend(conflicts)
         for name, spec in load_canonical_catalog().items():
             if name in tables: tables[name] = self._merge(tables[name], spec)
         raw_rows = tables.get("market_daily_raw", [])
         for row in raw_rows:
-            if row.get('asset_type')!='index' and row.get('amount') is not None and row.get('volume') not in (None,0):
-                with localcontext() as context:
-                    context.prec=80
-                    row['average_price']=row['amount']/row['volume']
+            row['average_price'] = daily_average_price(row.get('asset_type'), row.get('amount'), row.get('volume'))
         securities=list(tables.get('security_dim',[]))
         if not securities:
             for target_name in item['plan']['request']['targets']:
@@ -695,11 +713,14 @@ class TushareImportService:
             if name in tables: tables[name] = self._merge(tables[name], spec)
         validated = {}
         for name, rows in tables.items():
-            spec = canonical(name); valid = []
+            spec = canonical(name); valid = [];lineage={}
             for row in rows:
                 try:
                     if row.get('data_quality_status')=='conflicting_source_rows':raise ValueError('同一业务键的源数据字段互相冲突')
+                    origins=row.get('_field_origins',{})
                     row = typed(spec,row)
+                    scope_field=next((c for c in ('trade_date','period_end','nav_date','valid_from','event_date') if c in row),None)
+                    if not row_in_scope(name,row,item['plan']['request']['start_date'],item['plan']['request']['end_date'],scope_field):continue
                     for field in spec.fields:
                         if (not field.get("nullable",True) or field["name"] in spec.keys) and row.get(field["name"]) is None:
                             raise ValueError("本地必需字段为空："+field["name"])
@@ -709,8 +730,12 @@ class TushareImportService:
                     if row.get('volume') is not None and row['volume']<0:raise ValueError('成交量不能为负')
                     if row.get('valid_to') and row.get('valid_from') and row['valid_to']<row['valid_from']:raise ValueError('剔除日期早于纳入日期')
                     valid.append(row)
+                    from .comparison import row_key
+                    lineage[row_key(spec,row)]={c:p for c,p in origins.items() if p.get('source_null') or p.get('value_hash')==digest(row.get(c))}
                 except (ValueError,TypeError) as exc: rejects.append({"dataset":name,"reason":str(exc),"source_row":row.get("source_row_no")})
-            if valid: validated[name] = valid
+            if valid:
+                validated[name] = valid
+                self.state.ledger_put('task_column_lineage',item['id']+':'+name,{'task_id':item['id'],'table':name,'rows':lineage})
         return validated, rejects
 
     def preview(self, job: str) -> dict:
@@ -769,11 +794,16 @@ class TushareImportService:
                 if record:table_status.append({'target':target,'table':spec.name,'status':record['status'],**record.get('counts',{})})
         return {'tables':table_status,'changes':[r for r in rows if r['id']>after][:max(1,min(limit,1000))],
                 'receipts':receipts,'rollbacks':self.state.ledger_rows('import_rollback',job),
-                'verification':self.state.ledger_rows('verification',job)}
+                'audit_sync':[r for task in {job}|{v['rollback_task_id'] for v in self.state.ledger_rows('import_rollback',job)} for r in self.state.sync_records(task)],
+                'cleanup':[r for task in {v['rollback_task_id'] for v in self.state.ledger_rows('import_rollback',job)} for r in self.state.ledger_rows('cleanup_pending',task)],
+                'verification':self.state.ledger_rows('verification',job),
+                'field_verification':self.state.ledger_rows('field_verification',job)}
 
     def resume(self, job: str) -> dict:
         item = self._job(job)
-        if item['status'] in {'completed','rolled_back','partially_rolled_back'}:return item
+        if item['status'] in {'completed','audit_pending','rolled_back','partially_rolled_back'}:
+            from .publishing import retry_audit_sync
+            retry_audit_sync(self,job);return self.state.job(job)
         self.state.update_job(job,cancel=0)
         if item["status"] in {"partial", "committing"} and item.get("preview"):
             return self.commit(job, item["preview"]["token"])

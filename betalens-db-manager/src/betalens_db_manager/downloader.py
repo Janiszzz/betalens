@@ -68,6 +68,9 @@ class TaskDownloader:
             if old and old['status'] == 'unavailable': continue
             children = self.fetch(request, contract, policy, page)
             queue.extend(children)
+        if roots is None:
+            from .response_validation import record_archive_validation
+            return record_archive_validation(self.s,self.s.state.job(self.job))
 
     @staticmethod
     def following(request, page, count):
@@ -166,27 +169,30 @@ class TaskDownloader:
                 error = s.safe_error(exc); data = {'fields': ['response_error'], 'items': [[error]]}
             if getattr(adapter, 'last_wire', None) is not None:
                 wire = root/(key+'.response.json.gz')
-                with gzip.open(wire, 'wb') as handle: handle.write(adapter.last_wire)
+                from .security import write_private_wire
+                write_private_wire(wire,adapter.last_wire)
                 wire_meta = {'wire_archive': str(wire), 'wire_sha256': hashlib.sha256(adapter.last_wire).hexdigest()}
             payload = dumps({'code': 0, 'data': data}).encode(); sha = hashlib.sha256(payload).hexdigest()
             with gzip.open(archive.with_suffix('.tmp'), 'wb') as handle: handle.write(payload)
             archive.with_suffix('.tmp').replace(archive)
         stamp = now()
         atomic_json(archive.with_suffix('.meta.json'), {'fetched_at': stamp, 'source_id': sid, 'endpoint': endpoint, 'sha256': sha, 'parameters': params, **wire_meta})
-        status, result, children = 'downloaded', {}, []
-        expected = {f['name'] for f in contract['fields']}
-        if error or len(data['fields']) != len(set(data['fields'])) or set(data['fields'])-expected or set(contract.get('keys', []))-set(data['fields']) or any(len(values) != len(data['fields']) for values in data['items']):
-            status = 'contract_blocked'; result['blocked'] = error or '源响应字段合同不匹配'
-        if sid == 'tushare' and status != 'contract_blocked':
-            try: error = self.scope_error(params, data, contract)
-            except (ValueError, TypeError): error = '源端日期格式不符合请求合同'
-            if error: status = 'contract_blocked'; result['blocked'] = error
+        from .response_validation import validate_response,issue
+        validation_errors=validate_response(self.plan,request,contract,data)
+        status, result, children = 'downloaded', {'validation_errors':validation_errors}, []
+        if validation_errors:
+            status='contract_blocked';result['blocked']='；'.join(p['reason'] for p in validation_errors)
+        if error:
+            status='contract_blocked';result['blocked']=error
+            validation_errors.append(issue('response_format',error))
         if sid != 'tushare' and status != 'contract_blocked':
             try:
                 validation = adapter.validate_response(data, contract)
                 if validation.get('missing') or validation.get('extra'): raise ValueError('源响应字段合同不匹配')
-            except ValueError as exc: status = 'contract_blocked'; result['blocked'] = str(exc)
-        count = len(data['items'])
+            except (ValueError,TypeError,KeyError) as exc:
+                status='contract_blocked';result['blocked']=s.safe_error(exc)
+                validation_errors.append(issue('adapter_validation',result['blocked']))
+        count = len(data['items']) if isinstance(data,dict) and isinstance(data.get('items'),list) else 0
         cap = policy['row_limit'] if policy else contract.get('limit', 100000)
         result.update(row_limit=cap, retrieval_mode=policy['mode'] if policy else 'offset' if page else 'single', complete=False)
         if status != 'contract_blocked':
@@ -194,6 +200,7 @@ class TaskDownloader:
                 # Even a short page may be a hidden server cap. Only an empty page terminates the chain.
                 if self.repeated(request, page, data):
                     status = 'contract_blocked'; result['blocked'] = '源接口忽略分页或分页记录重复/交叠，无法证明完整性，已阻止入库'
+                    validation_errors.append(issue('pagination_overlap',result['blocked']))
                 elif count:
                     status = 'paged'; children = [self.following(request, page, count)]
                 else: result.update(complete=True, termination='empty_page')
@@ -203,6 +210,7 @@ class TaskDownloader:
                 if children: status = 'split'
                 else:
                     status = 'contract_blocked'; result.setdefault('blocked', '最小查询范围仍达到单次上限，无法证明完整性；需补充查询合同或缩小范围')
+                    validation_errors.append(issue('incomplete_partition',result['blocked']))
             else: result.update(complete=True, termination='below_documented_cap')
         result['children'] = children
         s.state.slice(job, key, endpoint, request, status=status, archive=str(archive), sha=sha, rows=count, result=result)
@@ -210,6 +218,8 @@ class TaskDownloader:
         for child in children:
             child, _, _, _ = self.prepared(child)
             s.state.slice(job, self.key(child), endpoint, child)
-        s.state.ledger_put('import_source_archive', digest([job, key]), {'task_id': job, 'dataset': endpoint, 'endpoint': sid+':'+endpoint, 'request_hash': digest(params), 'archive_path': str(archive), 'response_sha256': sha, 'response_fields': ','.join(data['fields']), 'fetched_at': stamp, 'rows': count})
+        fields=data.get('fields',[]) if isinstance(data,dict) else []
+        names=[field for field in fields if isinstance(field,str)] if isinstance(fields,list) else []
+        s.state.ledger_put('import_source_archive', digest([job, key]), {'task_id': job, 'dataset': endpoint, 'endpoint': sid+':'+endpoint, 'request_hash': digest(params), 'archive_path': str(archive), 'response_sha256': sha, 'response_fields': ','.join(names), 'fetched_at': stamp, 'rows': count})
         s.state.check_cancel(job)
         return children

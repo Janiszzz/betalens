@@ -35,7 +35,7 @@ def test_all_registered_source_fields_have_typed_destinations(tmp_path):
     s=manager(tmp_path)
     assert not s.mappings.errors
     rows=s.field_audit()
-    assert len({r['endpoint'] for r in rows})==29
+    assert len({r['endpoint'] for r in rows})==31
     assert all(r['mapped'] and r['status']=='unverified' for r in rows)
     finance=s.mappings.get('fundamental_periodic')
     rules=next(b['fields'] for b in finance['bindings'] if b['endpoint']=='income')
@@ -96,8 +96,11 @@ def live_manager(tmp_path):
     suffix=uuid.uuid4().hex[:10]
     settings=replace(base,config_dir=tmp_path/'config',state_dir=tmp_path/'state',archive_dir=None,env_file=None,pg_database='manager_test_'+suffix,ch_database='manager_test_'+suffix)
     s=DatabaseManagerService(settings)
+    from controlled_ch import configure_writer
+    cleanup=configure_writer(s)
     try:yield s
     finally:
+        cleanup()
         import psycopg2
         from psycopg2 import sql
         try:s.ch.execute(f'DROP DATABASE IF EXISTS `{settings.ch_database}`')
@@ -203,7 +206,9 @@ def test_partial_acceptance_and_target_snapshot_staleness(live_manager,mock_api)
     from betalens_db_manager.source import read_archive
     from betalens_db_manager.util import dumps
     import gzip,hashlib
-    data=read_archive(Path(part['archive']),part['sha']);data['items'].append(['bad','not-a-date','b'])
+    # A value conversion failure can be partially accepted; an invalid date
+    # would invalidate the response's request-scope/completeness evidence.
+    data=read_archive(Path(part['archive']),part['sha']);data['items'].append(['bad','2026/10/13','b'])
     raw=dumps({'code':0,'data':data}).encode()
     with gzip.open(part['archive'],'wb') as f:f.write(raw)
     s.state.slice(j['id'],part['id'],'prices',part['request'],sha=hashlib.sha256(raw).hexdigest())
@@ -461,6 +466,16 @@ def cached_part(s,job,endpoint,data):
     with gzip.open(path,'wb') as f:f.write(raw)
     sha=hashlib.sha256(raw).hexdigest();atomic_json(path.with_suffix('.meta.json'),{'fetched_at':now()})
     s.state.slice(job['id'],key,endpoint,request,status='downloaded',archive=str(path),sha=sha,rows=len(data['items']))
+    # The real downloader also archives all planned calendar dependencies.
+    for dependency in job['plan']['requests']:
+        if dependency.get('strategy')!='dependency':continue
+        dependency_key=digest([dependency['source_id'],dependency['endpoint'],dependency['parameters']])[:24]
+        if s.state.get_slice(job['id'],dependency_key):continue
+        empty={'fields':[f['name'] for f in job['plan']['source_contracts'][dependency['source_id']+':'+dependency['endpoint']]['fields']],'items':[]}
+        payload=dumps({'code':0,'data':empty}).encode();target=path.parent/(dependency_key+'.json.gz')
+        with gzip.open(target,'wb') as f:f.write(payload)
+        atomic_json(target.with_suffix('.meta.json'),{'fetched_at':now()})
+        s.state.slice(job['id'],dependency_key,dependency['endpoint'],dependency,status='downloaded',archive=str(target),sha=hashlib.sha256(payload).hexdigest(),rows=0)
 
 
 def test_joint_key_does_not_join_different_dates_by_code_only(tmp_path):

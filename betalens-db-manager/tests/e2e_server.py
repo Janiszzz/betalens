@@ -9,12 +9,16 @@ from betalens_db_manager.config import Settings
 from betalens_db_manager.manager import DatabaseManagerService
 from betalens_db_manager.api import create_app
 from betalens_db_manager.canonical import registry_context
+from controlled_ch import configure_writer
 
 root=Path(tempfile.mkdtemp(prefix='betalens-manager-browser-'));suffix=uuid.uuid4().hex[:10]
 base=Settings.from_env(__import__('os').environ.get('BETALENS_TEST_ENV','/home/janiszzz/betalens-infra/tushare.private.env'))
 settings=replace(base,pg_database='browser_test_'+suffix,ch_database='browser_test_'+suffix,state_dir=root/'state',config_dir=root/'config',archive_dir=None,env_file=root/'credentials.env')
-settings.write_private_env({'PGHOST':settings.pg_host,'PGPORT':str(settings.pg_port),'PGDATABASE':settings.pg_database,'PGSCHEMA':settings.pg_schema,'PGUSER':settings.pg_user,'PGPASSWORD':settings.pg_password,'CLICKHOUSE_URL':settings.ch_url,'CLICKHOUSE_DB':settings.ch_database,'CLICKHOUSE_USER':settings.ch_user,'CLICKHOUSE_PASSWORD':settings.ch_password,'BETALENS_INFRA_STATE':str(settings.state_dir),'BETALENS_DB_MANAGER_CONFIG':str(settings.config_dir)})
 s=DatabaseManagerService(settings)
+cleanup_writer=configure_writer(s);settings=s.settings
+# Only this newly created disposable fixture's environment file may be written.
+assert settings.env_file.resolve().parent==root.resolve()
+settings.write_private_env({'PGHOST':settings.pg_host,'PGPORT':str(settings.pg_port),'PGDATABASE':settings.pg_database,'PGSCHEMA':settings.pg_schema,'PGUSER':settings.pg_user,'PGPASSWORD':settings.pg_password,'CLICKHOUSE_URL':settings.ch_url,'CLICKHOUSE_DB':settings.ch_database,'CLICKHOUSE_USER':settings.ch_user,'CLICKHOUSE_PASSWORD':settings.ch_password,'CLICKHOUSE_WRITER_MODE':settings.ch_writer_mode,'BETALENS_INFRA_STATE':str(settings.state_dir),'BETALENS_DB_MANAGER_CONFIG':str(settings.config_dir)})
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path=urlsplit(self.path);p=parse_qs(path.query)
@@ -27,6 +31,15 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as exc:value={'error':str(exc)}
         elif path.path=='/assert-empty':
             with registry_context(s.registry):value={'pg':len(s.pg.query('browser_prices',start='2026-10-13',end='2026-10-13')['rows']),'ch':len(s.ch.query('browser_prices',start='2026-10-13',end='2026-10-13')['rows'])}
+        elif path.path=='/audit-sync-fault':
+            from psycopg2 import sql
+            assert settings.pg_database.startswith('browser_test_')
+            with s.pg.connect() as conn,conn.cursor() as cur:
+                cur.execute(sql.SQL('DROP TRIGGER IF EXISTS test_audit_fault ON {}.import_task').format(sql.Identifier(settings.pg_schema)))
+                if p.get('enabled')==['true']:
+                    cur.execute(sql.SQL("CREATE OR REPLACE FUNCTION {}.test_audit_fault() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.status='completed' THEN RAISE EXCEPTION 'test final audit mirror fault'; END IF; RETURN NEW; END; $$").format(sql.Identifier(settings.pg_schema)))
+                    cur.execute(sql.SQL('CREATE TRIGGER test_audit_fault BEFORE INSERT OR UPDATE ON {}.import_task FOR EACH ROW EXECUTE FUNCTION {}.test_audit_fault()').format(sql.Identifier(settings.pg_schema),sql.Identifier(settings.pg_schema)))
+            value={'enabled':p.get('enabled')==['true']}
         else:
             day=p.get('start_date',['2026-10-13'])[0]
             import time;time.sleep(55 if path.path=='/slow' else .4)
@@ -45,6 +58,7 @@ finally:
     mock.shutdown();mock.server_close()
     import psycopg2
     from psycopg2 import sql
+    cleanup_writer()
     s.ch.execute(f'DROP DATABASE IF EXISTS `{settings.ch_database}`')
     c=psycopg2.connect(**settings.pg('postgres'));c.autocommit=True
     with c.cursor() as cur:cur.execute(sql.SQL('DROP DATABASE IF EXISTS {} WITH (FORCE)').format(sql.Identifier(settings.pg_database)))

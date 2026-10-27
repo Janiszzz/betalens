@@ -20,7 +20,7 @@ PG_TYPES = {
     "date": "date",
     "timestamp": "timestamp with time zone",
     "numeric": "numeric(38,12)",
-    "integer": "integer",
+    "integer": "bigint",
 }
 
 def pg_type(field):
@@ -134,33 +134,52 @@ class Postgres:
         finally:
             conn.close()
 
-    def _existing_columns(self, cur) -> dict[str, dict[str, str]]:
-        cur.execute("SELECT table_name,column_name,data_type FROM information_schema.columns WHERE table_schema=%s", (self.settings.pg_schema,))
-        result: dict[str, dict[str, str]] = {}
-        for table, column, data_type in cur.fetchall():
-            result.setdefault(table, {})[column] = data_type
+    def _existing_columns(self, cur) -> dict[str, dict[str, dict]]:
+        cur.execute("SELECT table_name,column_name,data_type,is_nullable,numeric_precision,numeric_scale FROM information_schema.columns WHERE table_schema=%s", (self.settings.pg_schema,))
+        result: dict[str, dict[str, dict]] = {}
+        for table, column, data_type, nullable, precision, scale in cur.fetchall():
+            result.setdefault(table, {})[column] = {"name": column, "physical_type": data_type,
+                                                       "nullable": nullable == "YES", "precision": precision,
+                                                       "scale": scale}
         return result
 
+    def _existing_keys(self, cur) -> dict[str, list[str]]:
+        cur.execute("SELECT tc.table_name,kcu.column_name FROM information_schema.table_constraints tc JOIN information_schema.key_column_usage kcu USING(constraint_catalog,constraint_schema,constraint_name) WHERE tc.table_schema=%s AND tc.constraint_type='PRIMARY KEY' ORDER BY tc.table_name,kcu.ordinal_position", (self.settings.pg_schema,))
+        keys: dict[str, list[str]] = {}
+        for table, column in cur.fetchall():
+            keys.setdefault(table, []).append(column)
+        return keys
+
     def schema_plan(self) -> dict:
+        from .schema_contract import compare_structure
         tables = load_canonical_catalog()
         try:
             with self.connect(readonly=True) as conn, conn.cursor() as cur:
                 existing = self._existing_columns(cur)
+                keys = self._existing_keys(cur)
                 missing, mismatches, missing_columns = [], [], []
                 for name, spec in {**tables, **{k: None for k in CONTROL_DDL}}.items():
-                    expected = ({field["name"]: pg_type(field) for field in spec.fields} if spec else
-                                {field[0]: PG_TYPES.get(field[1], field[1]) for field in CONTROL_DDL[name]})
                     if name not in existing:
                         missing.append(name)
                         continue
-                    for col, typ in expected.items():
-                        actual = existing[name].get(col)
-                        # information_schema reports numeric without precision and timestamp with time zone verbatim.
-                        normalized = "numeric" if typ.startswith("numeric") else "bigint" if typ.startswith("bigint ") else typ
-                        if actual is None:
-                            missing_columns.append(f'{name}.{col}');continue
-                        if actual != normalized and not (normalized == "bigint" and actual == "bigint"):
-                            mismatches.append(f"{name}.{col}: 期望 {normalized}，实际 {actual or '缺失'}")
+                    if spec is not None:
+                        difference = compare_structure(spec, {"fields": list(existing[name].values()),
+                                                              "keys": keys.get(name, []), "exists": True}, "postgres")
+                        missing_columns.extend(f"{name}.{field['name']}" for field in difference["added"])
+                        mismatches.extend(f"{name}.{item['column']}: 期望 {item['to']}，实际 {item['from']}" for item in difference["changed"])
+                        mismatches.extend(f"{name}.{item['column']}: nullable 期望 {item['to']}，实际 {item['from']}" for item in difference["nullable_changes"])
+                        mismatches.extend(f"{name}.{column}: 未登记的目标字段" for column in difference["removed"])
+                        if difference["key_change"]:
+                            mismatches.append(f"{name}: 主键期望 {list(spec.keys)}，实际 {keys.get(name, [])}")
+                        continue
+                    expected = {field[0]: ("bigint" if field[1].startswith("bigint ") else field[1], field[2])
+                                for field in CONTROL_DDL[name]}
+                    for col, (typ, required) in expected.items():
+                        found = existing[name].get(col)
+                        if found is None:
+                            missing_columns.append(f"{name}.{col}")
+                        elif found["physical_type"] != typ or found["nullable"] == required:
+                            mismatches.append(f"{name}.{col}: 期望 {typ}{' NOT NULL' if required else ''}，实际 {found['physical_type']}{' NULL' if found['nullable'] else ' NOT NULL'}")
                 return {"target": self.settings.fingerprint, "database_missing": False, "create": missing,
                         "management": [], "missing_columns":missing_columns, "mismatches": mismatches, "ready": not (missing or missing_columns or mismatches)}
         except psycopg2.OperationalError:
@@ -169,11 +188,12 @@ class Postgres:
                 if cur.fetchone():
                     raise
             return {"target": self.settings.fingerprint, "database_missing": True,
-                    "create": list(tables) + list(CONTROL_DDL), "management": [], "mismatches": [], "ready": False}
+                    "create": list(tables) + list(CONTROL_DDL), "management": [],
+                    "missing_columns": [], "mismatches": [], "ready": False}
 
     def _create_table(self, cur, spec: CanonicalTable):
         fields = [sql.SQL("{} {}{}").format(sql.Identifier(f["name"]), sql.SQL(pg_type(f)),
-                                            sql.SQL(" NOT NULL" if not f.get("nullable", True) else "")) for f in spec.fields]
+                                            sql.SQL(" NOT NULL" if f["name"] in spec.keys or not f.get("nullable", True) else "")) for f in spec.fields]
         fields.append(sql.SQL("PRIMARY KEY ({})").format(sql.SQL(",").join(sql.Identifier(k) for k in spec.keys)))
         cur.execute(sql.SQL("CREATE TABLE IF NOT EXISTS {} ({})").format(relation(self.settings, spec.name), sql.SQL(",").join(fields)))
 
@@ -197,7 +217,9 @@ class Postgres:
             for spec in (specs if specs is not None else load_canonical_catalog()).values():
                 self._create_table(cur, spec)
                 for field in spec.fields:
-                    cur.execute(sql.SQL("ALTER TABLE {} ADD COLUMN IF NOT EXISTS {} {}").format(relation(self.settings,spec.name),sql.Identifier(field["name"]),sql.SQL(pg_type(field))))
+                    cur.execute(sql.SQL("ALTER TABLE {} ADD COLUMN IF NOT EXISTS {} {}{}").format(
+                        relation(self.settings,spec.name),sql.Identifier(field["name"]),sql.SQL(pg_type(field)),
+                        sql.SQL(" NOT NULL" if field["name"] in spec.keys or not field.get("nullable",True) else "")))
                 self._indexes(cur,spec)
             for name, definitions in CONTROL_DDL.items():
                 fields = []
@@ -279,10 +301,16 @@ class Postgres:
     def commit_rows(self, task_id: str, target: str, spec: CanonicalTable, rows: list[dict], mode: str, signature: str) -> dict:
         with self.connect() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute(sql.SQL("LOCK TABLE {} IN SHARE ROW EXCLUSIVE MODE").format(relation(self.settings, spec.name)))
-            comparison = self._compare_with_connection(cur, spec, rows, mode)
-            if comparison["signature"] != signature:
-                raise ValueError("预览后的目标数据已经变化，请重新预览")
-            changes = comparison["changes"]
+            if isinstance(signature,dict):
+                from .commit_protocol import manifest_rows,remaining_changes
+                comparison=signature
+                found=self._fetch_existing(cur,spec,manifest_rows(comparison))
+                changes=remaining_changes(spec,comparison,list(found.values()))
+            else:
+                comparison = self._compare_with_connection(cur, spec, rows, mode)
+                if comparison["signature"] != signature:
+                    raise ValueError("预览后的目标数据已经变化，请重新预览")
+                changes = comparison["changes"]
             if changes:
                 names = columns(spec)
                 values = [[change["after"].get(name) for name in names] for change in changes]

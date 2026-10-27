@@ -23,20 +23,27 @@ class Settings:
     ch_url: str = "http://127.0.0.1:8123"
     ch_database: str = "betalens"
     ch_user: str = "default"
+    ch_writer_mode: str = 'disabled'
     ch_password: str = field(default="", repr=False)
     token: str = field(default="", repr=False)
     requests_per_minute: int = 40
     timeout: int = 60
     archive_dir: Path | None = None
     env_file: Path | None = field(default=None, repr=False, compare=False)
+    credential_names: frozenset[str] = field(default_factory=frozenset,repr=False,compare=False)
 
     def __post_init__(self):
+        from .security import remember_secrets
+        remember_secrets(self.token,self.pg_password,self.ch_password)
+        if self.ch_writer_mode not in {'disabled','local_dedicated','local_admin'}:raise ValueError('ClickHouse 写入模式无效')
         identifier(self.pg_schema)
         identifier(self.ch_database)
         from urllib.parse import urlsplit
         url=urlsplit(self.ch_url)
         if url.scheme not in {'http','https'} or not url.netloc or url.username or url.password or url.query:
             raise ValueError('ClickHouse 地址须为不含凭证或查询参数的 HTTP(S) 地址')
+        if self.ch_writer_mode=='local_admin' and url.hostname not in {'localhost','127.0.0.1','::1'}:
+            raise ValueError('本机管理员受控写入仅支持本机 ClickHouse 地址')
         from .retrieval import request_rate
         request_rate(self.requests_per_minute)
         if not 1 <= self.pg_port <= 65535:
@@ -52,6 +59,7 @@ class Settings:
             "pg_host": "PGHOST", "pg_port": "PGPORT", "pg_database": "PGDATABASE", "pg_user": "PGUSER",
             "pg_password": "PGPASSWORD", "pg_schema": "PGSCHEMA", "ch_url": "CLICKHOUSE_URL",
             "ch_database": "CLICKHOUSE_DB", "ch_user": "CLICKHOUSE_USER", "ch_password": "CLICKHOUSE_PASSWORD",
+            "ch_writer_mode": "CLICKHOUSE_WRITER_MODE",
             "token": "TUSHARE_TOKEN", "state_dir": "BETALENS_INFRA_STATE", "config_dir": "BETALENS_DB_MANAGER_CONFIG", "requests_per_minute": "TUSHARE_RPM",
         }
         values = {key: environment.get(name, getattr(defaults, key)) for key, name in mapping.items()}
@@ -60,6 +68,7 @@ class Settings:
         for key in ("pg_port", "requests_per_minute"):
             values[key] = int(values[key])
         values["env_file"] = Path(path).expanduser().resolve() if path else None
+        values['credential_names']=frozenset(k for k,v in environment.items() if v)
         if environment.get('BETALENS_INFRA_ARCHIVE'): values['archive_dir']=Path(environment['BETALENS_INFRA_ARCHIVE']).expanduser().resolve()
         return cls(**values)
 
@@ -78,7 +87,7 @@ class Settings:
                 "config_dir": str(self.config_dir), "env_file":str(self.env_file or self.config_dir/"credentials.env"), "state_dir": str(self.state_dir), "archive_dir":str(self.archive_dir or self.state_dir/'archive'), "postgres_password_configured":bool(self.pg_password), "clickhouse_password_configured":bool(self.ch_password), "token_configured": bool(self.token),
                 "wind_configured": False,
                 "wind_credentials_configured":bool(os.environ.get('WIND_API_KEY') or os.environ.get('WIND_USER')),
-                "requests_per_minute": self.requests_per_minute, "fingerprint": self.fingerprint}
+                "requests_per_minute": self.requests_per_minute,"clickhouse_writer_mode":self.ch_writer_mode, "fingerprint": self.fingerprint}
 
     def write_private_env(self, values: dict[str, str]) -> Path:
         """Write secrets outside the repository with strict permissions."""

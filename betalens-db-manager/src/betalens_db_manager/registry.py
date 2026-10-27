@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from pathlib import Path
 import copy
-import yaml
+from . import safe_yaml as yaml
 from .canonical import CanonicalTable, builtin_catalog, COMMON_DAILY
 from .private import atomic_private
 from .util import digest, identifier, now

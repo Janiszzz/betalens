@@ -3,6 +3,7 @@ import {useCallback, useEffect, useState} from 'react';
 export const pages = [
   {label: '本地表', path: '/tables'},
   {label: '更新与审计', path: '/tasks'},
+  {label: '业务完整性', path: '/integrity'},
   {label: '字段映射', path: '/mappings'},
   {label: '订阅源', path: '/sources'},
   {label: '配置', path: '/settings'},

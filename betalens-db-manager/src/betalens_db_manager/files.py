@@ -14,7 +14,13 @@ from .comparison import PROVENANCE
 from .util import atomic_json, digest, dumps, now
 
 
-def import_file(service, name: str, path: Path, column_map: dict | None = None, mode="fill_missing", encoding="utf-8-sig", targets: list[str] | None = None, defer: bool = False, job_id: str | None = None) -> dict:
+def import_file(service, *args, **kwargs):
+    from .canonical import registry_context
+    with registry_context(getattr(service,'registry',None)):
+        return _import_file(service,*args,**kwargs)
+
+
+def _import_file(service, name: str, path: Path, column_map: dict | None = None, mode="fill_missing", encoding="utf-8-sig", targets: list[str] | None = None, defer: bool = False, job_id: str | None = None) -> dict:
     from .sources import FileSourceAdapter
     FileSourceAdapter().plan({'path':str(path),'column_map':column_map})
     canonical_file=name in load_canonical_catalog()

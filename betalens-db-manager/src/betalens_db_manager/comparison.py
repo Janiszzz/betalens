@@ -2,6 +2,7 @@
 from datetime import date, datetime, timezone
 from decimal import Decimal, localcontext
 
+from .integer_contract import validate_int64
 from .util import digest
 
 PROVENANCE = {'ingested_at','schema_version','source_id','downloaded_at','available_at','availability_basis','import_task_id','source_name',
@@ -29,9 +30,7 @@ def typed(spec, row):
                     raise ValueError(f'{name}: 超出 Decimal(38,12) 范围')
                 result[name] = number.quantize(Decimal(10)**(-scale))
         elif kind == 'integer':
-            number = Decimal(str(value))
-            if number != int(number): raise ValueError(f'{name}: 需要整数')
-            result[name] = int(number)
+            result[name] = validate_int64(value, name)
         else:
             result[name] = str(value)
     from .canonical import builtin_catalog
@@ -58,7 +57,7 @@ def row_key(spec, row):
 def compare(spec, rows, existing, mode):
     if mode not in {'fill_missing','refresh_source'}: raise ValueError('不支持的写入模式')
     old = {tuple(typed(spec, value).get(key) for key in spec.keys): typed(spec, value) for value in existing}
-    changes, snapshots, conflicts = [], [], []
+    changes, snapshots, checks, conflicts = [], [], [], []
     counts = {'inserted':0,'updated':0,'skipped':0,'conflicts':0}
     business = [f['name'] for f in spec.fields if f['name'] not in PROVENANCE]
     for incoming in rows:
@@ -67,22 +66,32 @@ def compare(spec, rows, existing, mode):
         if any(value is None for value in key): raise ValueError(f'{spec.name}: 主键不能为空 {spec.keys}')
         before = old.get(key)
         snapshots.append([row_key(spec,incoming), row_hash(spec,before) if before else None])
+        checks.append({'row_key':row_key(spec,incoming),
+                       'key':{name:incoming[name] for name in spec.keys},
+                       'before_hash':row_hash(spec,before) if before else None})
         after = dict(incoming)
         if before is None:
             counts['inserted'] += 1
         else:
+            atomic_nav = spec.name == 'fund_nav_daily'
+            if atomic_nav:
+                from .nav_semantics import nav_publication_decision
+                if nav_publication_decision(before, incoming) == 'skip':
+                    counts['skipped'] += 1
+                    continue
             conflict_fields=[k for k in business if incoming.get(k) is not None and before.get(k) is not None and incoming[k]!=before[k]]
             if conflict_fields:
                 counts['conflicts']+=1
                 conflicts.append({'row_key':row_key(spec,incoming),'before':before,'incoming':incoming,'fields':conflict_fields})
-            for name in business:
-                if (mode == 'fill_missing' and before.get(name) is not None) or (incoming.get(name) is None and before.get(name) is not None):
-                    after[name] = before[name]
+            if not atomic_nav:
+                for name in business:
+                    if (mode == 'fill_missing' and before.get(name) is not None) or (incoming.get(name) is None and before.get(name) is not None):
+                        after[name] = before[name]
             if all(after.get(k) == before.get(k) for k in business):
                 counts['skipped'] += 1
                 continue
             counts['updated'] += 1
-            if before.get('source_name') and not set(before['source_name'].split(',')).issubset(set(str(incoming.get('source_name','')).split(','))):
+            if not atomic_nav and before.get('source_name') and not set(before['source_name'].split(',')).issubset(set(str(incoming.get('source_name','')).split(','))):
                 preserved=[name for name in business if before.get(name) is not None and after.get(name)==before[name]]
                 if preserved:
                     after['source_name']=','.join(sorted(set(before['source_name'].split(',')+str(incoming.get('source_name','')).split(','))))
@@ -91,7 +100,8 @@ def compare(spec, rows, existing, mode):
                     if 'data_quality_status' in after:after['data_quality_status']='mixed_sources'
         changes.append({'before':before,'after':after,'row_key':row_key(spec,after),
                         'before_hash':row_hash(spec,before) if before else None,'after_hash':row_hash(spec,after)})
-    return {'counts':counts,'changes':changes,'conflicts':conflicts,'signature':digest({'snapshots':snapshots,'changes':[[c['row_key'],c['before_hash'],c['after_hash']] for c in changes]})}
+    return {'counts':counts,'changes':changes,'checks':checks,'conflicts':conflicts,
+            'signature':digest({'snapshots':snapshots,'changes':[[c['row_key'],c['before_hash'],c['after_hash']] for c in changes]})}
 
 
 def content_hash(spec,row):

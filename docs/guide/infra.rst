@@ -1,172 +1,238 @@
-独立数据基础设施
-================
+独立数据库管理
+==============
 
-``betalens-db-manager`` 独立安装和运行，维护数据接入、数据库结构、字段合同、
-元数据、归档、审计和回退。组件不导入 ``betalens``、研究 Dashboard 或已删除的
-``betalens_db_manager``。后复权行情按数据合同生成，暂不计算量化因子。
+``betalens-db-manager`` 是独立安装的 FastAPI + React 组件，负责本地表结构、订阅源、
+字段映射、请求任务、缓存审计、入库与回退，不依赖 Betalens 因子、Dashboard 或回测代码。
+Python 包名为 ``betalens_db_manager``；这是当前组件的包名，不能与已删除的旧 Windows GUI 混淆。
 
-首次使用
---------
+PostgreSQL 和 ClickHouse 是同等目标库，默认同时选择，也可单独更新，分别报告执行和核验结果。
+默认 PG 数据库及 schema 均为 ``betalens``，CH 数据库为 ``betalens``。
 
-.. code-block:: bash
-
-   python3 -m venv /path/to/infra-venv
-   /path/to/infra-venv/bin/python -m pip install -e './betalens-db-manager[files]'
-   cp betalens-db-manager/infra.env.example /private/path/infra.env
-   chmod 600 /private/path/infra.env
-   # 填写数据库连接和 TUSHARE_TOKEN
-   /path/to/infra-venv/bin/betalens-db-manager --env /private/path/infra.env doctor
-   /path/to/infra-venv/bin/betalens-db-manager --env /private/path/infra.env serve
-
-访问 ``http://127.0.0.1:8010``；Windows 可通过 WSL localhost 转发访问。静态网页随包安装。
-修改前端后在 ``betalens-db-manager/frontend`` 执行 ``npm ci && npm run build``。
-全新机器可通过 ``services up`` 启动组件内 Compose 模板中的两个数据库，已有服务则直接配置连接。
-服务启动和建库建表分开执行。
-
-私有配置
---------
-
-默认 PostgreSQL 数据库为 ``betalens``、数据 schema 为 ``betalens``，ClickHouse 数据库为
-``betalens``。连接由 ``PGHOST/PGPORT/PGDATABASE/PGSCHEMA/PGUSER/PGPASSWORD`` 和
-``CLICKHOUSE_URL/CLICKHOUSE_DB/CLICKHOUSE_USER/CLICKHOUSE_PASSWORD`` 配置。
-``TUSHARE_TOKEN``、``TUSHARE_RPM`` 分别设置凭证和请求限频。
-
-网页可编辑配置；秘密字段留空时保留原值。保存到仓库外的私有环境文件，采用原子替换和
-``0600`` 权限；保存后重启服务生效。网页和日志不返回密码或 Token。
-``BETALENS_INFRA_STATE`` 设置持久化任务目录；``BETALENS_INFRA_ARCHIVE`` 可单独设置下载归档目录。
-
-建库建表与显式重建
-------------------
-
-网页查看结构计划后执行安装，或使用：
-
-.. code-block:: bash
-
-   betalens-db-manager --env /private/path/infra.env schema plan
-   betalens-db-manager --env /private/path/infra.env schema apply --token <plan-token>
-   betalens-db-manager --env /private/path/infra.env rebuild --dry-run
-   betalens-db-manager --env /private/path/infra.env rebuild --confirm-drop
-
-普通安装创建缺失的表、列和索引；不兼容的字段类型会停止安装。重建默认只读预览，
-``--confirm-drop`` 才删除所列旧 schema/table。删除前保存对象、字段、行数和时间范围清单。
-旧数据库名由 ``BETALENS_LEGACY_PGDATABASE`` 指定，默认 ``datafeed``；清理旧
-``tushare/market/betalens`` schema，目标库重建 canonical 表；CH 清理所选数据库旧表。
-清单是结构与覆盖审计记录，不是原始数据备份。
-
-统一表合同
-----------
-
-``canonical.py`` 定义源无关表，``mapping.py`` 登记来源字段、目标字段、单位、转换规则和版本。
-PG/CH 的事实表及管理表逻辑列集合一致，物理类型分别映射到 ``numeric/date/timestamptz`` 和
-``Decimal/Date32/DateTime64``。核心表包括：
-
-* ``security_dim``、``trade_calendar``。
-* ``market_daily_raw``、``market_daily_post_adjusted``。
-* ``trade_status_daily``。
-* ``industry_scheme_dim``、``industry_dim``、``security_industry_membership``。
-* ``index_membership``、``fundamental_periodic``、``corporate_action``。
-* ``fund_nav_daily``、``fund_shares_daily``、``security_code_history``。
-
-不创建 ``daily_market/daily_fund/daily_index/trade_status`` 兼容视图。
-财务宽表保留 income/balancesheet/cashflow/fina_indicator 的全部登记数值输入，报表种类和
-版本参与业务键，不把不同报表的公告日期混在一起。未入宽表的描述字段在字段映射中明确标记
-``__raw_archive_only__``，原始响应始终保留。
-
-行情量由手转股/份乘 100，金额由千元转元乘 1000，股本和市值由万转基本单位乘 10000。
-申万行业行情和基金份额按各自合同转换。数值全程使用 Decimal，JSON 传输为字符串。
-股票/基金后复权价格为原价乘源复权因子；指数保存原生指数值。后复权宽表同时保留
-``raw_*``、因子、公式、计算版本，成交量和成交额不复权。缺因子时明确标记不可用，价格保持空值。
-指数请求按源合同路由：中证 ``.CSI`` 代码保留原后缀，申万 ``.SI`` 代码使用
-`sw_daily <https://tushare.pro/document/2?doc_id=327>`_；
-`index_daily <https://tushare.pro/document/2?doc_id=95>`_ 不提供申万行业行情。
-
-事实行带 ``event_date/available_at/downloaded_at``、可得时间依据、来源接口、字段映射版本、
-任务 ID 和源记录哈希。源端仅有公告日期时采用下一日零点（上海）的保守日内假设；源端无法证明
-历史修订的实际公开时间时，在依据字段说明，不将当前补拉版本当成严格历史 PIT 数据。
-
-更新、审计与回退
-----------------
-
-网页“更新与审计”包含完整流程：选择 Tushare 或显式映射文件，选择目标库（默认同时勾选
-PG/CH），下载归档，核对原始值、字段集合、单位转换、标准化宽表和 before/after，最后确认导入。
-两个目标分别提交，任一失败显示 ``partial``；跨库键集合、字段哈希或行数不同也会显示差异。
-“数据查询”可针对证券和日期范围检查交易日缺口，扣除已知上市/退市边界，并单独统计
-未知交易状态和后复权价格不可用行。缺行情只标记为待核查缺口，不推定为停牌。
-
-源字段按名称映射，必需字段缺失或未登记字段阻止发布，可选字段缺失显示说明。触及接口返回上限时
-分片；不支持可靠分片/分页时停止，不把截断响应视为完整数据。权限不足作为源能力缺失记录；
-``strict_capabilities`` 可要求这些缺失阻止整个任务。
-
-本地 SQLite 保存提交前的 before/after 日志和每表进度，并将审计镜像写入选中的数据库。
-只选择 CH 时无需 PG 可用。重复归档不产生重复逻辑行；中断恢复会核验已写入值后续接。
-恢复下载不会绕过手工确认；已确认但部分失败的提交可用 ``resume`` 续接。
-
-回退生成新任务 ID，保留原审计。只有当前行仍等于原任务的 after 值才允许逆操作。
-后续任务修改过的行显示冲突，阻止未执行的逆操作。PG 在事务中回退；CH 以临时表重建受影响
-分区、复制未受影响分区后原子交换发布，每表保存恢复进度。回退审计记录恢复前后值及目标状态。
-
-基金和指数缺少等价于股票停复牌的权威逐证券接口；行情、成交量和交易日历只能产生
-``derived_from_daily_quote`` 状态。股票结合上市/退市边界和 suspend_d；缺行情不等于停牌，
-盘中停复牌也不会错误地标成全日停牌。行业归属保留三层分类、历史纳入/剔除日期和分类体系。
-北交所新旧代码原样登记对照，上市日期不推定为代码变更生效日。
-
-CLI 与历史补全
+首次使用与启动
 --------------
 
+在仓库根目录创建组件虚拟环境，并以开发模式安装：
+
 .. code-block:: bash
 
-   betalens-db-manager --env /private/path/infra.env plan request.yaml
-   betalens-db-manager --env /private/path/infra.env download <job>
-   betalens-db-manager --env /private/path/infra.env preview <job>
-   betalens-db-manager --env /private/path/infra.env commit <job> --token <preview-token>
-   betalens-db-manager --env /private/path/infra.env resume <job>
-   betalens-db-manager --env /private/path/infra.env rollback <job> --targets postgres clickhouse
-   betalens-db-manager --env /private/path/infra.env query market_daily_raw --target clickhouse
-   betalens-db-manager --env /private/path/infra.env load --config betalens-db-manager/initial_load.example.yaml
+   python3 -m venv betalens-db-manager/.venv
+   betalens-db-manager/.venv/bin/python -m pip install -e './betalens-db-manager[files]'
+   betalens-db-manager/.venv/bin/betalens-db-manager serve --port 8010
 
-初始加载模板从 2004 年开始，基础信息包括退市股，A 股行情排除 B 股；逐月加载行情，指数和财报
-分年份加载。四个财报 ``*_vip`` 接口均通过实测权限检查时，自动采用按报告期分页下载，
-并限定到证券清单及其北交所历史代码；否则按证券组调用普通接口。两类接口使用相同字段合同。
-再次执行同一个 manifest 会登记未完成批次的恢复操作；复用成功分片，并重新审计确认。
-完整历史请求数量受证券数量、接口权限和请求限频影响；任务历史和覆盖范围可以区分样本验收与全量完成。
-一次性真实验收脚本位于 ``scripts/verify_live_samples.py``，报告写入私有状态目录。
+Windows 原生运行使用虚拟环境的 ``Scripts\python.exe`` 和
+``Scripts\betalens-db-manager.exe``。浏览器访问 ``http://127.0.0.1:8010``；
+Windows 浏览器可通过 localhost 转发访问 WSL 服务。服务仅监听本机，静态前端随包安装。
+已有私有环境文件时，在子命令前指定 ``--env /private/path/credentials.env``。
 
-Wind 保留 SourceAdapter 接口，未配置 SDK 和字段合同时明确显示不可用。
-文件支持 CSV/CSV.GZ/XLSX/Parquet，必须逐列指定目标字段；可为数值列显式登记单位乘数，
-日期列可登记格式，时间列必须提供时区或自带时区。原文件和转换前的行均归档。
-可得时间没有依据时保持未知。
+``serve`` 默认管理一个 worker，worker 为每次数据操作启动独立子进程。
+仅在外部已管理 worker 时使用 ``serve --no-worker``。
+修改前端后，在 ``betalens-db-manager/frontend`` 分别执行 ``npm ci`` 和 ``npm run build``。
 
-自动更新默认关闭，用户主动勾选并保存后才启用。手动单次更新、安装、初始加载和服务启动不会
-创建周期任务。调度按 Asia/Shanghai；重启不会立即补跑已错过的计划。
+服务启动不会自动建库、删除表、入库或恢复历史补全。全新机器可用 ``services up``
+启动组件提供的 Compose 数据库模板；已有数据库直接配置连接。建库建表仍需单独预览和确认。
 
-本地表全生命周期（0.3）
------------------------
+页面与工作流
+------------
 
-管理入口更名为 ``betalens-db-manager``，默认配置目录为 Linux/WSL
-``~/.config/betalens/db-manager/``，Windows 原生为 ``%LOCALAPPDATA%/Betalens/DBManager/config``。
-WSL 服务由 Windows 浏览器访问时仍使用 WSL 目录。凭据不得保存在任何 Git 工作树内。
+.. list-table:: 管理入口
+   :header-rows: 1
+   :widths: 20 18 62
 
-在“本地表”填写业务字段、类型精度、业务主键和时间规则，保存 YAML 草案，预览 PG/CH DDL，
-再确认执行。``ingested_at``、``import_task_id``、来源、哈希和版本等字段由系统维护。
-表定义位于 ``tables/<table_id>.yaml``，映射位于 ``mappings/<table_id>.yaml``。
-直接编辑 YAML 产生待校验变更，不自动执行 DDL；无效编辑保留上一有效运行版本。
+   * - 页面
+     - 路径
+     - 用途
+   * - 本地表
+     - ``/tables``
+     - 表清单、时间分布、结构检查、建表及变更。
+   * - 更新与审计
+     - ``/tasks``
+     - 普通注册表的请求、日志、缓存、字段校验、确认入库和回退。
+   * - 业务完整性
+     - ``/integrity``
+     - 行业、日历、停牌范围检查、追加版本、可信发布及撤销。
+   * - 字段映射
+     - ``/mappings``
+     - 查询源多选、字段连线、联合键与来源优先级。
+   * - 订阅源
+     - ``/sources``
+     - 来源实例、查询合同及配置状态。
+   * - 配置
+     - ``/settings``
+     - 数据库、鉴权、目录、限频及连接测试。
+   * - 自动更新
+     - ``/schedules``
+     - 显式启用的周期请求；默认关闭。
 
-“字段映射”允许拖动源字段到本地字段，或通过下拉选择；基本单位、日期格式和时区规则可编辑。
-来源主备顺序写入 YAML，实际采用的来源和冲突进入任务证据。非默认输出字段也显式请求。
-内置证券档案、分红、停复牌、名称历史和净值公告明细，完整保留对应查询粒度和字段。
+页面支持直接访问、刷新及浏览器前进、后退。普通更新流程为：
 
-“更新与审计”按本地表和日期自动匹配请求。拉取后先检查源缓存、单位、日期、拒收和 before/after，
-再确认通过的记录入库。回退保留原记录，后续任务修改过的行产生冲突。
-已有归档可创建补字段任务；无法恢复的字段需要重新拉取。数据库中新增的历史审计列保持未知，
-最后实际写入时间可从历史审计读取，不把本次建列时间冒充旧数据入库时间。
+#. 查看本地表业务日期分布、最新业务日期和最后实际写入时间。
+#. 指定表、证券、日期和目标库，核对自动生成的实际 API 请求及依赖。
+#. 登记任务后手工拉取，查看脱敏参数、HTTP 状态、耗时、分页及重试日志。
+#. 审计原始值、标准化结果、单位和日期、字段来源、拒收记录及 before/after。
+#. 确认审计版本后写入，各库分别核验业务键、行数和内容哈希。
+#. 查看结果或回退；数据、映射、结构或目标状态变化后重新审计。
 
-网页会话管理执行器。最后一个页面关闭后，经过重连宽限停止任务子进程；任务记录和检查点保留。
-自动更新默认关闭，仅页面在线时调度；定时任务也停止在待审计阶段。
-CLI 数据操作进入同一队列，通常等待页面在线；显式 ``worker --once`` 可在终端执行一个操作。
-``load`` 登记批次拉取任务，不再自动确认入库。重新打开网页不会自动恢复中断任务。
+表级日期分布只证明当天存在记录，不能证明某只股票或全市场完整。
+三个业务参考域使用请求与发布范围凭证检查，详见 :doc:`db-manager-reference`。
 
-完成任务的源缓存七天后清理，但仍被未完成任务引用的归档继续保留；长期审计、任务参数和回退证据保留。
+本地表、YAML 与多源映射
+----------------------
 
-验收脚本 ``scripts/verify_manager_live.py`` 使用临时数据库核查 29 个接口及特殊证券样本；
-``scripts/migrate_existing.py`` 默认只预览增量升级，``--apply`` 执行兼容增列和新建明细表，
-遇到破坏性变化停止并要求单独结构计划。它们均不恢复历史全量补全。
+内置和自定义表由同一个 ``TableRegistry`` 管理，导入程序读取注册定义。
+建表时填写中文名称、说明、粒度、字段、精度、单位、业务主键和时间规则，
+保存草案后预览 PG/CH DDL，再确认部署。系统维护任务、来源、哈希、版本及
+``ingested_at`` 等受保护审计字段，源字段不能覆盖它们。
+
+配置目录中的可编辑定义：
+
+* ``tables/<table_id>.yaml``：表定义。
+* ``mappings/<table_id>.yaml``：查询绑定、字段、共同键和转换规则。
+* ``sources.yaml``：订阅源实例及查询合同；鉴权使用环境变量引用。
+
+SQLite 保存有效版本、任务、执行尝试、日志、操作状态和审计索引；目标库元数据记录已部署结构。
+直接编辑 YAML 不自动执行 DDL；无效修改显示错误，保留上一有效版本。
+数据任务固定使用创建时的结构、映射及来源合同快照。
+
+映射页用下拉多选添加或移除查询源，已有来源显示勾选，重复绑定会被识别。
+关系图展示源字段到本地字段的连接，也可下拉选择。单查询普通字段一一对应；
+多查询合并必须使用完整业务键，可含多个联合字段。重复业务列要明确主备优先级，
+源内同键多条不同值会阻止不明确的合并。
+
+手工表的 ``format_version: 2`` 映射用 ``join_keys`` 指定共同键，并保留相应字段连线。
+未使用源字段在 ``ignored_fields`` 说明原因。草稿可以保存，存在阻断问题时不能更新。
+数值转换用 Decimal，前端以字符串传输精确值；零值有效，转换错误不能作为空值静默回退。
+
+PG/CH 保持逻辑字段、单位及业务键语义一致，分别映射为
+``numeric/date/timestamptz`` 与 ``Decimal/Date32/DateTime64`` 等物理类型。
+增列、改类型、改主键、重命名、删列或删表先做结构预览；已有数据新增必填列或收紧可空性时
+先要求可审计回填。归档与物理删除分开，破坏性迁移单独确认。
+
+来源能力与 Tushare 完整获取
+--------------------------
+
+Tushare 只是订阅源之一。``SourceRegistry`` 支持 HTTP API、Python 适配器及
+``betalens_db_manager.sources`` 入口点；Python 扩展使用 ``SubscriptionAdapter`` 和 ``FetchContext``。
+来源负责提数，公共引擎负责映射、审计及数据库写入。Wind 未配置 SDK 和字段合同时明确不可用。
+CSV、CSV.GZ、XLSX、Parquet 通过显式映射导入，保留原文件和转换证据。
+
+Tushare 显式请求合同字段，按字段名取值，不依赖列顺序。缺少必需字段、出现未登记字段、
+重复或交叠分页会阻止相关响应提交。权限不足、空响应、合同覆盖与字段实际验证分别报告，
+不能据此声称数据完整。字段核查包含源字段、本地列、规则、实际响应与数据库读回证据。
+
+每任务可设置每分钟请求次数，未指定用 ``TUSHARE_RPM``，不会由 Token 推断会员等级。
+实际请求同时遵守接口限频。HTTP 429 遵守 ``Retry-After``；日或小时配额耗尽时保留检查点。
+支持 offset 的查询按实际返回行数推进至空页，短页不直接终止。
+非分页查询触及已登记上限时，按不重叠日期、证券或文档枚举分区重新请求。
+证券分区使用重新获取并归档的完整源端清单，不能用残缺本地清单代替。
+最小分区仍触及上限或无法证明覆盖时停止，不将截断响应标为完整。
+每页和分区保存检查点、归档哈希，网页展示“请求分片与获取完整性”。
+
+普通业务表与回退边界
+--------------------
+
+普通表包括证券维度及股票、基金、指数档案，原始和后复权行情，日指标、基金净值与份额、
+行业字典和成员记录、分红及停复牌明细、财务宽表等。登记源字段需要明确去向；
+仅存压缩归档不计作完整落列。财报区别 ``ann_date``、``f_ann_date`` 和报告修订版本。
+
+行情 ``vol`` 从手转股或份乘 100，``amount`` 从千元转元乘 1000，股本及市值从万转基本单位乘 10000。
+基金份额、申万行业行情等使用各自合同单位，不套用其他查询规则。
+股票、基金后复权价格为原价乘源复权因子，指数保留原生值。后复权表保留原价、因子、公式和版本，
+成交量、金额不随价格复权；缺因子明确标记不可用。
+
+``event_date``、``available_at``、``downloaded_at``、``ingested_at`` 分别表示业务日期、实际可得、
+下载和目标库实际写入时间。历史补列不能把当前时间冒充旧入库时间；可得时间依据和无法证明的
+历史修订单独报告，不宣称所有表具有严格历史可知性。
+
+普通表按业务键比较并 upsert。回退创建新任务，仅当当前行仍匹配原 after 时恢复 before 或删除新增行，
+后续修改产生冲突。PG 用事务；CH 在受控窗口用临时表重建交换并保存检查点。
+三个新参考域使用追加版本与撤销发布，不能混用这两种回退语义。
+
+不创建 ``daily_market``、``daily_fund``、``daily_index``、``trade_status`` 兼容视图。
+旧 ``BacktestBase`` 和业务查询 API 不自动转向新表，后续查询重构需明确接入新合同。
+
+私有配置与目录
+--------------
+
+Linux/WSL 默认配置为 ``~/.config/betalens/db-manager/``，状态为
+``~/.local/share/betalens-db-manager/``。Windows 原生分别为
+``%LOCALAPPDATA%\Betalens\DBManager\config\`` 和同级 ``state\``。
+Windows 浏览器访问 WSL 时，文件仍写入 WSL。
+
+环境文件选择顺序为：显式 ``--env``、``BETALENS_DB_MANAGER_ENV``、``BETALENS_INFRA_ENV``、
+默认配置目录下 ``credentials.env``。文件中的同名值优先于进程环境。
+
+.. list-table:: 主要环境变量
+   :header-rows: 1
+   :widths: 48 52
+
+   * - 变量
+     - 用途
+   * - ``PGHOST``、``PGPORT``、``PGDATABASE``、``PGSCHEMA``、``PGUSER``、``PGPASSWORD``
+     - PostgreSQL 连接。
+   * - ``CLICKHOUSE_URL``、``CLICKHOUSE_DB``、``CLICKHOUSE_USER``、``CLICKHOUSE_PASSWORD``
+     - CH HTTP 连接；URL 不含鉴权值。
+   * - ``CLICKHOUSE_WRITER_MODE``
+     - ``disabled``、``local_dedicated`` 或 ``local_admin``。
+   * - ``TUSHARE_TOKEN``、``TUSHARE_RPM``
+     - Tushare 凭证及默认分钟请求上限。
+   * - ``BETALENS_DB_MANAGER_CONFIG``
+     - 表、映射和来源 YAML 目录。
+   * - ``BETALENS_DB_MANAGER_STATE``
+     - 状态目录，优先于旧名 ``BETALENS_INFRA_STATE``。
+   * - ``BETALENS_INFRA_ARCHIVE``
+     - 原始响应归档目录；默认状态目录下 ``archive/``。
+
+网页可编辑连接、鉴权和限频。秘密输入留空保留原值，响应只显示是否配置。
+保存后新执行尝试读取新配置，正在执行的子进程使用启动快照。改变配置或状态目录时返回
+``restart_required``，需重启服务。凭据文件检查真实路径、符号链接及父目录 Git 标记，
+即使被 ``.gitignore`` 忽略也不能写入工作树。WSL 凭据使用 Linux 文件系统；
+目录 ``0700``、文件 ``0600``，Windows 使用受限 ACL。任务、映射、日志和报告不保存鉴权值。
+
+CH 默认 ``disabled``；``local_dedicated`` 用本机专用写账号，``local_admin`` 用用户显式配置的
+现有本机管理员，执行目标锁、权限和写入日志核验。管理员模式无法阻止外部管理员绕过工具写入，
+维护时需避免其他客户端并发修改。启动不会自动创建管理员、专用写账号或业务只读账号。
+
+任务、会话与命令行
+------------------
+
+.. code-block:: bash
+
+   betalens-db-manager --env /private/path/credentials.env doctor
+   betalens-db-manager --env /private/path/credentials.env schema plan
+   betalens-db-manager --env /private/path/credentials.env schema apply --token <schema-token>
+   betalens-db-manager --env /private/path/credentials.env plan request.yaml
+   betalens-db-manager --env /private/path/credentials.env download <job>
+   betalens-db-manager --env /private/path/credentials.env preview <job>
+   betalens-db-manager --env /private/path/credentials.env commit <job> --token <preview-token>
+   betalens-db-manager --env /private/path/credentials.env job <job>
+   betalens-db-manager --env /private/path/credentials.env query market_daily_raw --target clickhouse
+
+CLI 的 ``download``、``commit``、``resume``、``rollback``、``load`` 进入持久化队列，仍能在网页找到。
+常驻 worker 等待页面在线；显式 ``worker --once`` 可在终端执行一个排队操作。
+``load --config`` 登记批次拉取，完成后仍需审计确认，不自动入库。
+普通任务 ``resume`` 可核验检查点续接；参考任务中断后要创建关联新任务，重新审计确认。
+参考版本查询使用 :doc:`db-manager-reference` 的专用接口，不能直接传给普通 CLI ``query``。
+
+最后一个管理页面关闭前浏览器提示；关闭或断连后经过重连宽限停止任务子进程，服务继续可访问。
+任务和检查点保留，重新打开不自动恢复。自动更新默认关闭，仅显式开启且页面在线时调度，
+错过的调度不补跑，周期任务也只拉取至待审计。
+完成任务源缓存七天后清理，未完成任务引用的归档、长期审计和回退证据保留。
+
+``rebuild`` 默认仅预览；``rebuild --confirm-drop`` 明确删除旧表，不是日常初始化或参考表升级命令。
+结构和覆盖清单不是数据备份。已有生产数据应纳入清单并预览兼容迁移，不恢复已暂停历史补全。
+
+测试与验收
+----------
+
+单元、隔离库测试在 ``betalens-db-manager/tests``，浏览器测试在 ``frontend/e2e``。
+使用组件虚拟环境，真实库测试通过私有配置创建隔离测试库并清理：
+
+.. code-block:: bash
+
+   betalens-db-manager/.venv/bin/python -m pytest betalens-db-manager/tests -q
+   BETALENS_INFRA_ENV=/private/path/credentials.env BETALENS_INFRA_INTEGRATION=1 \
+     betalens-db-manager/.venv/bin/python -m pytest betalens-db-manager/tests/test_reference_storage.py -q
+
+``betalens-db-manager/scripts/production_reference_smoke.py`` 默认只保存建表预览；
+``--execute`` 会新增结构、真实提数、发布、读回并撤销，保留历史版本及审计，
+应作为明确授权的生产验收操作。脚本不自动恢复历史补全。

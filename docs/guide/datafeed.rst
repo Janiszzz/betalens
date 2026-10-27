@@ -6,6 +6,13 @@
 配置
 ----
 
+.. important::
+
+   本页描述研究层的既有查询合同。当前 DB Manager 的本地生产库为 ``betalens``，
+   不生成旧兼容视图；``Datafeed("daily_market")`` 等示例要求另行准备或适配研究库。
+   DB Manager 的 ``PG*/CLICKHOUSE_*`` 配置与本页 ``BETALENS_DB_*`` 分开读取，
+   修改一个不会自动修改另一个。现状见 :doc:`local-databases`。
+
 配置模板位于 ``betalens/datafeed/config.example.json``。仓库内本地开发可复制为已忽略的
 ``config.local.json`` 后修改数据库信息：
 
@@ -88,9 +95,10 @@ Datafeed 查询
    nib_days = get_absolute_trade_days("2024-01-01", "2024-12-31", "D", exchange="NIB")
    next_day = trade_days_offset("2024-01-31", 1, period="D")
 
-``get_absolute_trade_days`` 仅从本地 ``trade_calendar`` 数据集读取，不访问在线服务；
+``get_absolute_trade_days`` 仅从其研究合同中的本地 ``trade_calendar`` 数据集读取，不访问在线服务；
 ``exchange`` 默认 ``SHSE``。``period`` 支持 ``D``、``W``、``M``、``Q``、``S``、``Y``，
-非日频返回每个周期最后一个交易日。首次使用前，需用数据库管理器导入交易日历。
+非日频返回每个周期最后一个交易日。DB Manager 的新 ``trade_calendar_versions`` 使用
+``SSE/SZSE/BSE`` 标识和可信发布读取规则；不能把它与旧 ``SHSE`` 研究路由直接等同。
 
 行业
 ----
@@ -152,6 +160,12 @@ Datafeed 查询
    })
 
 回测和 ``get_tradable_pool`` 都依赖该表。停牌持仓在 ``BacktestBase`` 中由 ``trade_status_mode`` 控制。
+
+新 ``stock_suspension_intervals_versions`` 记录停复牌原文与区间，不沿用旧表的稀疏状态还原。
+无事件只有在查询完整、日历开市且上市范围已知时才能解释为“未报告停牌”，
+不是所有交易限制均已检查的承诺；未知不能转成旧状态 ``1``。
+行业新版本也使用完整历史范围快照，默认最新可信修订，不宣称严格历史可知性。
+详见 :doc:`db-manager-reference`；旧研究 API 的后续适配需单独实现。
 
 数据接入边界
 ------------

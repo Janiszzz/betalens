@@ -34,34 +34,96 @@ def existing(target,spec,rows):
     return {row_key(spec,row):typed(spec,row) for row in found}
 
 
-def task_record(service,job,status,error=None):
+def task_record(service,job,status,error=None,persist=True):
     item=service.state.job(job)
     request=item['plan']['request']
     old=next(iter(service.state.ledger_rows('import_task',job)),{})
     row={'task_id':job,'source_name':','.join(request.get('sources',['tushare'])),'targets':','.join(request['targets']),
          'status':status,'request':request,'mapping_version':item['plan'].get('mapping_version',VERSION),'created_at':item['created'],
          'started_at':old.get('started_at') or now(),'finished_at':now() if status in {'completed','failed','partial','rolled_back'} else None,'error':error}
-    service.state.ledger_put('import_task',job,row)
+    if persist:service.state.ledger_put('import_task',job,row)
+    return row
 
 
 def sync_control(service,target_name,job):
     target=service.pg if target_name=='postgres' else service.ch
-    for table in ('import_task','import_source_archive','import_target_status','import_row_audit','import_rollback','meta_source_mapping','meta_source_capability'):
-        if table=='import_row_audit':
-            after=0
-            while True:
-                rows=service.state.audits(job,after=after,limit=1000)
-                if not rows:break
-                target.control_write(table,rows);after=rows[-1]['id']
-            continue
-        rows=service.state.ledger_rows(table,job)
-        if rows: target.control_write(table,rows)
+    service.state.request_sync(job,target_name)
+    revision=next(r['revision'] for r in service.state.sync_records(job) if r['target']==target_name)
+    try:
+        from contextlib import nullcontext
+        window=target.write_window('audit_sync:'+job) if hasattr(target,'write_window') else nullcontext()
+        with window:
+            for table in ('import_task','import_source_archive','import_target_status','import_row_audit','import_rollback','meta_source_mapping','meta_source_capability'):
+                if table=='import_row_audit':
+                    after=0
+                    while True:
+                        rows=service.state.audits(job,after=after,limit=1000)
+                        if not rows:break
+                        target.control_write(table,rows);after=rows[-1]['id']
+                    continue
+                rows=service.state.ledger_rows(table,job)
+                if rows: target.control_write(table,rows)
+    except Exception as exc:
+        service.state.sync_result(job,target_name,revision,service.safe_error(exc));raise
+    service.state.sync_result(job,target_name,revision)
+
+
+def retry_audit_sync(service,job):
+    """Retry latest control snapshots without replaying any business operation."""
+    item=service._job(job)
+    related={job}
+    related.update(r['rollback_task_id'] for r in service.state.ledger_rows('import_rollback',job))
+    for task in sorted(related):
+        targets={r['target'] for r in service.state.sync_records(task)}
+        if task==job:targets.update(item['plan']['request']['targets'])
+        for target in sorted(targets):
+            try:sync_control(service,target,task)
+            except Exception:pass  # Error is durable in sync_outbox.
+    pending=[r for task in related for r in service.state.sync_records(task) if r['revision']>r['acknowledged']]
+    result=service.state.ledger_get('publication_result',job)
+    if result:
+        service.state.update_job(job,status='audit_pending' if pending and result['status'] in {'completed','rolled_back','partially_rolled_back'} else result['status'],
+                                 error='; '.join(r['target']+': '+(r['error'] or '审计待同步') for r in pending) if pending else result.get('error'))
+    for inverse in service.state.ledger_rows('import_rollback',job):
+        rid=inverse['rollback_task_id']
+        if inverse['target']!='clickhouse' or inverse['status']!='completed' or not hasattr(service.ch,'cleanup_rollback'):continue
+        if any(r['target']=='clickhouse' for r in pending):continue
+        try:
+            service.ch.cleanup_rollback(rid,service.state)
+            service.state.ledger_put('cleanup_pending',rid,{'task_id':rid,'target':'clickhouse','status':'completed','error':None})
+        except Exception as exc:
+            service.state.ledger_put('cleanup_pending',rid,{'task_id':rid,'target':'clickhouse','status':'pending','error':service.safe_error(exc)})
+    return {'job':job,'pending':pending,'status':service.state.job(job)['status']}
+
+
+def historical_hash_matches(service,target_name,spec,row,expected):
+    """Accept additive nullable migrations only when every new value is null."""
+    if row is None:return expected is None
+    if row_hash(spec,row)==expected:return True
+    from dataclasses import replace
+    for operation in service.state.ledger_rows('schema_operation'):
+        plan=operation.get('plan',{})
+        if plan.get('table')!=spec.name:continue
+        if not any(r.get('target')==target_name and r.get('status')=='completed' for r in operation.get('results',[])):continue
+        deployed=next((p for p in plan.get('targets',[]) if p['target']==target_name),{})
+        names={f['name'] for f in deployed.get('actual',{}).get('fields',[])}
+        if not names or not set(spec.keys)<=names:continue
+        if any(row.get(f['name']) is not None for f in spec.fields if f['name'] not in names):continue
+        previous=replace(spec,fields=tuple(f for f in spec.fields if f['name'] in names))
+        if row_hash(previous,row)==expected:return True
+    return False
+
+
+def record_result(service,job,status,error=None):
+    row=task_record(service,job,status,error,persist=False)
+    service.state.record_result(job,status,error,row)
 
 
 def publish(service,job,token):
     with operation_lock(service):
         item=service._job(job); preview=item.get('preview')
-        if item['status']=='completed': return item
+        if item['status'] in {'completed','audit_pending'}:
+            retry_audit_sync(service,job);return service.state.job(job)
         if item['status'] in {'rolled_back','partially_rolled_back'}: raise ValueError('已回退任务不能再次提交，请创建新任务')
         service._job(job,True)
         if not preview or preview.get('token')!=token or preview.get('blocking') or (preview.get('rejected') and not getattr(service,'_accept_partial',False)): raise ValueError('需要有效预览，并明确确认拒收部分不入库')
@@ -76,6 +138,7 @@ def publish(service,job,token):
         failures=[];verification=[]
         for target_name in item['plan']['request']['targets']:
             target=service.pg if target_name=='postgres' else service.ch
+            if target_name=='clickhouse':target.state=service.state
             total=0;keys=[];hashes=[]
             status={'task_id':job,'target':target_name,'status':'running','started_at':now(),'finished_at':None,'error':None,'row_count':0,'table_count':len(tables),'key_hash':None,'field_hash':None}
             service.state.ledger_put('import_target_status',dumps([job,target_name]),status)
@@ -83,19 +146,13 @@ def publish(service,job,token):
                 for name,rows in tables.items():
                     service.state.check_cancel(job)
                     spec=canonical(name)
+                    if hasattr(service,'schema'):
+                        from .schema_contract import compare_structure
+                        if not compare_structure(spec,service.schema.inspect(name,target_name),target_name)['ready']:
+                            raise ValueError(name+': 物理结构未迁移到当前类型与可空性合同，已阻止提交')
                     prepared=service.state.table_commit(job,target_name,name)
                     if prepared:
                         saved=prepared['comparison']
-                        live=existing(target,spec,[v['after'] for v in saved['changes']])
-                        remaining=[]
-                        for change in saved['changes']:
-                            current=live.get(change['row_key']); current_hash=row_hash(spec,current) if current else None
-                            if current_hash==change['after_hash']: continue
-                            if current_hash!=change['before_hash']: raise ValueError(f'{name}: 预览后目标数据已经变化，需重新审计')
-                            remaining.append(change['after'])
-                        if remaining:
-                            comparison=target.compare(spec,remaining,item['plan']['request']['mode'])
-                            target.commit_rows(job,target_name,spec,remaining,item['plan']['request']['mode'],comparison['signature'])
                     else:
                         expected=next(v for v in preview['tables'] if v['target']==target_name and v['table']==name)
                         saved=target.compare(spec,rows,item['plan']['request']['mode'])
@@ -104,11 +161,13 @@ def publish(service,job,token):
                         for change in saved['changes']:
                             if 'ingested_at' in change['after']:change['after']['ingested_at']=stamp
                         service.state.stage_commit(job,target_name,name,saved)
-                        target.commit_rows(job,target_name,spec,[c['after'] for c in saved['changes']],item['plan']['request']['mode'],target.compare(spec,[c['after'] for c in saved['changes']],item['plan']['request']['mode'])['signature'])
+                    target.commit_rows(job,target_name,spec,[c['after'] for c in saved['changes']],item['plan']['request']['mode'],saved)
                     live=existing(target,spec,rows)
                     for change in saved['changes']:
                         current=live.get(change['row_key'])
                         if current is None or row_hash(spec,current)!=change['after_hash']: raise ValueError(f'{name}: 提交后字段哈希核验失败')
+                    from .field_lineage import record_readback
+                    record_readback(service,item,target_name,spec,saved,live)
                     service.state.finish_commit(job,target_name,name)
                     target.refresh_coverage(name)
                     total+=saved['counts']['inserted']+saved['counts']['updated']
@@ -129,8 +188,9 @@ def publish(service,job,token):
             service.state.ledger_put('import_target_status',dumps([job,target_name]),status)
             try: sync_control(service,target_name,job)
             except Exception as exc:
-                status.update(status='failed',error='管理审计写入失败：'+service.safe_error(exc)); failures.append({'target':target_name,'error':status['error']})
-                service.state.ledger_put('import_target_status',dumps([job,target_name]),status)
+                # Business outcome is independent of its control-table mirror.
+                # sync_control already persisted the retryable outbox error.
+                service.state.log(job,'audit_sync_pending',target=target_name,error=service.safe_error(exc))
         cross_checks=[]
         for name in tables:
             pair=[row for row in verification if row['table']==name]
@@ -141,10 +201,8 @@ def publish(service,job,token):
         service.state.ledger_put('verification',job,{'task_id':job,'tables':verification,'cross_checks':cross_checks})
         status='partial' if failures or rejects or any(p.get('status') in {'unavailable','contract_blocked'} for p in item['slices']) else 'completed'
         error='; '.join(entry['target']+': '+entry['error'] for entry in failures) or None
-        service.state.update_job(job,status=status,error=error);task_record(service,job,status,error)
-        for name in item['plan']['request']['targets']:
-            try: sync_control(service,name,job)
-            except Exception: pass  # The durable ledger retains the failed target for resume.
+        record_result(service,job,status,error)
+        retry_audit_sync(service,job)
         return service.state.job(job)
 
 
@@ -176,83 +234,130 @@ def compatible_audits(service,target_name,target,audits):
     return result
 
 
+def reconcile_audits(service,item,target_name,target):
+    """Recover only observed applied keys, never manufacture a whole batch audit."""
+    from .commit_protocol import NeedsReconciliation,TargetConflict
+    job=item['id'];records=service.state.table_commits(job,target_name)
+    audits=service.state.audits(job,target_name)
+    expected={r['table']:r['counts'].get('inserted',0)+r['counts'].get('updated',0)
+              for r in (item.get('preview') or {}).get('tables',[]) if r['target']==target_name}
+    known={r['table'] for r in records}|{a['table_name'] for a in audits}
+    if any(count and name not in known for name,count in expected.items()):
+        raise NeedsReconciliation('缺少预期变化的提交清单和审计，无法证明回退范围')
+    if not records and not audits and item['status'] not in {'planned','previewed','downloaded','blocked','cancelled'} and not expected:
+        raise NeedsReconciliation('没有提交或零变化证据，必须先核验目标库')
+    for record in records:
+        spec=canonical(record['table']);changes=record['comparison']['changes']
+        live=existing(target,spec,[c['after'] or c['before'] for c in changes]);applied=set()
+        for change in changes:
+            current=live.get(change['row_key']);value=row_hash(spec,current) if current is not None else None
+            if historical_hash_matches(service,target_name,spec,current,change['after_hash']):applied.add(change['row_key'])
+            elif not historical_hash_matches(service,target_name,spec,current,change['before_hash']):
+                raise TargetConflict(spec.name+': 目标行已被后续任务修改，禁止回退')
+        present={a['row_key'] for a in audits if a['table_name']==spec.name}
+        if record['status']=='prepared' or not applied<=present:
+            service.state.finish_commit(job,target_name,spec.name,applied_keys=applied)
+    return service.state.audits(job,target_name)
+
+
 def rollback(service,job,targets=None):
     import uuid
     from contextlib import nullcontext
+    from .commit_protocol import NeedsReconciliation,TargetConflict
     with operation_lock(service):
         item=service._job(job);targets=targets or item['plan']['request']['targets']
         if not targets or set(targets)-set(item['plan']['request']['targets']):raise ValueError('只能回退任务原先选择的目标库')
         results=[]
         for target_name in targets:
-            prior=[row for row in service.state.ledger_rows('import_rollback',job) if row['target']==target_name]
-            completed=[row for row in prior if row['status']=='completed']
-            if completed:results.append(completed[-1]);continue
-            pending=[row for row in prior if row['status'] in {'running','failed'}]
+            prior=[r for r in service.state.ledger_rows('import_rollback',job) if r['target']==target_name]
+            completed=[r for r in prior if r['status']=='completed']
+            if completed:
+                results.append(completed[-1]);continue
+            pending=[r for r in prior if r['status'] in {'running','failed','blocked','needs_reconciliation'}]
             rollback_id=pending[-1]['rollback_task_id'] if pending else uuid.uuid4().hex
-            audits=service.state.audits(job,target_name)
-            if not audits:
-                try:
-                    cursor=0
-                    while True:
-                        page=service.pg.audit(job,cursor,1000);audits.extend(a for a in page if a['target']==target_name)
-                        if len(page)<1000:break
-                        cursor=page[-1]['id']
-                except Exception:pass
             target=service.pg if target_name=='postgres' else service.ch
-            audits=compatible_audits(service,target_name,target,audits)
-            groups={};conflicts=[];actions={};restored=deleted=0
-            for audit in reversed(audits):groups.setdefault(audit['table_name'],[]).append(audit)
-            for name,entries in groups.items():
-                spec=canonical(name);prepared=service.state.table_commit(rollback_id,target_name,name)
-                if prepared and prepared['status']=='completed':
-                    changes=prepared['comparison']['changes']
-                    restored+=sum(c['after'] is not None for c in changes);deleted+=sum(c['after'] is None for c in changes)
-                    continue
-                live=existing(target,spec,[a['after_value'] for a in entries])
-                changes=[{'before':typed(spec,a['after_value']),'after':typed(spec,a['before_value']) if a['before_value'] else None,
-                          'row_key':a['row_key'],'before_hash':a['after_hash'],'after_hash':row_hash(spec,a['before_value']) if a['before_value'] else None} for a in entries]
-                current_hashes={key:row_hash(spec,row) for key,row in live.items()}
-                if prepared and all(current_hashes.get(c['row_key'])==c['after_hash'] for c in changes):
-                    service.state.finish_commit(rollback_id,target_name,name)
-                    restored+=sum(c['after'] is not None for c in changes);deleted+=sum(c['after'] is None for c in changes)
-                    continue
-                for change in changes:
-                    if current_hashes.get(change['row_key'])!=change['before_hash']:
-                        conflicts.append({'table':name,'row_key':change['row_key'],'reason':'目标行已被后续任务修改或删除'})
-                actions[name]=(entries,changes)
-            result={'rollback_task_id':rollback_id,'source_task_id':job,'target':target_name,'status':'blocked' if conflicts else 'running',
-                    'restored':restored,'deleted':deleted,'conflicts':len(conflicts),'created_at':pending[-1]['created_at'] if pending else now(),'finished_at':None,'error':None}
+            result={'rollback_task_id':rollback_id,'source_task_id':job,'target':target_name,'status':'running',
+                    'restored':0,'deleted':0,'conflicts':0,'created_at':pending[-1]['created_at'] if pending else now(),'finished_at':None,'error':None}
             service.state.ledger_put('import_rollback',dumps([rollback_id,target_name]),result)
-            if not conflicts:
-                try:
+            if target_name=='clickhouse':target.state=service.state
+            conflicts=[]
+            try:
+                # A CH writer window is acquired before reading or reconstructing audits.
+                window=target.write_window('rollback:'+rollback_id) if hasattr(target,'write_window') else nullcontext()
+                with window:
+                    audits=reconcile_audits(service,item,target_name,target)
+                    audits=compatible_audits(service,target_name,target,audits)
+                    groups={}
+                    for audit in reversed(audits):groups.setdefault(audit['table_name'],[]).append(audit)
+                    actions={}
+                    for name,entries in groups.items():
+                        spec=canonical(name);prepared=service.state.table_commit(rollback_id,target_name,name)
+                        if prepared and prepared['status']=='completed':
+                            changes=prepared['comparison']['changes']
+                            result['restored']+=sum(c['after'] is not None for c in changes)
+                            result['deleted']+=sum(c['after'] is None for c in changes)
+                            continue
+                        live=existing(target,spec,[a['after_value'] for a in entries]);changes=[];selected=[]
+                        for audit in entries:
+                            current=live.get(audit['row_key']);value=row_hash(spec,current) if current is not None else None
+                            before_hash=row_hash(spec,audit['before_value']) if audit['before_value'] is not None else None
+                            if value==before_hash:continue  # Already at the inverse target; no historical claim.
+                            if value!=audit['after_hash']:
+                                conflicts.append({'table':name,'row_key':audit['row_key'],'reason':'目标行已被后续任务修改或删除'});continue
+                            selected.append(audit)
+                            changes.append({'before':typed(spec,audit['after_value']),'after':typed(spec,audit['before_value']) if audit['before_value'] is not None else None,
+                                            'row_key':audit['row_key'],'before_hash':audit['after_hash'],'after_hash':before_hash})
+                        if prepared:
+                            # The complete inverse intent is immutable, including already-applied rows.
+                            changes=prepared['comparison']['changes']
+                            from .commit_protocol import remaining_changes
+                            remaining_changes(spec,prepared['comparison'],list(live.values()))
+                            selected=[a for a in entries if any(c['row_key']==a['row_key'] for c in changes) and
+                                      (row_hash(spec,live[a['row_key']]) if a['row_key'] in live else None)==a['after_hash']]
+                        actions[name]=(selected,changes,prepared)
+                    if conflicts:raise TargetConflict('目标行存在后续修改，未执行逆操作')
                     context=service.pg.connect() if target_name=='postgres' else nullcontext()
                     with context as connection:
-                        for name,(entries,changes) in actions.items():
-                            service.state.stage_commit(rollback_id,target_name,name,{'changes':changes,'counts':{},'signature':''})
+                        for name,(entries,changes,prepared) in actions.items():
+                            if not prepared:service.state.stage_commit(rollback_id,target_name,name,{'changes':changes,'counts':{},'signature':''})
                             spec=canonical(name)
-                            if target_name=='postgres':target.apply_rollback(spec,entries,rollback_id,connection)
-                            else:
-                                target.apply_rollback(spec,entries,rollback_id)
-                                service.state.finish_commit(rollback_id,target_name,name)
-                            restored+=sum(c['after'] is not None for c in changes);deleted+=sum(c['after'] is None for c in changes)
+                            if entries:
+                                if target_name=='postgres':target.apply_rollback(spec,entries,rollback_id,connection)
+                                else:target.apply_rollback(spec,entries,rollback_id)
+                            # Re-read before declaring completion, including crash recovery.
+                            if target_name=='postgres' and connection is not None:
+                                from psycopg2.extras import RealDictCursor
+                                with connection.cursor(cursor_factory=RealDictCursor) as cur:
+                                    found=target._fetch_existing(cur,spec,[c['before'] for c in changes])
+                                    live={row_key(spec,r):typed(spec,r) for r in found.values()}
+                            else:live=existing(target,spec,[c['before'] for c in changes])
+                            if any((row_hash(spec,live[c['row_key']]) if c['row_key'] in live else None)!=c['after_hash'] for c in changes):
+                                raise NeedsReconciliation(name+': 回退后字段核验失败')
+                            if target_name!='postgres':service.state.finish_commit(rollback_id,target_name,name)
+                            result['restored']+=sum(c['after'] is not None for c in changes)
+                            result['deleted']+=sum(c['after'] is None for c in changes)
                     if target_name=='postgres':
                         for name in actions:service.state.finish_commit(rollback_id,target_name,name)
                     for name in groups:target.refresh_coverage(name)
-                    result.update(status='completed',restored=restored,deleted=deleted,finished_at=now())
-                except Exception as exc:result.update(status='failed',error=service.safe_error(exc),finished_at=now())
-            else:result.update(finished_at=now(),error='目标行存在后续修改，尚未执行的逆操作已阻止')
+                    result.update(status='completed',finished_at=now())
+            except Exception as exc:
+                result.update(status='blocked' if isinstance(exc,TargetConflict) else 'needs_reconciliation' if isinstance(exc,NeedsReconciliation) else 'failed',error=service.safe_error(exc),finished_at=now(),conflicts=len(conflicts))
             service.state.ledger_put('import_rollback',dumps([rollback_id,target_name]),result)
             service.state.ledger_put('rollback_conflicts',rollback_id,{'task_id':rollback_id,'rows':conflicts})
-            for target_job in (job,rollback_id):
-                try:sync_control(service,target_name,target_job)
-                except Exception as exc:result['error']='审计镜像待重试：'+service.safe_error(exc)
             results.append(result)
         all_results=service.state.ledger_rows('import_rollback',job)
         finished={r['target'] for r in all_results if r['status']=='completed'}
-        if finished==set(item['plan']['request']['targets']):service.state.update_job(job,status='rolled_back')
-        elif finished:service.state.update_job(job,status='partially_rolled_back')
-        task_record(service,job,service.state.job(job)['status'])
-        for name in targets:
-            try:sync_control(service,name,job)
-            except Exception:pass
+        if finished==set(item['plan']['request']['targets']):record_result(service,job,'rolled_back')
+        elif finished:record_result(service,job,'partially_rolled_back')
+        retry_audit_sync(service,job)
+        for result in results:
+            pending=[r for task in (job,result['rollback_task_id']) for r in service.state.sync_records(task) if r['target']==result['target'] and r['revision']>r['acknowledged']]
+            result['audit_sync_status']='pending' if pending else 'synced'
+            if pending:result['sync_error']='; '.join(r['error'] or '审计待同步' for r in pending)
+            elif result['status']=='completed' and result['target']=='clickhouse' and hasattr(service.ch,'cleanup_rollback'):
+                try:service.ch.cleanup_rollback(result['rollback_task_id'],service.state)
+                except Exception as exc:
+                    message=service.safe_error(exc)
+                    service.state.ledger_put('cleanup_pending',result['rollback_task_id'],{'task_id':result['rollback_task_id'],'target':'clickhouse','error':message})
+                    result['cleanup_error']=message
         return {'job':job,'results':results}

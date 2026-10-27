@@ -11,6 +11,8 @@ from dotenv import dotenv_values
 from .catalog import load_catalog
 from .private import atomic_private
 from .util import identifier, digest, now
+from .security import (auth_reference, credential_configured, public_data, redact,
+                       request_auth, safe_error, validate_parameters)
 
 
 class SourceRegistry:
@@ -36,7 +38,13 @@ class SourceRegistry:
             self.errors=[]
             for source in values.values():self.state.ledger_put('source_definition',source['source_id'],source)
         except (ValueError,KeyError,TypeError,yaml.YAMLError,AttributeError) as exc:
-            self.errors=[str(exc)];values={s['source_id']:s for s in self.state.ledger_rows('source_definition')} or values
+            self.errors=[safe_error(exc,self.settings)];values={s['source_id']:s for s in self.state.ledger_rows('source_definition')} or values
+            # Old definitions may predate the credential boundary. Do not make
+            # an invalid persisted definition executable as a fallback.
+            for sid, source in list(values.items()):
+                if sid in {'tushare','file','wind'}:continue
+                try:self.validate(source)
+                except (ValueError,KeyError,TypeError):values.pop(sid)
         self.values=values
         return values
 
@@ -49,11 +57,9 @@ class SourceRegistry:
             from urllib.parse import urlsplit
             url=urlsplit(source.get('base_url',''))
             if url.scheme not in {'http','https'} or not url.hostname or url.username or url.password or url.query:raise ValueError('HTTP 来源地址必须不含凭据和查询参数')
-        auth=source.get('auth',{})
-        if set(auth)-{'env','header','prefix'}:raise ValueError('鉴权仅允许环境变量引用')
-        if auth.get('env') and not __import__('re').fullmatch(r'[A-Z][A-Z0-9_]*',auth['env']):raise ValueError('鉴权环境变量名称无效')
+        auth=auth_reference(source.get('auth'))
         for endpoint,spec in source.get('endpoints',{}).items():
-            if any(__import__('re').search(r'token|password|secret|authorization|api_key',str(k),__import__('re').I) for k in spec.get('parameters',{})):raise ValueError('查询配置不能包含鉴权值；请引用环境变量')
+            validate_parameters(spec.get('parameters',{}),path='endpoints.'+endpoint+'.parameters',allowed=spec.get('parameter_contract'),auth=source.get('auth'))
             identifier(endpoint)
             if '?' in spec.get('path','') or '#' in spec.get('path',''):raise ValueError('查询路径不能携带查询参数或凭据')
             names=[]
@@ -65,6 +71,7 @@ class SourceRegistry:
             if len(names)!=len(set(names)):raise ValueError('源字段重复')
             if not spec.get('keys') or set(spec['keys'])-set(names):raise ValueError('查询需要登记业务键字段')
             if spec.get('method','GET') not in {'GET','POST'}:raise ValueError('HTTP 方法须为 GET/POST')
+            if auth and auth['location']=='body' and spec.get('method','GET')!='POST':raise ValueError('body 鉴权只支持 POST 请求')
         return source
 
     def save(self,source):
@@ -78,8 +85,8 @@ class SourceRegistry:
         except KeyError:raise ValueError('未登记查询源：'+source_id+'.'+endpoint) from None
 
     def public(self):
-        env={**os.environ,**(dotenv_values(self.settings.env_file,interpolate=False) if self.settings.env_file and self.settings.env_file.exists() else {})}
-        return [{**s,'configured':bool(self.settings.token) if sid=='tushare' else False if sid=='wind' else bool(env.get(s.get('auth',{}).get('env'))) if s.get('auth',{}).get('env') else True} for sid,s in self.values.items()]
+        rows=[{**s,'configured':bool(self.settings.token) if sid=='tushare' else False if sid=='wind' else credential_configured(self.settings,s['auth']['env']) if s.get('auth',{}).get('env') else True} for sid,s in self.values.items()]
+        return public_data(rows,self.settings,self.values.values())
 
     def adapter(self,source_id):
         source=self.values[source_id]
@@ -127,29 +134,30 @@ class HTTPAdapter(SubscriptionAdapter):
         if not isinstance(response,dict) or not isinstance(response.get('fields'),list) or not isinstance(response.get('items'),list):raise ValueError('响应不是 fields/items 或对象行列表；请检查 response_path')
         return response
     def _fetch(self,endpoint,params,settings,state,job):
-        spec=self.definition['endpoints'][endpoint];auth=self.definition.get('auth',{});headers={}
-        if auth.get('env'):
-            env={**os.environ,**(dotenv_values(settings.env_file,interpolate=False) if settings.env_file and settings.env_file.exists() else {})}
-            secret=env.get(auth['env'])
-            if not secret:raise ValueError('来源鉴权环境变量未配置：'+auth['env'])
-            headers[auth.get('header','Authorization')]=auth.get('prefix','')+secret
+        spec=self.definition['endpoints'][endpoint];auth=self.definition.get('auth',{})
+        validate_parameters(params,allowed=spec.get('parameter_contract'),auth=auth)
         url=self.definition['base_url'].rstrip('/')+'/'+spec.get('path',endpoint).lstrip('/')
         method=spec.get('method','GET');started=time.monotonic()
+        self.last_wire=None
         for attempt in range(4):
             state.check_cancel(job)
-            state.log(job,'request_started',source_id=self.definition['source_id'],endpoint=endpoint,parameters=params,attempt=attempt+1)
+            headers,query,body=request_auth(auth,settings,params,method)
+            state.log(job,'request_started',**redact({'source_id':self.definition['source_id'],'endpoint':endpoint,'parameters':params,'attempt':attempt+1}))
             try:
-                response=requests.request(method,url,params=params if method=='GET' else None,json=params if method=='POST' else None,headers=headers,timeout=settings.timeout,allow_redirects=False)
+                response=requests.request(method,url,params=query,json=body,headers=headers,timeout=settings.timeout,allow_redirects=False)
+                self.last_wire=response.content
                 state.log(job,'http_response',source_id=self.definition['source_id'],endpoint=endpoint,http_status=response.status_code,elapsed_ms=int((time.monotonic()-started)*1000))
+                if 300<=response.status_code<400:raise ValueError('来源重定向已阻止')
                 if response.status_code==429 or response.status_code>=500:
                     if attempt<3:
                         for _ in range(2**attempt*5):state.check_cancel(job);time.sleep(.2)
                         continue
                 response.raise_for_status()
-                self.last_wire=response.content
                 value=json.loads(response.content,parse_float=Decimal,parse_constant=str)
                 for segment in spec.get('response_path','').split('.'):
                     if segment:value=value[segment]
+                protected=public_data(value,settings,[self.definition])
+                if protected!=value:raise ValueError('源端响应包含鉴权回显，已阻止进入业务归档；原文仅保留在私有 wire 归档')
                 if isinstance(value,list):
                     if not all(isinstance(row,dict) for row in value):raise ValueError('响应列表必须由字段对象组成')
                     fields=list(dict.fromkeys(field for row in value for field in row)) if value else [f['name'] for f in spec['fields']]
@@ -158,6 +166,8 @@ class HTTPAdapter(SubscriptionAdapter):
             except (requests.Timeout,requests.ConnectionError):
                 if attempt==3:raise ValueError('来源网络超时或连接失败') from None
                 state.log(job,'network_retry',endpoint=endpoint,attempt=attempt+1)
+            except requests.RequestException as exc:
+                raise ValueError(safe_error(exc,settings,[self.definition])) from None
         raise ValueError('请求失败')
 
 

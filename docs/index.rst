@@ -7,7 +7,7 @@ Betalens 文档
 --------
 
 * **Datafeed**：只读 PostgreSQL 数据访问、交易日、行业、指数成分和交易状态查询。
-* **Infra**：独立的数据接入与管理组件，负责 PG/CH 建立、Tushare 接入、审计和副本维护。
+* **DB Manager / Infra**：独立的数据接入与管理工作台，维护同等地位的 PG/CH 目标、来源映射、审计、可信版本和完整性检查。
 * **Factor**：可交易池、单/双/多因子分组、因子预处理、IC/回归/择时统计、参数挖掘。
 * **Backtest**：目标权重到日频净值，整数手成交，停牌状态处理，调仓审计日志。
 * **Analyst**：从回测实例生成指标表、Excel 报告和 plotly 交互 HTML。
@@ -28,6 +28,11 @@ Betalens 文档
 
 数据库安装、连接配置、schema 初始化和数据导入不能由上面三条命令替代。第一次使用请完整
 阅读 :doc:`getting-started/installation`，并逐项执行其中的验收命令。
+
+当前本地基础设施使用 ``betalens`` 库；三域业务参考数据从
+``http://localhost:8010/integrity`` 管理。见 :doc:`guide/local-databases` 和
+:doc:`guide/db-manager-reference`。下方研究示例使用旧研究查询合同，
+新表不会自动生成旧兼容视图，也不能据建表成功推断回测链路已适配。
 
 快速示例
 --------
@@ -97,6 +102,8 @@ Betalens 文档
    guide/factor-pipeline
    guide/factor-mining
    guide/infra
+   guide/db-manager-reference
+   guide/local-databases
 
 .. toctree::
    :maxdepth: 2
@@ -109,7 +116,20 @@ Betalens 文档
    api/eventstudy
    api/robust
    api/infra
-   api/infra
+
+实施与验收记录
+--------------
+
+以下记录对应各自日期的计划与验收；当前运行合同以用户指南和 API 参考为准。
+
+.. toctree::
+   :maxdepth: 1
+
+   plans/tushare-database-iteration-20261018
+   plans/db-manager-audit-remediation-20261023
+   plans/db-manager-audit-remediation-20261023-results
+   plans/db-manager-mapping-audit-20261024
+   plans/db-manager-production-smoke-20261025
 
 索引
 ----
