@@ -33,6 +33,9 @@ tests/
 # Keep the migration retirement regression test reviewable.
 !/tests/
 /tests/*
+!/tests/test_datafeed*.py
+!/tests/datafeed_support.py
+!/tests/benchmark_datafeed.py
 !/betalens-db-manager/tests/
 !/betalens-db-manager/tests/**
 **/.venv/

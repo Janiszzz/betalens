@@ -82,6 +82,11 @@ CONTROL_DDL = {
         ("field_hash", "text", False), ("started_at", "timestamp with time zone", False), ("finished_at", "timestamp with time zone", False),
         ("error", "text", False),
     ],
+    "import_batch_receipt": [
+        ("task_id","text",True),("batch_id","text",True),("target","text",True),
+        ("table_name","text",True),("status","text",True),("manifest","jsonb",True),
+        ("result","jsonb",False),("error","text",False),("updated_at","timestamp with time zone",True),
+    ],
     "import_row_audit": [
         ("id", "bigint GENERATED ALWAYS AS IDENTITY", True), ("task_id", "text", True),
         ("target", "text", True), ("table_name", "text", True), ("row_key", "text", True),
@@ -232,6 +237,7 @@ class Postgres:
                 elif name == "import_task": fields.append(sql.SQL("PRIMARY KEY (task_id)"))
                 elif name == "import_source_archive": fields.append(sql.SQL("PRIMARY KEY (task_id,dataset,request_hash)"))
                 elif name == "import_target_status": fields.append(sql.SQL("PRIMARY KEY (task_id,target)"))
+                elif name == "import_batch_receipt": fields.append(sql.SQL("PRIMARY KEY (task_id,batch_id,target)"))
                 elif name == "import_rollback": fields.append(sql.SQL("PRIMARY KEY (rollback_task_id,target)"))
                 elif name == "import_row_audit": fields.append(sql.SQL("PRIMARY KEY (id)"))
                 elif name == "dataset_coverage": fields.append(sql.SQL("UNIQUE (table_name,asset_type,security_code)"))
@@ -401,17 +407,20 @@ class Postgres:
             execute_values(cur,sql.SQL('INSERT INTO {} ({}){} VALUES %s ON CONFLICT ({}) {}').format(relation(self.settings,table),sql.SQL(',').join(sql.Identifier(n) for n in names),override,sql.SQL(',').join(sql.Identifier(n) for n in keys),action),values,page_size=500)
 
 
-    def refresh_coverage(self,name):
+    def refresh_coverage(self,name,codes=None):
         spec=canonical(name);names=columns(spec)
         asset=sql.SQL("coalesce(asset_type,'')") if 'asset_type' in names else sql.SQL("''::text")
         code=sql.SQL("coalesce(security_code,'')") if 'security_code' in names else sql.SQL("''::text")
         dates=sql.SQL('min(event_date),max(event_date)') if 'event_date' in names else sql.SQL('NULL::date,NULL::date')
+        scoped=codes is not None and 'security_code' in names
+        if scoped and not codes:return []
+        where=sql.SQL(' WHERE security_code=ANY(%s)') if scoped else sql.SQL('')
         with self.connect() as conn,conn.cursor() as cur:
-            cur.execute(sql.SQL('SELECT {},{},{},count(*) FROM {} GROUP BY 1,2').format(asset,code,dates,relation(self.settings,name)))
+            cur.execute(sql.SQL('SELECT {},{},{},count(*) FROM {}{} GROUP BY 1,2').format(asset,code,dates,relation(self.settings,name),where),(list(codes),) if scoped else None)
             records=[{'table_name':name,'asset_type':row[0],'security_code':row[1],'first_event_date':row[2],'last_event_date':row[3],'rows':row[4],'updated_at':datetime.now(timezone.utc)} for row in cur.fetchall()]
-            cur.execute(sql.SQL('DELETE FROM {} WHERE table_name=%s').format(relation(self.settings,'dataset_coverage')),(name,))
-        if not records:records=[{'table_name':name,'asset_type':'','security_code':'','first_event_date':None,'last_event_date':None,'rows':0,'updated_at':datetime.now(timezone.utc)}]
-        self.control_write('dataset_coverage',records)
+            cur.execute(sql.SQL('DELETE FROM {} WHERE table_name=%s{}').format(relation(self.settings,'dataset_coverage'),sql.SQL(' AND security_code=ANY(%s)') if scoped else sql.SQL('')),(name,list(codes)) if scoped else (name,))
+        if not records and not scoped:records=[{'table_name':name,'asset_type':'','security_code':'','first_event_date':None,'last_event_date':None,'rows':0,'updated_at':datetime.now(timezone.utc)}]
+        if records:self.control_write('dataset_coverage',records)
         return records
 
 CONTROL_KEYS = {
@@ -420,6 +429,7 @@ CONTROL_KEYS = {
     'meta_source_capability':('source_name','endpoint'),'import_task':('task_id',),
     'import_source_archive':('task_id','dataset','request_hash'),'import_target_status':('task_id','target'),
     'import_row_audit':('id',),'import_rollback':('rollback_task_id','target'),
+    'import_batch_receipt':('task_id','batch_id','target'),
     'dataset_coverage':('table_name','asset_type','security_code')}
 
 
@@ -430,6 +440,6 @@ def control_spec(name):
         fields.append({'name':column,'type':mapped,'nullable':not required,'zh_name':column,'description':column,'unit':''})
     labels={'meta_table':'数据表元信息','meta_column':'字段元信息','meta_source_mapping':'来源字段映射','meta_source_capability':'数据源能力',
             'import_task':'导入任务','import_source_archive':'源数据归档','import_target_status':'目标库导入状态','import_row_audit':'行级变更审计',
-            'import_rollback':'任务回退','dataset_coverage':'数据覆盖范围'}
+            'import_rollback':'任务回退','dataset_coverage':'数据覆盖范围','import_batch_receipt':'批次镜像与回执'}
     return CanonicalTable(name,labels[name],labels[name]+'登记、查询与历史追溯','登记键一行',tuple(fields),CONTROL_KEYS[name],domain='management')
 

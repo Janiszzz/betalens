@@ -1,411 +1,197 @@
-"""Read-only PostgreSQL access for Betalens research workflows."""
-
+"""Read-only, source-neutral business subscriptions for PostgreSQL/ClickHouse."""
 from __future__ import annotations
 
-import logging
 import warnings
-from datetime import date, datetime
-from typing import Any
+import logging
+from datetime import datetime
 
 import pandas as pd
-import psycopg2.extras
-from psycopg2 import sql as psql
 
-from .pool import get_read_pool
-from .query import (
-    _normalized_schema_available,
-    build_query as _build_query,
-    get_available_dates as _get_available_dates,
-    get_latest_date as _get_latest_date,
-    query_nearest_after as _query_nearest_after,
-    query_nearest_before as _query_nearest_before,
-    query_nearest_in_range_after as _query_nearest_in_range_after,
-    query_nearest_in_range_before as _query_nearest_in_range_before,
-    query_time_range as _query_time_range,
-    query_trade_status as _query_trade_status,
-)
-from .registry import get_dataset
+from . import query
+from .config import load_subscription_config
+from .contracts import frame, local_time, timestamp, PITUnavailableError, VersionConflictError
+from .readers import PostgresReader, ClickHouseReader, identifier, require_columns
+from .reference import calendar_days, calendar_rows, load_reference
 
 
 class Datafeed:
-    """Logical, read-only data access facade.
-
-    ``table_name`` remains the legacy logical dataset name. The query module
-    routes it to the normalized ``betalens`` schema when installed and falls
-    back to a legacy read-only relation during rollout.
-    """
-
-    def __init__(
-        self,
-        table_name: str,
-        db_config: dict[str, Any] | None = None,
-        log_dir: str | None = None,
-    ) -> None:
-        del log_dir  # File logging no longer belongs to each query object.
-        self.sheet = str(table_name)
-        if get_dataset(self.sheet) is None:
-            raise ValueError(f"不支持的逻辑数据集: {self.sheet}")
+    def __init__(self, table_name, db_config=None, log_dir=None, *, backend=None,
+                 config_file=None):
+        del log_dir  # Kept for call compatibility; no per-instance file logging.
+        self.sheet = identifier(table_name)
+        config = load_subscription_config(db_config, config_file=config_file, backend=backend)
+        self.backend = config["backend"]
         self.logger = logging.getLogger("betalens.datafeed")
-        pool_min = int((db_config or {}).get("pool_min_connections", 1))
-        pool_max = int((db_config or {}).get("pool_max_connections", 10))
-        timeout = int((db_config or {}).get("statement_timeout_ms", 120_000))
-        self._pool = get_read_pool(
-            db_config,
-            min_connections=pool_min,
-            max_connections=pool_max,
-            statement_timeout_ms=timeout,
-        )
-        self.conn = self._pool.acquire()
-        self._cursor = self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        self._reader = PostgresReader(config) if self.backend == "postgres" else ClickHouseReader(config)
         self._closed = False
 
     @property
     def cursor(self):
-        """Deprecated read-only cursor retained for third-party compatibility."""
-        warnings.warn(
-            "Datafeed.cursor 已弃用；请使用 Datafeed 的结构化批量查询方法。",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self._cursor
+        warnings.warn("Datafeed.cursor 已弃用；请使用结构化查询方法。", DeprecationWarning, stacklevel=2)
+        if self.backend != "postgres":
+            raise NotImplementedError("ClickHouse 不提供 PostgreSQL 游标；独立函数可直接传入 Datafeed")
+        return self._reader.cursor
 
-    def __enter__(self) -> "Datafeed":
+    @property
+    def conn(self):
+        warnings.warn("Datafeed.conn 已弃用。", DeprecationWarning, stacklevel=2)
+        if self.backend != "postgres":
+            raise NotImplementedError("ClickHouse 不提供 PostgreSQL connection")
+        return self._reader.conn
+
+    def __enter__(self):
         return self
 
-    def __exit__(self, exc_type, exc, traceback) -> None:
+    def __exit__(self, exc_type, exc, traceback):
         self.close()
 
-    def run_query(
-        self,
-        conditions: list[str] | None = None,
-        params: list[Any] | None = None,
-        select_columns: str = "*",
-    ) -> pd.DataFrame:
-        """Execute a legacy SELECT on the logical relation.
+    def run_query(self, conditions=None, params=None, select_columns="*"):
+        """Deprecated PG-only escape hatch; not a PIT business interface.
 
-        This compatibility method is deprecated. The pooled connection is
-        read-only, so callers cannot use it to mutate the database.
+        The physical relation must actually exist. No compatibility view
+        is created and this method never participates in structured queries.
         """
-        warnings.warn(
-            "Datafeed.run_query() 已弃用；请使用结构化查询方法。",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        query, bound = _build_query(
-            table_name=self.sheet,
-            conditions=conditions,
-            params=params,
-            select_columns=select_columns,
-        )
-        self._cursor.execute(query, bound)
-        return pd.DataFrame(self._cursor.fetchall())
+        warnings.warn("run_query 已弃用且不保证 PIT，请使用结构化查询。", DeprecationWarning, stacklevel=2)
+        if self.backend != "postgres":
+            raise NotImplementedError("run_query 仅保留 PostgreSQL 兼容入口")
+        sql, bound = query.build_query(self.sheet, conditions, params, select_columns)
+        with self._reader.snapshot():
+            self._reader.cursor.execute(sql, bound)
+            rows = self._reader.cursor.fetchall()
+        return pd.DataFrame(rows)
 
-    def query_time_range(
-        self,
-        codes: list[str] | None = None,
-        start_date: str | None = None,
-        end_date: str | None = None,
-        metric: str | None = None,
-        limit: int | None = None,
-    ) -> pd.DataFrame:
-        return _query_time_range(
-            cursor=self._cursor,
-            table_name=self.sheet,
-            codes=codes,
-            start_date=start_date,
-            end_date=end_date,
-            metric=metric,
-            limit=limit,
-            logger=self.logger,
-        )
+    def query_time_range(self, codes=None, start_date=None, end_date=None, metric=None, limit=None, *, as_of=None, filters=None):
+        return query.query_time_range(self, self.sheet, codes, start_date, end_date, metric, limit, as_of=as_of, filters=filters)
 
-    def query_trade_status(self, params: dict[str, Any] | None = None) -> pd.DataFrame:
-        params = params or {}
-        if "dates" not in params:
-            raise ValueError("必须提供参数: ['dates']")
-        return _query_trade_status(
-            cursor=self._cursor,
-            table_name=self.sheet,
-            codes=params.get("codes"),
-            dates=params["dates"],
-            metric=params.get("metric", "交易状态"),
-            logger=self.logger,
-        )
+    def query_trade_status(self, params=None):
+        params = self._require(params, ("dates",))
+        return query.query_trade_status(self, self.sheet, params.get("codes"), params["dates"], params.get("metric", "交易状态"))
 
-    def query_nearest_after(self, params: dict[str, Any] | None = None) -> pd.DataFrame:
-        params = self._require(params, ("codes", "datetimes", "metric"))
-        return _query_nearest_after(
-            cursor=self._cursor,
-            table_name=self.sheet,
-            codes=params["codes"],
-            datetimes=params["datetimes"],
-            metric=params["metric"],
-            time_tolerance=params.get("time_tolerance"),
-            logger=self.logger,
-        )
+    def query_nearest_before(self, params=None):
+        p = self._require(params, ("codes", "datetimes", "metric"))
+        return query.query_nearest_before(self, self.sheet, p["codes"], p["datetimes"], p["metric"], p.get("time_tolerance"), filters=p.get("filters"))
 
-    def query_nearest_before(self, params: dict[str, Any] | None = None) -> pd.DataFrame:
-        params = self._require(params, ("codes", "datetimes", "metric"))
-        return _query_nearest_before(
-            cursor=self._cursor,
-            table_name=self.sheet,
-            codes=params["codes"],
-            datetimes=params["datetimes"],
-            metric=params["metric"],
-            time_tolerance=params.get("time_tolerance"),
-            logger=self.logger,
-        )
+    def query_nearest_after(self, params=None):
+        p = self._require(params, ("codes", "datetimes", "metric"))
+        return query.query_nearest_after(self, self.sheet, p["codes"], p["datetimes"], p["metric"], p.get("time_tolerance"), filters=p.get("filters"))
 
-    def query_nearest_in_range_after(
-        self, params: dict[str, Any] | None = None
-    ) -> pd.DataFrame:
-        params = self._require(params, ("codes", "ranges", "metric"))
-        return _query_nearest_in_range_after(
-            cursor=self._cursor,
-            table_name=self.sheet,
-            codes=params["codes"],
-            ranges=params["ranges"],
-            metric=params["metric"],
-            time_tolerance=params.get("time_tolerance"),
-            logger=self.logger,
-        )
+    def query_nearest_in_range_before(self, params=None):
+        p = self._require(params, ("codes", "ranges", "metric"))
+        return query.query_nearest_in_range_before(self, self.sheet, p["codes"], p["ranges"], p["metric"], p.get("time_tolerance"), filters=p.get("filters"))
 
-    def query_nearest_in_range_before(
-        self, params: dict[str, Any] | None = None
-    ) -> pd.DataFrame:
-        params = self._require(params, ("codes", "ranges", "metric"))
-        return _query_nearest_in_range_before(
-            cursor=self._cursor,
-            table_name=self.sheet,
-            codes=params["codes"],
-            ranges=params["ranges"],
-            metric=params["metric"],
-            time_tolerance=params.get("time_tolerance"),
-            logger=self.logger,
-        )
+    def query_nearest_in_range_after(self, params=None):
+        p = self._require(params, ("codes", "ranges", "metric"))
+        return query.query_nearest_in_range_after(self, self.sheet, p["codes"], p["ranges"], p["metric"], p.get("time_tolerance"), filters=p.get("filters"))
 
-    def get_latest_date(self, code: str | None = None, metric: str | None = None):
-        return _get_latest_date(
-            cursor=self._cursor,
-            table_name=self.sheet,
-            code=code,
-            metric=metric,
-            logger=self.logger,
-        )
+    def get_latest_date(self, code=None, metric=None, *, as_of=None, filters=None):
+        return query.get_latest_date(self, self.sheet, code, metric, as_of=as_of, filters=filters)
 
-    def get_available_dates(
-        self,
-        code: str,
-        metric: str,
-        start_date: str | None = None,
-        end_date: str | None = None,
-    ):
-        return _get_available_dates(
-            cursor=self._cursor,
-            table_name=self.sheet,
-            code=code,
-            metric=metric,
-            start_date=start_date,
-            end_date=end_date,
-            logger=self.logger,
-        )
+    def get_available_dates(self, code, metric, start_date=None, end_date=None, *, as_of=None, filters=None):
+        return query.get_available_dates(self, self.sheet, code, metric, start_date, end_date, as_of=as_of, filters=filters)
 
-    def query_industry(
-        self,
-        codes: list[str],
-        dates,
-        scheme: str = "申万一级行业",
-        *,
-        exact: bool = False,
-    ) -> pd.DataFrame:
-        """Return point-in-time industry memberships for code/date inputs."""
+    def query_industry(self, codes, dates, scheme="申万一级行业", *, exact=False):
         from .industry import query_industry
+        return query_industry(self, codes, dates, scheme, self.sheet, exact)
 
-        return query_industry(
-            self._cursor,
-            codes=codes,
-            dates=dates,
-            scheme=scheme,
-            table_name=self.sheet,
-            exact=exact,
-            logger=self.logger,
-        )
-
-    def get_industry_members(
-        self,
-        industry,
-        date: str,
-        scheme: str = "申万一级行业",
-        *,
-        by: str = "name",
-        exact: bool = False,
-    ) -> pd.DataFrame:
-        """Return members of one industry at a point in time."""
+    def get_industry_members(self, industry, date, scheme="申万一级行业", *, by="name", exact=False):
         from .industry import get_industry_members
+        return get_industry_members(self, industry, date, scheme, self.sheet, by, exact)
 
-        return get_industry_members(
-            self._cursor,
-            industry=industry,
-            date=date,
-            scheme=scheme,
-            table_name=self.sheet,
-            by=by,
-            exact=exact,
-            logger=self.logger,
-        )
-
-    def get_index_universe(self, index_code: str, date: str) -> list[str]:
-        """Return the latest index constituent snapshot available at ``date``."""
+    def get_index_universe(self, index_code, date):
         from .universe import get_index_universe
+        return get_index_universe(self, index_code, date, table_name=self.sheet)
 
-        return get_index_universe(
-            self._cursor,
-            index_code=index_code,
-            date=date,
-            table_name=self.sheet,
-            logger=self.logger,
-        )
-
-    def get_index_universe_panel(self, index_code: str, dates) -> dict[date, set[str]]:
-        """Return latest point-in-time constituents for each requested date."""
+    def get_index_universe_panel(self, index_code, dates):
         from .universe import get_index_universe_panel
+        return get_index_universe_panel(self, index_code, dates, table_name=self.sheet)
 
-        return get_index_universe_panel(
-            self._cursor,
-            index_code=index_code,
-            dates=dates,
-            table_name=self.sheet,
-            logger=self.logger,
-        )
-
-    def get_index_universe_date(self, index_code: str, date: str):
-        """Return the effective timestamp of an index constituent snapshot."""
+    def get_index_universe_date(self, index_code, date):
         from .universe import get_index_universe_date
+        return get_index_universe_date(self, index_code, date, table_name=self.sheet)
 
-        return get_index_universe_date(
-            self._cursor,
-            index_code=index_code,
-            date=date,
-            table_name=self.sheet,
-            logger=self.logger,
-        )
-
-    def query_names(self, codes: list[str]) -> pd.DataFrame:
-        """Resolve current names for a batch of entity codes."""
-        unique_codes = [str(code) for code in dict.fromkeys(codes) if code]
-        if not unique_codes:
-            return pd.DataFrame(columns=["code", "name"])
-        if _normalized_schema_available(self._cursor):
-            self._cursor.execute(
-                """
-                SELECT code, current_name AS name
-                FROM betalens.entity_dim
-                WHERE code = ANY(%s::text[]) AND current_name <> ''
-                ORDER BY code
-                """,
-                (unique_codes,),
-            )
-        else:
-            query = psql.SQL(
-                """
-                SELECT DISTINCT ON (code) code, name
-                FROM public.{}
-                WHERE code = ANY(%s::text[]) AND name IS NOT NULL
-                ORDER BY code, datetime DESC
-                """
-            ).format(psql.Identifier(self.sheet))
-            self._cursor.execute(query, (unique_codes,))
-        return pd.DataFrame(self._cursor.fetchall(), columns=["code", "name"])
+    def query_names(self, codes, *, as_of=None):
+        codes = list(dict.fromkeys(query._codes(codes, required=True)))
+        if not codes:
+            return frame([], ["code", "name"])
+        with self._reader.snapshot():
+            if as_of is not None:
+                require_columns(self._reader, "security_name_history", {"name": "text"})
+                history = query._name_rows(self._reader, codes)
+                records = [{"code": code, "name": query.historical_name(history, code, timestamp(as_of))} for code in codes]
+            else:
+                require_columns(self._reader, "security_dim", {"security_code": "text", "name": "text"})
+                rows = self._reader.rows("security_dim", ["security_code", "name"], [("security_code", "IN", codes)])
+                names = {}
+                for row in rows:
+                    code, name = row["security_code"], row["name"]
+                    if code in names and names[code] != name:
+                        raise VersionConflictError("证券代码对应多个当前名称: " + code)
+                    names[code] = name
+                records = [{"code": code, "name": names.get(code)} for code in codes]
+        return frame(records, ["code", "name"])
 
     @staticmethod
-    def _require(params: dict[str, Any] | None, keys: tuple[str, ...]) -> dict[str, Any]:
+    def _require(params, keys):
         params = params or {}
         if not all(key in params for key in keys):
             raise ValueError(f"必须提供参数: {list(keys)}")
         return params
 
-    def close(self) -> None:
-        if self._closed:
-            return
-        self._closed = True
-        try:
-            self._cursor.close()
-        finally:
-            self._pool.release(self.conn)
-            self._cursor = None
-            self.conn = None
+    def close(self):
+        if not self._closed:
+            self._reader.close()
+            self._closed = True
 
 
-def get_absolute_trade_days(begin_date, end_date, period, exchange="SHSE"):
-    """Return locally stored exchange trading dates, sampled by period end."""
-    period_map = {"D": None, "W": "W", "M": "M", "Q": "Q", "H": "2Q", "Y": "Y"}
-    period_key = str(period).upper()
-    if period_key not in period_map:
+def _period_days(days, period):
+    key = str(period).upper()
+    if key not in {"D", "W", "M", "Q", "H", "S", "Y"}:
         raise ValueError(f"不支持的 period: {period}")
-    try:
-        begin = pd.Timestamp(begin_date)
-        end = pd.Timestamp(end_date)
-    except (TypeError, ValueError) as exc:
-        raise ValueError("begin_date/end_date 必须是有效日期") from exc
-    if pd.isna(begin) or pd.isna(end):
-        raise ValueError("begin_date/end_date 必须是有效日期")
-    begin = begin.tz_localize(None).normalize() if begin.tzinfo else begin.normalize()
-    end = end.tz_localize(None).normalize() if end.tzinfo else end.normalize()
-    if begin > end:
-        raise ValueError("begin_date 不能晚于 end_date")
-
-    exchange_code = str(exchange).strip().upper()
-    if not exchange_code or len(exchange_code) > 32:
-        raise ValueError("exchange 必须是 1-32 位非空交易所代码")
-
-    pool = get_read_pool()
-    conn = pool.acquire()
-    try:
-        with conn.cursor() as cur:
-            cur.execute("SELECT to_regclass('betalens.trade_calendar_day')")
-            if cur.fetchone()[0] is None:
-                raise RuntimeError(
-                    "本地交易日历尚未初始化；请先通过 betalens_db_manager 升级数据库并导入交易日"
-                )
-            cur.execute(
-                "SELECT EXISTS (SELECT 1 FROM betalens.trade_calendar_day WHERE exchange=%s)",
-                (exchange_code,),
-            )
-            if not cur.fetchone()[0]:
-                raise ValueError(f"本地交易日历不存在交易所: {exchange_code}")
-            cur.execute(
-                """
-                SELECT trade_date
-                FROM betalens.trade_calendar_day
-                WHERE exchange=%s AND trade_date BETWEEN %s AND %s
-                ORDER BY trade_date
-                """,
-                (exchange_code, begin.date(), end.date()),
-            )
-            rows = cur.fetchall()
-    finally:
-        pool.release(conn)
-
-    dates = pd.Series(pd.to_datetime([row[0] for row in rows]), dtype="datetime64[ns]")
-    freq = period_map[period_key]
-    if freq:
-        dates = dates.groupby(dates.dt.to_period(freq)).last().reset_index(drop=True)
-    return [value.date() for value in dates]
+    values = pd.Series(pd.to_datetime(days), dtype="datetime64[ns]")
+    if key in {"H", "S"}:
+        groups = values.dt.year * 2 + (values.dt.month - 1) // 6
+        values = values.groupby(groups).last()
+    elif key != "D":
+        values = values.groupby(values.dt.to_period(key)).last()
+    return [v.date() for v in values]
 
 
-def trade_days_offset(begin_datetime, offset, period="D"):
-    """Offset a date/time by exchange trading periods."""
-    import akshare as ak
+def get_absolute_trade_days(begin_date, end_date, period, exchange="SSE", *,
+                            backend=None, config_file=None, db_config=None, as_of=None):
+    _period_days([], period)
+    with Datafeed("trade_calendar_versions", db_config, backend=backend, config_file=config_file) as data:
+        with data._reader.snapshot():
+            days = calendar_days(data._reader, begin_date, end_date, exchange, as_of)
+    return _period_days(days, period)
 
-    original = pd.Timestamp(begin_datetime)
-    frame = ak.tool_trade_date_hist_sina()
-    days = pd.DatetimeIndex(pd.to_datetime(frame["trade_date"]).sort_values().unique())
-    if str(period).upper() != "D":
-        periods = pd.Series(days).groupby(pd.Series(days).dt.to_period(str(period).upper())).last()
-        days = pd.DatetimeIndex(periods.to_numpy())
-    insertion = int(days.searchsorted(original.normalize(), side="left"))
-    target_index = insertion + int(offset)
-    if target_index < 0 or target_index >= len(days):
-        raise IndexError("交易日偏移超出可用日历范围")
-    target = pd.Timestamp(days[target_index])
-    return datetime.combine(target.date(), original.time())
+
+def trade_days_offset(begin_datetime, offset, period="D", *, exchange="SSE",
+                      backend=None, config_file=None, db_config=None, as_of=None):
+    if isinstance(offset, bool) or int(offset) != offset:
+        raise ValueError("offset 必须是整数")
+    original = local_time(timestamp(begin_datetime))
+    exchange = exchange.upper()
+    cutoff = timestamp(as_of) if as_of is not None else pd.Timestamp.now(tz="UTC")
+    with Datafeed("trade_calendar_versions", db_config, backend=backend, config_file=config_file) as data:
+        with data._reader.snapshot():
+            scopes = load_reference(data._reader, "calendar", exchange=exchange)
+            rows = calendar_rows(scopes, cutoff)
+    days = _period_days(sorted(pd.Timestamp(d).date() for d, row in rows.items() if row["is_open"] == 1), period)
+    index = pd.DatetimeIndex(days)
+    insertion = int(index.searchsorted(original.normalize(), side="left"))
+    target = insertion + int(offset)
+    if target < 0 or target >= len(index):
+        raise IndexError("交易日偏移超出有证据的本地日历范围")
+    selected = index[target]
+    # A missing natural day could change an offset even if the target exists.
+    first, last = min(original.normalize(), selected), max(original.normalize(), selected)
+    key = str(period).upper()
+    if key in {"H", "S"}:
+        first = first.replace(month=1 if first.month <= 6 else 7, day=1)
+        last = last.replace(month=6 if last.month <= 6 else 12, day=1) + pd.offsets.MonthEnd()
+    elif key != "D":
+        first = first.to_period(key).start_time.normalize()
+        last = last.to_period(key).end_time.normalize()
+    if any(day.date().isoformat() not in rows for day in pd.date_range(first, last)):
+        raise PITUnavailableError("交易日偏移经过缺失或历史可知性不足的日历范围")
+    return datetime.combine(selected.date(), original.time())

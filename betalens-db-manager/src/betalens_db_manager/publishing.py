@@ -162,6 +162,7 @@ def publish(service,job,token):
                             if 'ingested_at' in change['after']:change['after']['ingested_at']=stamp
                         service.state.stage_commit(job,target_name,name,saved)
                     target.commit_rows(job,target_name,spec,[c['after'] for c in saved['changes']],item['plan']['request']['mode'],saved)
+                    if saved['changes']:service.state.invalidate_validation_reports([name],[target_name])
                     live=existing(target,spec,rows)
                     for change in saved['changes']:
                         current=live.get(change['row_key'])

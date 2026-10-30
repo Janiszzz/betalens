@@ -89,10 +89,16 @@ class Settings:
                 "wind_credentials_configured":bool(os.environ.get('WIND_API_KEY') or os.environ.get('WIND_USER')),
                 "requests_per_minute": self.requests_per_minute,"clickhouse_writer_mode":self.ch_writer_mode, "fingerprint": self.fingerprint}
 
-    def write_private_env(self, values: dict[str, str]) -> Path:
+    def write_private_env(self, values: dict[str, str], destination: str | Path | None = None) -> Path:
         """Write secrets outside the repository with strict permissions."""
-        path = self.env_file or self.config_dir/'credentials.env'
-        current={k:v for k,v in dotenv_values(path,interpolate=False).items() if v is not None} if path.exists() else {}
+        from .private import private_path
+        active = self.env_file or self.config_dir/'credentials.env'
+        path = private_path(Path(destination)) if destination else active
+        if path.resolve()!=active.resolve() and path.exists():raise ValueError('新配置位置已有文件，请选择其他文件名')
+        current={k:v for k,v in dotenv_values(active,interpolate=False).items() if v is not None} if active.exists() else {}
+        if destination and not active.exists():
+            names={'PGHOST':'pg_host','PGPORT':'pg_port','PGDATABASE':'pg_database','PGSCHEMA':'pg_schema','PGUSER':'pg_user','PGPASSWORD':'pg_password','CLICKHOUSE_URL':'ch_url','CLICKHOUSE_DB':'ch_database','CLICKHOUSE_USER':'ch_user','CLICKHOUSE_PASSWORD':'ch_password','CLICKHOUSE_WRITER_MODE':'ch_writer_mode','TUSHARE_TOKEN':'token','TUSHARE_RPM':'requests_per_minute','BETALENS_DB_MANAGER_STATE':'state_dir','BETALENS_DB_MANAGER_CONFIG':'config_dir'}
+            current={key:str(getattr(self,attr)) for key,attr in names.items() if getattr(self,attr) not in ('',None)}
         import re
         for key,value in values.items():
             if not re.fullmatch(r'[A-Z][A-Z0-9_]*',key):raise ValueError('环境变量名称无效')

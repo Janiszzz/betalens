@@ -7,7 +7,7 @@ written.  PostgreSQL and ClickHouse consume the same logical columns.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from functools import lru_cache
+from functools import lru_cache, cached_property
 from importlib.resources import files
 
 from .util import digest, identifier
@@ -23,7 +23,7 @@ class CanonicalTable:
     keys: tuple[str, ...]
     domain: str = "market"
 
-    @property
+    @cached_property
     def hash(self) -> str:
         return digest(self.as_dict())
 
@@ -306,6 +306,7 @@ def canonical_metadata() -> list[dict]:
 from contextvars import ContextVar
 from contextlib import contextmanager
 _active_registry = ContextVar('table_registry', default=None)
+_catalog_snapshot = ContextVar('canonical_catalog_snapshot', default=None)
 
 @contextmanager
 def registry_context(registry):
@@ -313,6 +314,20 @@ def registry_context(registry):
     try: yield
     finally: _active_registry.reset(token)
 
+@contextmanager
+def catalog_snapshot(registry):
+    """Read one registry snapshot for a single normalization operation."""
+    current = _catalog_snapshot.get()
+    if current is not None and current[0] is registry:
+        yield
+        return
+    token = _catalog_snapshot.set((registry, registry.catalog()))
+    try: yield
+    finally: _catalog_snapshot.reset(token)
+
 def load_canonical_catalog() -> dict[str, CanonicalTable]:
     registry = _active_registry.get()
+    snapshot = _catalog_snapshot.get()
+    if snapshot is not None and snapshot[0] is registry:
+        return snapshot[1]
     return registry.catalog() if registry else builtin_catalog()

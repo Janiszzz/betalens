@@ -152,6 +152,8 @@ class HTTPAdapter(SubscriptionAdapter):
                     if attempt<3:
                         for _ in range(2**attempt*5):state.check_cancel(job);time.sleep(.2)
                         continue
+                    from .source import SourceError
+                    raise SourceError('来源 HTTP '+str(response.status_code),kind='rate_limited' if response.status_code==429 else 'server_error')
                 response.raise_for_status()
                 value=json.loads(response.content,parse_float=Decimal,parse_constant=str)
                 for segment in spec.get('response_path','').split('.'):
@@ -164,7 +166,9 @@ class HTTPAdapter(SubscriptionAdapter):
                     return {'fields':fields,'items':[[r.get(f) for f in fields] for r in value]}
                 return value
             except (requests.Timeout,requests.ConnectionError):
-                if attempt==3:raise ValueError('来源网络超时或连接失败') from None
+                if attempt==3:
+                    from .source import SourceError
+                    raise SourceError('来源网络超时或连接失败',kind='network_error') from None
                 state.log(job,'network_retry',endpoint=endpoint,attempt=attempt+1)
             except requests.RequestException as exc:
                 raise ValueError(safe_error(exc,settings,[self.definition])) from None

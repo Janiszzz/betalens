@@ -1,72 +1,51 @@
-"""One durable worker per state directory, with opt-in Shanghai-time schedules."""
+"""One durable worker per state directory for explicitly started tasks."""
 from __future__ import annotations
 
 import json
 import signal
+import os
+import sqlite3
 import time
 import uuid
+from datetime import datetime,timedelta
 from contextlib import contextmanager
-from datetime import datetime, timedelta
 
-from .service import SHANGHAI, TushareImportService
+from .service import TushareImportService
 from .util import dumps, now, digest
 from .config import Settings
 
 
-def next_run(hour: int, minute: int) -> str:
-    current = datetime.now(SHANGHAI)
-    result = current.replace(hour=hour, minute=minute, second=0, microsecond=0)
-    if result <= current: result += timedelta(days=1)
-    return result.isoformat()
+class WorkerStopping(Exception):pass
 
 
-class Scheduler:
-    def __init__(self, service: TushareImportService):
-        self.service = service
+def sqlite_busy(exc):
+    code=getattr(exc,'sqlite_errorcode',None)
+    return isinstance(exc,sqlite3.OperationalError) and ((code is not None and code&255 in {sqlite3.SQLITE_BUSY,sqlite3.SQLITE_LOCKED}) or 'database is locked' in str(exc).lower() or 'database table is locked' in str(exc).lower())
 
-    def list(self):
-        with self.service.state.connect() as conn:
-            rows = [dict(row) for row in conn.execute("SELECT * FROM schedules ORDER BY label")]
-        for row in rows:
-            row["request"] = json.loads(row["request"]); row["enabled"] = bool(row["enabled"])
-        return rows
 
-    def save(self, label: str, request: dict, hour: int = 21, minute: int = 30, enabled: bool = False, id: str | None = None):
-        if not 0 <= hour < 24 or not 0 <= minute < 60: raise ValueError("无效的更新时间")
-        # Validate without creating a job or silently expanding data scope.
-        for name in request.get("datasets", []):
-            from .catalog import dataset
-            dataset(name)
-        if not (request.get("datasets") or request.get("tables")) or not label.strip(): raise ValueError("需要名称与数据集")
-        request=(self.service.compile(request) if request.get('tables') else self.service._make_plan(request))['request']
-        id = id or uuid.uuid4().hex
-        with self.service.state.connect() as conn:
-            conn.execute("INSERT INTO schedules VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET label=excluded.label,request=excluded.request,hour=excluded.hour,minute=excluded.minute,enabled=excluded.enabled,next_run=excluded.next_run",
-                         (id, label, dumps(request), hour, minute, int(enabled), next_run(hour, minute) if enabled else None, None))
-        if not enabled:
-            with self.service.state.connect() as conn:
-                conn.execute("UPDATE tasks SET status='cancelled' WHERE status='queued' AND json_extract(payload,'$.schedule')=?", (id,))
-        return next(s for s in self.list() if s["id"] == id)
+def diagnostic(settings,event,**values):
+    from .security import public_data
+    print(dumps(public_data({'at':now(),'pid':os.getpid(),'event':event,**values},settings)),flush=True)
 
-    def reset_missed(self):
-        # Keep the saved opt-in state; never immediately catch up on a restart.
-        with self.service.state.connect() as conn:
-            for row in conn.execute("SELECT id,hour,minute,next_run FROM schedules WHERE enabled=1").fetchall():
-                if not row["next_run"] or datetime.fromisoformat(row["next_run"]) <= datetime.now(SHANGHAI):
-                    conn.execute("UPDATE schedules SET next_run=? WHERE id=?", (next_run(row["hour"], row["minute"]), row["id"]))
 
-    def tick(self):
-        for row in self.list():
-            if not row["enabled"] or not row["next_run"] or datetime.fromisoformat(row["next_run"]) > datetime.now(SHANGHAI): continue
-            previous = self.service.state.job(row["last_job"]) if row["last_job"] else None
-            if previous and previous["status"] not in {"completed", "failed", "cancelled", "blocked", "pending_sync"}: continue
-            request = dict(row["request"])
-            request["end_date"] = (datetime.now(SHANGHAI).date()-timedelta(days=1)).isoformat()
-            # A saved lookback range is explicit; scheduling does not change its start date.
-            job = self.service.plan(request)
-            self.service.state.enqueue(job["id"], "update", {"schedule": row["id"]})
-            with self.service.state.connect() as conn:
-                conn.execute("UPDATE schedules SET next_run=?,last_job=? WHERE id=? AND enabled=1", (next_run(row["hour"], row["minute"]), job["id"], row["id"]))
+def retry_control(phase,call,settings,stopped=lambda:False):
+    """Retry rolled-back SQLite control operations, never a business write."""
+    attempt=0
+    while not stopped():
+        try:return call()
+        except sqlite3.OperationalError as exc:
+            if not sqlite_busy(exc):raise
+            delay=min(5,.2*2**min(attempt,5));attempt+=1
+            diagnostic(settings,'sqlite_busy_retry',phase=phase,attempt=attempt,retry_seconds=delay,error=str(exc))
+            deadline=time.monotonic()+delay
+            while not stopped() and time.monotonic()<deadline:time.sleep(min(.1,max(0,deadline-time.monotonic())))
+    raise WorkerStopping()
+
+
+def heartbeat(service,status,job=None):
+    from .util import atomic_json
+    try:atomic_json(service.settings.state_dir/'worker-heartbeat.json',{'pid':os.getpid(),'at':now(),'status':status,'job':job})
+    except OSError as exc:diagnostic(service.settings,'worker_heartbeat_failed',error=str(exc))
 
 
 @contextmanager
@@ -100,14 +79,27 @@ def execute_task(settings,task):
     from dataclasses import replace
     current=Settings.from_env(settings.env_file) if settings.env_file else settings
     if current.state_dir!=settings.state_dir or current.config_dir!=settings.config_dir:raise ValueError('环境目录已改变，请重启管理器')
-    service=DatabaseManagerService(current)
+    service=retry_control('initialize_task',lambda:DatabaseManagerService(current),current)
+    def control(phase,call):return retry_control(phase,call,current)
     attempt=uuid.uuid4().hex
-    service.state.ledger_put('execution_attempt',attempt,{'task_id':task['job'],'attempt_id':attempt,'operation':task['operation'],'started_at':now(),'status':'running','config_revision':digest([current.public(),current.env_file.stat().st_mtime_ns if current.env_file and current.env_file.exists() else None])})
-    service.state.log(task['job'],'execution_started',attempt_id=attempt,operation=task['operation'])
+    control('attempt_started',lambda:service.state.ledger_put('execution_attempt',attempt,{'task_id':task['job'],'attempt_id':attempt,'operation':task['operation'],'started_at':now(),'status':'running','config_revision':digest([current.public(),current.env_file.stat().st_mtime_ns if current.env_file and current.env_file.exists() else None])}))
+    control('execution_started',lambda:service.state.log(task['job'],'execution_started',attempt_id=attempt,operation=task['operation']))
     try:
         service.state.check_cancel(task['job'])
         operation,job=task['operation'],task['job']
-        if operation.startswith('reference_'):
+        if operation=='pipeline_run':
+            from .pipeline import Pipeline
+            Pipeline(service).run(job)
+        elif operation=='pipeline_review':
+            from .review_service import ReviewService
+            ReviewService(service).execute(task['payload']['decision_id'])
+        elif operation=='pipeline_commit':
+            from .pipeline import Pipeline
+            Pipeline(service).commit(job)
+        elif operation=='pipeline_validate':
+            from .pipeline_validation import ValidationRunner
+            ValidationRunner(service).run(job,task['payload'].get('validation',{}))
+        elif operation.startswith('reference_'):
             from .reference_service import ReferenceWorkflow
             reference=ReferenceWorkflow(service)
             if operation=='reference_download':reference.download(job);reference.preview(job)
@@ -123,15 +115,20 @@ def execute_task(settings,task):
         elif operation=='rollback':service.rollback(job,task['payload'].get('targets'))
         elif operation=='sync_audit':
             from .publishing import operation_lock,retry_audit_sync
-            with operation_lock(service):retry_audit_sync(service,job)
+            if service.state.job(job)['plan'].get('pipeline_version')==2:
+                from .pipeline_store import PipelineStore
+                for target in service.state.job(job)['plan']['request']['targets']:PipelineStore(service.state).sync(service,job,target)
+            else:
+                with operation_lock(service):retry_audit_sync(service,job)
         else:raise ValueError('未知操作')
-        service.state.finish(task['id'])
+        control('operation_finished',lambda:service.state.finish(task['id']))
         status='completed';error=None
     except BaseException as exc:
-        error=service.safe_error(exc);status='failed';service.state.finish(task['id'],error)
-        service.state.update_job(task['job'],error=error)
-        service.state.log(task['job'],'execution_failed',error=error)
-    service.state.ledger_put('execution_attempt',attempt,{**(service.state.ledger_get('execution_attempt',attempt) or {}),'finished_at':now(),'status':status,'error':error})
+        error=service.safe_error(exc);status='failed'
+        control('operation_failed',lambda:service.state.finish(task['id'],error))
+        control('operation_error',lambda:service.state.update_job(task['job'],error=error))
+        control('execution_failed',lambda:service.state.log(task['job'],'execution_failed',error=error))
+    control('attempt_finished',lambda:service.state.ledger_put('execution_attempt',attempt,{**(service.state.ledger_get('execution_attempt',attempt) or {}),'finished_at':now(),'status':status,'error':error}))
 
 
 def clean_cache(service):
@@ -145,7 +142,7 @@ def clean_cache(service):
         item=service.state.job(summary['id'])
         # Reference archives and normalized snapshots are durable audit/rollback
         # evidence. Their retention is separate from the legacy transient cache.
-        if item['plan'].get('revision','').startswith('reference-'):continue
+        if item['plan'].get('revision','').startswith('reference-') or item['plan'].get('pipeline_version')==2:continue
         if item['plan'].get('cache_purged'):continue
         if any(p.get('archive') in protected for p in item['slices']):continue
         for part in item['slices']:
@@ -170,63 +167,104 @@ def interrupt_attempts(service,job,reason):
 
 def work(service: TushareImportService, once: bool = False):
     import multiprocessing
-    from .config import Settings
     from .management_api import session_online
-    stop=False
+    stop=False;owned=False;child=None
     def signal_stop(*_):
         nonlocal stop
         stop=True
-    signal.signal(signal.SIGTERM,signal_stop);signal.signal(signal.SIGINT,signal_stop)
-    with worker_lock(service):
+    previous={sig:signal.signal(sig,signal_stop) for sig in (signal.SIGTERM,signal.SIGINT)}
+    # Short waits keep cancellation responsive; contention is retried outside transactions.
+    service.state.busy_timeout=1
+    def control(phase,call):return retry_control(phase,call,service.settings,lambda:stop)
+    def recover():
         with service.state.connect() as conn:
             abandoned=[r[0] for r in conn.execute("SELECT DISTINCT job FROM tasks WHERE status='running'")]
             conn.execute("UPDATE tasks SET status='interrupted',error='执行器已退出，需显式恢复并核验目标库' WHERE status='running'")
             for job in abandoned:conn.execute("UPDATE jobs SET status='interrupted',error='执行器已退出，需显式恢复并核验目标库',updated=? WHERE id=? AND status NOT IN ('completed','rolled_back')",(now(),job))
-        for job in abandoned:interrupt_attempts(service,job,'执行器已退出，目标写入待核验')
-        scheduler=Scheduler(service);scheduler.reset_missed();was_online=False;cleaned=0
-        config_stamp=service.settings.env_file.stat().st_mtime_ns if service.settings.env_file and service.settings.env_file.exists() else None
-        while not stop:
-            if hasattr(service,'reload_config') and service.settings.env_file and service.settings.env_file.exists():
-                current_stamp=service.settings.env_file.stat().st_mtime_ns
-                if current_stamp!=config_stamp:
-                    try:service.reload_config()
-                    except ValueError:pass  # Directory changes require an explicit service restart.
-                    config_stamp=current_stamp
-            online=session_online(service.state)
-            if online and not was_online:scheduler.reset_missed()
-            if was_online and not online:
-                with service.state.connect() as conn:
-                    queued=[r[0] for r in conn.execute("SELECT DISTINCT job FROM tasks WHERE status='queued'")]
-                for job in queued:
-                    service.state.cancel(job);service.state.update_job(job,status='cancelled',error='最后一个管理页面已关闭；请显式恢复')
-            active_page=session_online(service.state,include_grace=False)
-            if active_page:scheduler.tick()
-            was_online=online
-            task=service.state.claim() if active_page or once else None
-            if task:
-                child=multiprocessing.get_context('spawn').Process(target=execute_task,args=(service.settings,task))
-                child.start();cancel_at=None
-                while child.is_alive():
-                    online=session_online(service.state)
-                    requires_page=not once
-                    item=service.state.job(task['job'])
-                    if stop or item['cancel'] or (requires_page and not online):
-                        service.state.cancel(task['job'])
-                        if cancel_at is None:
-                            cancel_at=time.monotonic();service.state.log(task['job'],'stop_requested',reason='管理页面已关闭' if not online else '用户停止')
-                        if time.monotonic()-cancel_at>=60:child.terminate();child.join(5)
-                        if child.is_alive() and time.monotonic()-cancel_at>=65:child.kill()
-                    child.join(.25)
-                child.join()
-                with service.state.connect() as conn:
-                    running=conn.execute("SELECT status FROM tasks WHERE id=?",(task['id'],)).fetchone()
-                    if running and running[0]=='running':
-                        conn.execute("UPDATE tasks SET status='interrupted',error='进程中断；写入状态须在恢复前核验' WHERE id=?",(task['id'],))
-                if running and running[0]=='running':
-                    service.state.update_job(task['job'],status='interrupted',error='进程中断；已保存检查点，恢复前核验目标库')
-                    interrupt_attempts(service,task['job'],'进程中断，目标写入待核验')
-                if once:break
-            elif once:break
-            else:
-                if time.monotonic()-cleaned>3600:clean_cache(service);cleaned=time.monotonic()
-                time.sleep(.5)
+        return abandoned
+    def cancelled(job):
+        with service.state.connect() as conn:return bool(conn.execute('SELECT cancel FROM jobs WHERE id=?',(job,)).fetchone()[0])
+    try:
+        with worker_lock(service):
+            owned=True
+            for job in control('recover',recover):control('recover_attempts',lambda:interrupt_attempts(service,job,'执行器已退出，目标写入待核验'))
+            was_online=False;cleaned=0;beat=0
+            config_stamp=service.settings.env_file.stat().st_mtime_ns if service.settings.env_file and service.settings.env_file.exists() else None
+            while not stop:
+                if time.monotonic()-beat>=5:heartbeat(service,'idle');beat=time.monotonic()
+                try:
+                    if hasattr(service,'reload_config') and service.settings.env_file and service.settings.env_file.exists():
+                        current_stamp=service.settings.env_file.stat().st_mtime_ns
+                        if current_stamp!=config_stamp:
+                            try:control('reload_config',service.reload_config)
+                            except ValueError as exc:diagnostic(service.settings,'worker_config_restart_required',error=str(exc))
+                            config_stamp=current_stamp
+                    online=control('sessions',lambda:session_online(service.state))
+                    if was_online and not online:
+                        def offline_jobs():
+                            with service.state.connect() as conn:return [r[0] for r in conn.execute("SELECT DISTINCT job FROM tasks WHERE status='queued' AND coalesce(json_extract(payload,'$.background'),0)!=1")]
+                        for job in control('offline_queue',offline_jobs):
+                            control('cancel_offline',lambda:service.state.cancel(job))
+                            control('cancel_status',lambda:service.state.update_job(job,status='cancelled',error='最后一个管理页面已关闭；请显式恢复'))
+                    active_page=control('sessions',lambda:session_online(service.state,include_grace=False));was_online=online
+                    task=control('claim',lambda:service.state.claim(allow_ui=bool(active_page or once)))
+                    if task:
+                        heartbeat(service,'running',task['job'])
+                        child=multiprocessing.get_context('spawn').Process(target=execute_task,args=(service.settings,task))
+                        try:child.start()
+                        except Exception as exc:
+                            message=service.safe_error(exc)
+                            control('spawn_failed',lambda:service.state.finish(task['id'],message))
+                            control('spawn_status',lambda:service.state.update_job(task['job'],status='interrupted',error='执行子进程启动失败：'+message))
+                            diagnostic(service.settings,'worker_spawn_failed',job=task['job'],error=message)
+                            if once:break
+                            continue
+                        cancel_at=None;stop_logged=False
+                        while child.is_alive():
+                            online=True;requested=False
+                            try:
+                                online=session_online(service.state);requested=cancelled(task['job'])
+                            except sqlite3.OperationalError as exc:
+                                if not sqlite_busy(exc):raise
+                                diagnostic(service.settings,'sqlite_busy_retry',phase='monitor',job=task['job'],error=str(exc))
+                            requires_page=not once and not task['payload'].get('background',False)
+                            if stop or requested or (requires_page and not online):
+                                if cancel_at is None:cancel_at=time.monotonic()
+                                try:
+                                    if not requested:service.state.cancel(task['job'])
+                                    if not stop_logged:
+                                        service.state.log(task['job'],'stop_requested',reason='管理页面已关闭' if not online else '用户停止')
+                                        stop_logged=True
+                                except sqlite3.OperationalError as exc:
+                                    if not sqlite_busy(exc):raise
+                                if time.monotonic()-cancel_at>=60:child.terminate();child.join(5)
+                                if child.is_alive() and time.monotonic()-cancel_at>=65:child.kill()
+                            if time.monotonic()-beat>=5:heartbeat(service,'running',task['job']);beat=time.monotonic()
+                            child.join(.25)
+                        child.join()
+                        def finish_interrupted():
+                            with service.state.connect() as conn:
+                                running=conn.execute("SELECT status FROM tasks WHERE id=?",(task['id'],)).fetchone()
+                                if running and running[0]=='running':
+                                    conn.execute("UPDATE tasks SET status='interrupted',error='进程中断；写入状态须在恢复前核验' WHERE id=?",(task['id'],))
+                                    conn.execute("UPDATE jobs SET status='interrupted',error='进程中断；已保存检查点，恢复前核验目标库',updated=? WHERE id=?",(now(),task['job']))
+                                    return True
+                            return False
+                        # A shutdown can leave recovery to the next worker, rather than blocking its exit.
+                        if not stop and control('finish',finish_interrupted):control('finish_attempts',lambda:interrupt_attempts(service,task['job'],'进程中断，目标写入待核验'))
+                        if once:break
+                    elif once:break
+                    else:
+                        if time.monotonic()-cleaned>3600:
+                            try:clean_cache(service)
+                            except Exception as exc:diagnostic(service.settings,'worker_cache_cleanup_failed',error=service.safe_error(exc))
+                            cleaned=time.monotonic()
+                        time.sleep(.5)
+                except WorkerStopping:break
+    except WorkerStopping:pass
+    finally:
+        if child is not None and child.is_alive():
+            child.terminate();child.join(5)
+            if child.is_alive():child.kill();child.join(5)
+        if owned:heartbeat(service,'stopped')
+        for sig,handler in previous.items():signal.signal(sig,handler)

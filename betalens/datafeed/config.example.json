@@ -1,18 +1,23 @@
 {
-  "_comment": "这是 datafeed 模块的配置示例；仓库开发请复制为 config.local.json 后修改",
-  "database": {
-    "_comment": "PostgreSQL数据库连接配置",
-    "dbname": "datafeed",
-    "user": "postgres",
+  "backend": "postgres",
+  "postgres": {
+    "host": "127.0.0.1",
+    "port": 5432,
+    "dbname": "betalens",
+    "schema": "betalens",
+    "user": "reader",
     "password": "",
-    "host": "localhost",
-    "port": "5432"
+    "connect_timeout": 5,
+    "statement_timeout_ms": 120000,
+    "pool_min_connections": 1,
+    "pool_max_connections": 10
   },
-  "logging": {
-    "_comment": "日志配置",
-    "log_dir": "./logs",
-    "log_level": "INFO",
-    "log_format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  "clickhouse": {
+    "url": "http://127.0.0.1:8123",
+    "database": "betalens",
+    "user": "reader",
+    "password": "",
+    "connect_timeout": 5,
+    "statement_timeout_ms": 120000
   }
 }
-

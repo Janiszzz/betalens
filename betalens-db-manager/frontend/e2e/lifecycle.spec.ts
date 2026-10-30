@@ -9,7 +9,7 @@ test('更新任务可设置每分钟请求次数并固定获取策略',async({pa
  await page.getByLabel('基金',{exact:true}).uncheck();await page.getByLabel('指数',{exact:true}).uncheck();
  await page.getByRole('button',{name:'匹配并预览 API 请求',exact:true}).click();
  await expect(page.getByRole('heading',{name:'接口限频与完整获取策略',exact:true})).toBeVisible();
- await page.getByRole('button',{name:'创建任务',exact:true}).click();
+ await page.getByRole('button',{name:'创建任务并查看详情',exact:true}).click();
  const heading=page.getByRole('heading',{name:/^任务 [a-f0-9]{32}$/});await expect(heading).toBeVisible();
  const id=(await heading.innerText()).split(' ')[1];
  const task=await (await request.get('/api/tasks/'+id)).json();
@@ -21,7 +21,8 @@ test('更新任务可设置每分钟请求次数并固定获取策略',async({pa
 test('手工建表 → HTTP 映射 → 缺口补数 → 双库确认写入 → 回退',async({page,request},info)=>{
  page.on('dialog',d=>d.accept());
  const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
- await page.goto('/');await expect(page.getByRole('heading',{name:'本地表',exact:true})).toBeVisible();
+ await page.goto('/');await expect(page.getByRole('heading',{name:'本地表与配置',exact:true})).toBeVisible();
+ await page.getByText('高级管理 · 手工定义、结构迁移与未登记表',{exact:true}).click();
  await page.getByRole('button',{name:'手工建表',exact:true}).click();
  for(const [label,value] of [['英文表名','browser_prices'],['中文名称','浏览器验收行情'],['说明','完整用户流程验收'],['一行代表什么','证券和业务日期一行']])await page.getByLabel(label,{exact:true}).fill(value);
  await page.getByLabel('字段名0',{exact:true}).fill('code');await page.getByLabel('主键0',{exact:true}).check();
@@ -40,27 +41,27 @@ test('手工建表 → HTTP 映射 → 缺口补数 → 双库确认写入 → �
  await page.getByTestId('source-day').click();await page.getByLabel('日期格式 day',{exact:true}).fill('%Y/%m/%d');await page.getByRole('button',{name:'保存映射规则',exact:true}).click();
  await expect(page.getByText('映射已写入本地 YAML，新任务使用此版本')).toBeVisible();
  const seeded=await (await request.get('http://127.0.0.1:18082/seed')).json();expect(seeded).toEqual({seeded:true});
- await page.reload();await page.getByRole('link',{name:'本地表',exact:true}).click();await expect(page.getByLabel('本地表',{exact:true})).toBeVisible();await page.getByLabel('本地表',{exact:true}).selectOption('browser_prices');
- await page.getByLabel('起始业务日期').fill('2026-10-12');await page.getByLabel('结束业务日期').fill('2026-10-14');await page.getByRole('button',{name:'检查时间缺口',exact:true}).click();
- await expect(page.locator('.day.missing')).toHaveCount(1);await page.locator('.day.missing').click();
- await expect(page.getByLabel('任务起始日期')).toHaveValue('2026-10-13');await page.getByRole('button',{name:'匹配并预览 API 请求'}).click();await page.getByRole('button',{name:'创建任务',exact:true}).click();
+ await page.goto('/updates?table=browser_prices');
+ await page.getByLabel('任务起始日期').fill('2026-10-13');await page.getByLabel('任务结束日期').fill('2026-10-13');await page.getByLabel('异步后台采集，轻量检查后自动入库',{exact:true}).uncheck();await page.getByRole('button',{name:'匹配并预览 API 请求'}).click();await page.getByRole('button',{name:'创建任务并查看详情',exact:true}).click();
  await page.getByRole('button',{name:'开始拉取',exact:true}).click();
  // A separately supervised worker is started by the test fixture's server.
+ await page.getByRole('tab',{name:'缓存与写入审计',exact:true}).click();
  await expect(page.getByRole('button',{name:'确认增量入库'})).toBeVisible({timeout:30000});
  expect(await (await request.get('http://127.0.0.1:18082/assert-empty')).json()).toEqual({pg:0,ch:0});
- await expect(page.getByText('http_response',{exact:true}).first()).toBeVisible();
+ await page.getByText('原始响应缓存与下载',{exact:true}).click();
  await page.getByRole('button',{name:'查看审计缓存'}).click();await expect(page.getByText('12345.678901',{exact:true}).first()).toBeVisible();
  await page.screenshot({path:info.outputPath('audit-before-confirm.png'),fullPage:true});
  await page.getByRole('button',{name:'确认增量入库'}).click();await expect.poll(async()=>await (await request.get('http://127.0.0.1:18082/assert-empty')).json()).toEqual({pg:1,ch:1});
  await page.getByRole('button',{name:'查看写入结果'}).click();await page.screenshot({path:info.outputPath('write-results.png'),fullPage:true});
- await waitForTaskIdle(page,request);await page.getByRole('button',{name:'回退本任务',exact:true}).click();await expect.poll(async()=>await (await request.get('http://127.0.0.1:18082/assert-empty')).json()).toEqual({pg:0,ch:0});
+ await waitForTaskIdle(page,request);await page.getByRole('button',{name:'回退本任务',exact:true}).click();await page.getByRole('button',{name:'确认回退所选数据库',exact:true}).click();await expect.poll(async()=>await (await request.get('http://127.0.0.1:18082/assert-empty')).json()).toEqual({pg:0,ch:0});
  // A second provider has different names, units, date format and JSON shape.
  const registered=await request.post('/api/sources',{data:{source_id:'alternate_vendor',provider:'http',label:'第二订阅源',base_url:'http://127.0.0.1:18082',endpoints:{alternate:{path:'alternate',method:'GET',strategy:'range',date_field:'observed',keys:['symbol','observed'],fields:[{name:'symbol',type:'text'},{name:'observed',type:'date'},{name:'close_yuan',type:'numeric'}]}}}});expect(registered.ok()).toBeTruthy();
  const doc=await (await request.get('/api/tables/browser_prices/mapping')).json();doc.mapping.bindings.push({source_id:'alternate_vendor',endpoint:'alternate',priority:10,join_keys:[{source_field:'symbol',column:'code'},{source_field:'observed',column:'business_date'}],fields:[{source_field:'symbol',column:'code'},{source_field:'observed',column:'business_date',date_format:'%Y/%m/%d'},{source_field:'close_yuan',column:'price',multiplier:'1'}]});
  expect((await request.post('/api/tables/browser_prices/mapping',{data:{mapping:doc.mapping,file_hash:doc.file_hash}})).ok()).toBeTruthy();
- await page.reload();await page.getByRole('link',{name:'本地表',exact:true}).click();await page.getByLabel('本地表',{exact:true}).selectOption('browser_prices');await page.getByRole('link',{name:'更新与审计',exact:true}).click();
+ await page.goto('/updates?table=browser_prices');
  await page.getByLabel('任务起始日期').fill('2026-10-13');await page.getByLabel('任务结束日期').fill('2026-10-13');await page.getByLabel('更新来源',{exact:true}).selectOption('alternate_vendor');
- await page.getByRole('button',{name:'匹配并预览 API 请求'}).click();await page.getByRole('button',{name:'创建任务',exact:true}).click();await page.getByRole('button',{name:'开始拉取',exact:true}).click();
+ await page.getByLabel('异步后台采集，轻量检查后自动入库',{exact:true}).uncheck();await page.getByRole('button',{name:'匹配并预览 API 请求'}).click();await page.getByRole('button',{name:'创建任务并查看详情',exact:true}).click();await page.getByRole('button',{name:'开始拉取',exact:true}).click();
+ await page.getByRole('tab',{name:'缓存与写入审计',exact:true}).click();
  await expect(page.getByRole('button',{name:'确认增量入库'})).toBeVisible({timeout:30000});await page.getByRole('button',{name:'确认增量入库'}).click();
  await expect.poll(async()=>await (await request.get('http://127.0.0.1:18082/assert-empty')).json()).toEqual({pg:1,ch:1});
  const secondRows=await (await request.get('/api/query/browser_prices?target=clickhouse&start=2026-10-13&end=2026-10-13')).json();expect(secondRows.rows[0].source_id).toBe('alternate_vendor');expect(secondRows.rows[0].price).toBe('12.3456789');
@@ -73,8 +74,8 @@ test('关闭警告、多个页面、最后页面停止任务、重新打开不�
  expect((await request.post('/api/sources',{data:source})).ok()).toBeTruthy();
  const doc=await (await request.get('/api/tables/browser_prices/mapping')).json();doc.mapping.bindings.push({source_id:'slow_vendor',endpoint:'slow',priority:20,join_keys:[{source_field:'ticker',column:'code'},{source_field:'day',column:'business_date'}],fields:[{source_field:'ticker',column:'code'},{source_field:'day',column:'business_date',date_format:'%Y/%m/%d'},{source_field:'price_milli',column:'price',multiplier:'0.001'}]});
  expect((await request.post('/api/tables/browser_prices/mapping',{data:{mapping:doc.mapping,file_hash:doc.file_hash}})).ok()).toBeTruthy();
- const task=await (await request.post('/api/tasks',{data:{tables:['browser_prices'],source_id:'slow_vendor',start_date:'2026-10-15',end_date:'2026-10-15'}})).json();
- await page.goto('/');await page.getByRole('link',{name:'更新与审计',exact:true}).click();await page.getByRole('button',{name:new RegExp(task.id.slice(0,12))}).click();
+ const task=await (await request.post('/api/tasks',{data:{pipeline_version:1,tables:['browser_prices'],source_id:'slow_vendor',start_date:'2026-10-15',end_date:'2026-10-15'}})).json();
+ await page.goto('/tasks?task='+task.id);
  const second=await context.newPage();await second.goto('/');await second.getByRole('link',{name:'更新与审计',exact:true}).click();
  await page.getByRole('button',{name:'开始拉取',exact:true}).click();await expect.poll(async()=>{const j=await (await request.get('/api/tasks/'+task.id)).json();return j.status;}).toBe('downloading');
  const dismissed=page.waitForEvent('dialog');await page.close({runBeforeUnload:true});await (await dismissed).dismiss();expect(page.isClosed()).toBeFalsy();
@@ -83,7 +84,7 @@ test('关闭警告、多个页面、最后页面停止任务、重新打开不�
  const lastDialog=second.waitForEvent('dialog');await second.close({runBeforeUnload:true});await (await lastDialog).accept();
  await expect.poll(async()=>(await (await request.get('/api/tasks/'+task.id)).json()).cancel,{timeout:55000}).toBe(1);
  await expect.poll(async()=>(await (await request.get('/api/tasks/'+task.id)).json()).status,{timeout:45000}).toMatch(/cancelled|interrupted/);
- const reopened=await context.newPage();await reopened.goto('/');await reopened.getByRole('link',{name:'更新与审计',exact:true}).click();await expect(reopened.getByRole('button',{name:new RegExp(task.id.slice(0,12))})).toBeVisible();
+ const reopened=await context.newPage();await reopened.goto('/tasks');await expect(reopened.getByRole('button',{name:new RegExp(task.id.slice(0,12))})).toBeVisible();
  const final=await (await request.get('/api/tasks/'+task.id)).json();expect(final.tasks.some((t:any)=>['queued','running'].includes(t.status))).toBeFalsy();
 });
 
@@ -119,28 +120,29 @@ test('查询源多选去重与移除 → 可视连线 → 联合键多源拼接 
  await page.reload();await page.getByRole('link',{name:'字段映射',exact:true}).click();await page.getByLabel('选择本地表',{exact:true}).selectOption('joined_quotes');
  await page.getByText('选择 API 查询源（已选 2）',{exact:true}).click();await expect(page.getByLabel('查询源 join_vendor · prices',{exact:true})).toBeChecked();await expect(page.getByLabel('查询源 join_vendor · volumes',{exact:true})).toBeChecked();await page.getByText('选择 API 查询源（已选 2）',{exact:true}).click();
  await page.getByRole('link',{name:'更新与审计',exact:true}).click();await page.getByLabel('任务起始日期').fill('2026-10-13');await page.getByLabel('任务结束日期').fill('2026-10-13');
- await page.getByRole('button',{name:'匹配并预览 API 请求'}).click();await page.getByRole('button',{name:'创建任务',exact:true}).click();await page.getByRole('button',{name:'开始拉取',exact:true}).click();
+ await page.getByLabel('异步后台采集，轻量检查后自动入库',{exact:true}).uncheck();await page.getByRole('button',{name:'匹配并预览 API 请求'}).click();await page.getByRole('button',{name:'创建任务并查看详情',exact:true}).click();await page.getByRole('button',{name:'开始拉取',exact:true}).click();
+ await page.getByRole('tab',{name:'缓存与写入审计',exact:true}).click();
  await expect(page.getByRole('button',{name:'确认增量入库'})).toBeVisible({timeout:30000});
  for(const target of ['postgres','clickhouse'])expect((await (await request.get('/api/query/joined_quotes?target='+target)).json()).rows).toHaveLength(0);
  await page.getByRole('button',{name:'确认增量入库'}).click();
  for(const target of ['postgres','clickhouse'])await expect.poll(async()=>{const r=await (await request.get('/api/query/joined_quotes?target='+target)).json();return r.rows.map((v:any)=>[v.code,v.business_date,v.price,v.volume]);}).toEqual([['a','2026-10-13','12.3456789','200']]);
- await waitForTaskIdle(page,request);await page.getByRole('button',{name:'回退本任务',exact:true}).click();
+ await waitForTaskIdle(page,request);await page.getByRole('button',{name:'回退本任务',exact:true}).click();await page.getByRole('button',{name:'确认回退所选数据库',exact:true}).click();
  for(const target of ['postgres','clickhouse'])await expect.poll(async()=>(await (await request.get('/api/query/joined_quotes?target='+target)).json()).rows).toHaveLength(0);
  await page.close({runBeforeUnload:true});await expect.poll(()=>page.isClosed()).toBeTruthy();
 });
 
 test('各页面独立路径、直接访问、刷新和历史导航；已绘制连线后切换全部本地表不白屏',async({page,request},info)=>{
  page.on('dialog',d=>d.accept());const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
- const routes=[['本地表','/tables'],['更新与审计','/tasks'],['字段映射','/mappings'],['订阅源','/sources'],['配置','/settings'],['自动更新','/schedules']];
+ const routes=[['本地表与配置','/tables'],['更新与审计','/updates'],['任务清单与回退','/tasks'],['业务完整性','/integrity'],['字段映射','/mappings'],['订阅源','/sources']];
  for(const [name,path] of routes){
    await page.goto(path);await expect(page.getByRole('heading',{name,exact:true})).toBeVisible();
    await expect(page.locator('aside a[aria-current="page"]')).toHaveText(name);
    await page.reload();await expect(page.getByRole('heading',{name,exact:true})).toBeVisible();
  }
  await page.getByRole('link',{name:'字段映射',exact:true}).click();await expect(page).toHaveURL(/\/mappings(?:\?|$)/);
- await page.getByRole('link',{name:'配置',exact:true}).click();await expect(page).toHaveURL(/\/settings$/);
+ await page.getByRole('link',{name:'本地表与配置',exact:true}).click();await expect(page).toHaveURL(/\/tables$/);
  await page.goBack();await expect(page.getByRole('heading',{name:'字段映射',exact:true})).toBeVisible();
- await page.goForward();await expect(page.getByRole('heading',{name:'配置',exact:true})).toBeVisible();
+ await page.goForward();await expect(page.getByRole('heading',{name:'本地表与配置',exact:true})).toBeVisible();
  await page.goto('/mappings?table=market_daily_raw');
  await expect.poll(()=>page.getByTestId('mapping-edge').count()).toBeGreaterThan(0);
  // The original crash used the old edge index while the next response was in flight.
@@ -178,13 +180,13 @@ test('各页面独立路径、直接访问、刷新和历史导航；已绘制�
 
 test('数据写入后审计同步失败 → 网页补同步 → 不重复业务写入',async({page,request},info)=>{
  page.on('dialog',d=>d.accept());
- const created=await request.post('/api/tasks',{data:{tables:['browser_prices'],source_id:'browser_vendor',targets:['postgres'],start_date:'2026-10-16',end_date:'2026-10-16'}});
+ const created=await request.post('/api/tasks',{data:{pipeline_version:1,tables:['browser_prices'],source_id:'browser_vendor',targets:['postgres'],start_date:'2026-10-16',end_date:'2026-10-16'}});
  expect(created.ok()).toBeTruthy();const task=await created.json();
  await request.get('http://127.0.0.1:18082/audit-sync-fault?enabled=true');
  try{
-   await page.goto('/tasks?table=browser_prices');
-   await page.getByRole('button',{name:new RegExp(task.id.slice(0,12))}).click();
+   await page.goto('/tasks?task='+task.id);
    await page.getByRole('button',{name:'开始拉取',exact:true}).click();
+   await page.getByRole('tab',{name:'缓存与写入审计',exact:true}).click();
    await expect(page.getByRole('button',{name:'确认增量入库',exact:true})).toBeVisible({timeout:30000});
    await page.getByRole('button',{name:'确认增量入库',exact:true}).click();
    await expect.poll(async()=>(await (await request.get('/api/tasks/'+task.id)).json()).status,{timeout:30000}).toBe('audit_pending');

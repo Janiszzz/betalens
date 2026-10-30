@@ -102,6 +102,11 @@ def session_online(state,include_grace=True):
 
 
 def install_routes(app,service,response):
+    @app.get('/api/worker-status')
+    def execution_status():
+        from .worker_supervisor import worker_status
+        return response(worker_status(service.settings))
+
     from urllib.parse import urlsplit
     @app.get('/api/table-registry')
     def registry():return response(table_list(service))
@@ -185,14 +190,15 @@ def install_routes(app,service,response):
     def compile(payload:dict=Body(...)):return response(service.compile(payload))
 
     @app.post('/api/tasks')
-    def create_task(payload:dict=Body(...)):return response(service.plan(payload))
+    def create_task(payload:dict=Body(...)):return response(service.plan({'pipeline_version':2,**payload}))
 
     @app.post('/api/tasks/{job}/replay')
     def replay(job:str):
         return response(service.replay_archive(job))
 
     @app.get('/api/tasks/{job}/logs')
-    def logs(job:str,after:int=0):return response(service.state.logs(job,after))
+    def logs(job:str,after:int=0,limit:int=200,latest:bool=False):
+        return response(service.state.logs(job,after,limit,latest=latest))
 
     @app.get('/api/tasks/{job}/evidence')
     def evidence(job:str):
@@ -233,19 +239,27 @@ def install_routes(app,service,response):
         service.state.ledger_put('browser_session',sid,{'id':sid,'seen':time.time(),'closed_at':time.time()});return response({'stopping_after_reconnect_grace':True})
 
     @app.websocket('/api/live/{job}')
-    async def live(websocket:WebSocket,job:str):
+    async def live(websocket:WebSocket,job:str,after:int=0,latest:bool=False,limit:int=500):
         from .security import public_data
         def safe(value):return public_data(value,service.settings,service.sources.values.values())
         origin=websocket.headers.get('origin')
         if origin and urlsplit(origin).netloc!=websocket.headers.get('host'):await websocket.close(code=1008);return
-        await websocket.accept();after=0;last=None
+        await websocket.accept();after=max(0,after);last=None;initial=True
         try:
             while True:
-                rows=service.state.logs(job,after)
+                rows=service.state.logs(job,after,limit,latest=True) if latest else service.state.logs(job,after)
+                if latest and initial:
+                    # Start at the current tail, never replay a large historical backlog.
+                    await websocket.send_text(__import__('betalens_db_manager.util',fromlist=['dumps']).dumps(safe({'type':'logs','records':rows})))
+                    after=rows[-1]['id'] if rows else after
+                    rows=[]
                 for row in rows:
+                    if latest and row['id']<=after:continue
                     await websocket.send_text(__import__('betalens_db_manager.util',fromlist=['dumps']).dumps(safe({'type':'log','record':row})));after=row['id']
-                item=service.state.job(job)
-                signature=digest([item['updated'],[(p['id'],p['status'],p['rows']) for p in item['slices']],item['tasks']])
+                if latest:await websocket.send_text('{"type":"heartbeat"}')
+                initial=False
+                item=service.state.live_status(job) if latest else service.state.job(job)
+                signature=digest(item if latest else [item['updated'],[(p['id'],p['status'],p['rows']) for p in item['slices']],item['tasks']])
                 if signature!=last:
                     await websocket.send_text(__import__('betalens_db_manager.util',fromlist=['dumps']).dumps(safe({'type':'task','record':item})));last=signature
                 await asyncio.sleep(1)

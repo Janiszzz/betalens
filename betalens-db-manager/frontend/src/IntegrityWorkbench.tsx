@@ -1,4 +1,5 @@
 import React, {useEffect, useRef, useState} from 'react';
+import {PipelineOptions,PipelineProgress} from './PipelineControls';
 
 type Row = Record<string, any>;
 type Api = (path: string, body?: any) => Promise<any>;
@@ -8,6 +9,7 @@ type CheckRequest = {
   schemes: string[]; levels: number[]; check_times: string[];
   source_id?: string;
   requests_per_minute?: number;
+  pipeline_version?: number; auto_commit?: boolean; run_in_background?: boolean; validation_profile?: string; post_check_rules?: string[];
 };
 const modules = [['calendar', '交易日历'], ['industry', '股票历史行业'], ['suspension', '股票停牌区间']];
 const targetNames: Row = {postgres: 'PostgreSQL', clickhouse: 'ClickHouse'};
@@ -89,7 +91,8 @@ export default function IntegrityWorkbench({api}: {api: Api}) {
   const [allVersions, setAllVersions] = useState(false);
   const [versions, setVersions] = useState<Row>();
   const [versionSelected, setVersionSelected] = useState('');
-  const [requestRpm, setRequestRpm] = useState(40);
+  const [requestRpm, setRequestRpm] = useState(450);
+  const [pipelineEnabled,setPipelineEnabled]=useState(true),[postChecks,setPostChecks]=useState<string[]>([]);
   const [baselineTasks, setBaselineTasks] = useState('');
   const taskGeneration = useRef(0);
   const selectedTaskId = useRef<string | undefined>(undefined);
@@ -223,8 +226,9 @@ export default function IntegrityWorkbench({api}: {api: Api}) {
       <Options label="请求业务模块" options={modules} values={draft.modules} onChange={modules => setDraft({...draft, modules})}/>
       <label>请求来源<select aria-label="参考表请求来源" value={draft.source_id || 'tushare'} onChange={event => setDraft({...draft, source_id: event.target.value})}><option value="tushare">Tushare</option>{sources.filter(source => source.source_id !== 'tushare' && Object.keys(source.endpoints || {}).length).map(source => <option key={source.source_id} value={source.source_id} disabled={!source.configured}>{source.label || source.source_id}</option>)}</select></label>
       {(draft.source_id || 'tushare') === 'tushare' && <label>Tushare 每分钟请求上限<input aria-label="参考表每分钟请求次数" type="number" min="1" max="10000" value={draft.requests_per_minute || requestRpm} onChange={event => setDraft({...draft, requests_per_minute: Number(event.target.value)})}/><small>同时遵守接口自身限频；按分页和分区完整获取，不以短页推断结束。</small></label>}
+      <PipelineOptions enabled={pipelineEnabled} onEnabled={setPipelineEnabled} rules={postChecks} onRules={setPostChecks}/>
       <p>新版本独立生成；入库后先核验再发布，不从旧版本静默补值。行业查询需要完整历史快照。</p>
-      <button className="primary" disabled={busy || !draft.targets.length || !draft.modules.length || draft.start_date > draft.end_date} onClick={() => run(async () => {const result = await api('/reference/tasks', draft); selectTask(result.task || result.job || result); await listTasks(); setDraft(undefined); setNotice('任务已持久化，仅登记请求参数；点击“开始拉取参考数据”才会访问来源。');})}>登记参考表更新任务</button>
+      <button className="primary" disabled={busy || !draft.targets.length || !draft.modules.length || draft.start_date > draft.end_date} onClick={() => run(async () => {const result = await api('/reference/tasks', {...draft,...(pipelineEnabled?{pipeline_version:2,auto_commit:true,run_in_background:true,validation_profile:'light',post_check_rules:postChecks}:{})}); selectTask(result.task || result.job || result); await listTasks(); setDraft(undefined); setNotice('任务已持久化，仅登记请求参数；点击“开始拉取参考数据”才会访问来源。');})}>登记参考表更新任务</button>
       <details><summary>使用已有归档准备基线</summary><p>只复用来源身份、字段合同、请求参数及完整分页证据均匹配的归档；旧业务行和“任务已完成”状态不会成为可信依据。缺少证据的范围标为待重新获取，仍需缓存审计和确认。</p><label>源任务编号<input aria-label="参考表基线源任务编号" value={baselineTasks} onChange={event => setBaselineTasks(event.target.value)} placeholder="任务编号，以逗号或空格分隔"/></label><button disabled={busy || !split(baselineTasks).length || !draft.targets.length || !draft.modules.length} onClick={() => run(async () => {const result = await api('/reference/baselines', {request: draft, source_task_ids: split(baselineTasks)}); selectTask(result); await listTasks(); setDraft(undefined); setNotice('已准备基线归档，未写入数据库；请核对归档证明并审计，缺少证据的范围需显式拉取。');})}>准备可审计基线任务</button></details>
       <button onClick={() => setDraft(undefined)}>取消待登记请求</button>
     </section>}
@@ -238,8 +242,9 @@ export default function IntegrityWorkbench({api}: {api: Api}) {
         <details><summary>固定的实际 API 请求、来源和映射</summary><DataTable rows={asRows(job.requests || job.plan?.requests)}/><DataTable rows={asRows(job.mapping_snapshots || job.plan?.mapping_snapshots)}/></details>
         {job.plan?.baseline_report && <><h3>旧归档基线核验与待重新获取范围</h3><DataTable rows={asRows(job.plan.baseline_report)}/></>}
         {job.error && <div className="error">{job.error}</div>}
+        {job.plan?.pipeline_version===2&&<PipelineProgress job={job} api={api} refresh={()=>{listTasks();api('/reference/tasks/'+job.id).then(selectTask);}}/>}
         <div className="actions">
-          <button disabled={locked} onClick={() => run(() => action('download'))}>开始拉取参考数据</button>
+          <button disabled={locked||job.plan?.pipeline_version===2} onClick={() => run(() => action('download'))}>开始拉取参考数据</button>
           <button disabled={locked} onClick={() => run(() => action('preview'))}>检查参考数据缓存与差异</button>
           <button disabled={locked} onClick={() => run(() => action('retry'))}>建立关联的新版本任务</button>
         </div>

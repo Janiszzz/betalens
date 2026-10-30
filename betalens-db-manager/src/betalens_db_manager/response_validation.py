@@ -3,11 +3,24 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+from contextlib import contextmanager
+from contextvars import ContextVar
 
 from .source import read_archive
+from .catalog import optional_source_fields
 from .util import digest, parse_date, now
 
 VERSION = 'response-validation-v2-financial-dates'
+MANUAL_COVERAGE_CODES=frozenset({'incomplete_partition','missing_request','partition_coverage'})
+_manual_coverage_job=ContextVar('manual_coverage_review',default=None)
+
+
+@contextmanager
+def manual_coverage_review(job):
+    """Only the explicit human preview worker may accept coverage exceptions."""
+    token=_manual_coverage_job.set(job)
+    try:yield
+    finally:_manual_coverage_job.reset(token)
 
 
 def issue(code, message, **details):
@@ -88,7 +101,8 @@ def validate_response(plan, request, contract, data):
     if not all(isinstance(f,str) for f in actual) or len(actual) != len(set(actual)):
         return [issue('duplicate_fields', '源响应字段名无效或重复')]
     known = {f['name'] for f in contract['fields']}
-    required = set(contract.get('keys', [])) | {f['name'] for f in contract['fields'] if f.get('required')}
+    optional=optional_source_fields(request['endpoint']) if request['source_id']=='tushare' else frozenset()
+    required = (set(contract.get('keys', [])) | {f['name'] for f in contract['fields'] if f.get('required')}) - optional
     for mapping in plan.get('mapping_snapshots', {}).values():
         for binding in mapping.get('bindings', []):
             if (binding['source_id'],binding['endpoint']) == (request['source_id'],request['endpoint']):
@@ -124,6 +138,13 @@ def validate_response(plan, request, contract, data):
     request_format = pb.get('date_format', contract.get('date_format'))
     for index, values in enumerate(items, 1):
         row = dict(zip(actual, values))
+        if request['source_id']=='tushare' and request['endpoint'] in {'fund_basic','fund_nav'} and params.get('market') in {'E','O'}:
+            market=params['market']
+            # NAV market is a query channel: off-exchange NAVs can use a listed
+            # LOF's .SH/.SZ code. Only an explicit response market can refute it.
+            incompatible=row.get('market') is not None and row['market']!=market
+            if incompatible:
+                errors.append(issue('market_scope','源端返回的基金不符合请求市场范围',source_row=index));break
         if codes and any(not isinstance(row.get(field),str) or row[field] not in codes for field in roles['security']):
             errors.append(issue('security_scope', '源端返回的证券不符合请求过滤条件', source_row=index));break
         if financial_dates is not None:
@@ -159,7 +180,7 @@ def validate_response(plan, request, contract, data):
 def validate_archives(service, item):
     """Reconstruct completeness from fixed requests and archived children, never new queries."""
     from .downloader import TaskDownloader
-    from .retrieval import partition
+    from .retrieval import partition,security_partitions
     plan = item['plan']; downloader = TaskDownloader(service,item)
     parts, data_by_key, errors = {}, {}, []
     frozen = plan.get('retrieval_source_contracts', plan['source_contracts'])
@@ -268,7 +289,7 @@ def validate_archives(service, item):
                     if not chunks and request['source_id']=='tushare' and 'ts_code' in contract.get('input_fields',[]) and not prepared['parameters'].get('ts_code') and request['endpoint'] not in {'stock_basic','fund_basic','index_basic'}:
                         codes,universe_errors=dependency_universe('fund' if request['endpoint'].startswith('fund_') else 'stock')
                         problems.extend(universe_errors)
-                        if not universe_errors:chunks=[{**prepared['parameters'],'ts_code':code} for code in codes]
+                        if not universe_errors:chunks=security_partitions(request['endpoint'],prepared['parameters'],codes,policy or {})
                     expected=[{**prepared,'parameters':params} for params in chunks]
                     if not expected:problems.append(issue('incomplete_partition','响应达到上限，缺少完整拆分证据，必须重新拉取',dataset=request['endpoint']))
                     elif sorted(TaskDownloader.key(c) for c in children)!=sorted(TaskDownloader.key(c) for c in expected):
@@ -297,6 +318,8 @@ def validate_archives(service, item):
             fingerprint = digest(dict(zip(data['fields'],row)))
             if fingerprint in prior:errors.append(issue('pagination_overlap','分页记录重复或交叠，无法证明完整性',dataset=request['endpoint']));break
             prior.add(fingerprint)
+    if _manual_coverage_job.get()==item['id']:
+        errors=[error for error in errors if error['code'] not in MANUAL_COVERAGE_CODES]
     return list({digest(error):error for error in errors}.values())
 
 

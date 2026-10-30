@@ -20,7 +20,6 @@ from betalens_db_manager.config import Settings
 from betalens_db_manager.service import TushareImportService, normalize
 from betalens_db_manager.source import read_archive
 from betalens_db_manager.util import atomic_json, dumps
-from betalens_db_manager.worker import Scheduler
 
 
 def response(name, values):
@@ -85,17 +84,14 @@ def test_revisions_and_missing_dates_are_preserved_or_rejected():
     assert normalize(dataset("daily"), bad, "j", "s", "2026-10-18")[1]
 
 
-def test_schedule_is_opt_in_and_cancellation_does_not_enable_it(tmp_path):
+def test_removed_schedules_return_gone_and_manual_cancel_remains(tmp_path):
     service = TushareImportService(Settings(state_dir=tmp_path))
-    scheduler = Scheduler(service)
-    saved = scheduler.save("manual default", {"datasets": ["daily"]})
-    assert saved["enabled"] is False and saved["next_run"] is None
-    job = service.plan({"datasets": ["daily"], "codes": ["000001.SZ"], "start_date": "2026-10-16", "end_date": "2026-10-16"})
-    service.state.enqueue(job["id"], "download")
-    service.state.cancel(job["id"])
-    assert not scheduler.list()[0]["enabled"]
-    assert service.state.job(job["id"])["tasks"][0]["status"] == "cancelled"
-    assert Scheduler(TushareImportService(Settings(state_dir=tmp_path))).list()[0]["enabled"] is False
+    with TestClient(create_app(service)) as client:
+        assert client.get('/api/schedules').status_code==410
+        assert client.post('/api/schedules',json={'enabled':True}).status_code==410
+    job=service.plan({'datasets':['daily'],'codes':['000001.SZ'],'start_date':'2026-10-16','end_date':'2026-10-16'})
+    service.state.enqueue(job['id'],'download');service.state.cancel(job['id'])
+    assert service.state.job(job['id'])['tasks'][0]['status']=='cancelled'
 
 
 def test_web_can_open_before_database_and_rejects_foreign_origin(tmp_path):
@@ -104,7 +100,7 @@ def test_web_can_open_before_database_and_rejects_foreign_origin(tmp_path):
         assert client.get("/api/config").status_code == 200
         assert "not-for-client" not in client.get("/api/config").text
         assert client.get("/api/catalog").status_code == 200
-        assert client.get("/api/schedules").json() == []
+        assert client.get("/api/schedules").status_code == 410
         assert client.post("/api/imports", json={"datasets": ["daily"]}, headers={"Origin": "http://foreign.invalid"}).status_code == 403
         assert client.get("/api/config", headers={"Host": "foreign.invalid"}).status_code == 400
 

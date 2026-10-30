@@ -1,683 +1,325 @@
-#%%By Janis 250226
-"""
-数据库查询工具模块（函数式）
-功能：
-- 重构query_nearest_after和query_nearest_before
-- 解耦数据库查询逻辑
-- 提供灵活的查询参数构建
-- 支持时间点匹配和数据提取
-"""
+"""Business time-series queries over the source-neutral wide tables.
 
-import pandas as pd
-import numpy as np
-from typing import Optional, List, Dict, Tuple, Any, Union
+Legacy public SQL builders and DataFrame utilities below are retained pending
+migration approval. Structured queries never use legacy physical relations.
+"""
+from __future__ import annotations
+
 import itertools
-import re
-from datetime import datetime, timedelta
 import logging
+import re
+from datetime import datetime
+from decimal import Decimal
+from typing import Optional, List, Dict, Tuple, Any, Union
+import numpy as np
+import pandas as pd
 
-from psycopg2 import sql as psql
-
-from .registry import CoreMetric, get_core_metric, get_dataset
-
+from .contracts import (RANGE_COLUMNS, STATUS_COLUMNS, SchemaError, PITUnavailableError,
+    VersionConflictError, bounds, frame, local_time, proven, timestamp)
+from .readers import get_reader, identifier, require_columns, PostgresReader, ClickHouseReader
 
 _DATE_ONLY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-_NORMALIZED_CONNECTIONS: set[tuple[Any, ...]] = set()
-_METRIC_ROUTE_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}
+
+PROVEN_COLUMNS = {"available_at": "timestamp", "availability_basis": "text",
+                  "data_quality_status": "text"}
 
 
-def _connection_cache_key(cursor) -> tuple[Any, ...]:
-    connection = getattr(cursor, "connection", None)
-    if connection is None:
-        return (id(cursor),)
-    try:
-        params = connection.get_dsn_parameters()
-        return (
-            params.get("host"),
-            params.get("port"),
-            params.get("dbname"),
-            params.get("user"),
-            connection.get_backend_pid(),
-        )
-    except Exception:
-        return (id(connection),)
+def _column_unit(reader, table, column):
+    """Read native units without guessing a unit from a metric alias."""
+    if not reader.columns("meta_column"):
+        return
+    require_columns(reader, "meta_column", {"table_name": "text", "column_name": "text", "unit": "text"})
+    cache = getattr(reader, "_unit_contract", {})
+    if table not in cache:
+        rows = reader.rows("meta_column", ["column_name", "unit"], [("table_name", "=", table)])
+        cache[table] = {r["column_name"]: r["unit"] for r in rows}
+        reader._unit_contract = cache
+    return cache[table].get(column)
 
 
-def _normalized_schema_available(cursor) -> bool:
-    """Return true when the db-manager normalized schema is installed."""
-    connection_key = _connection_cache_key(cursor)
-    if connection_key in _NORMALIZED_CONNECTIONS:
-        return True
-    cursor.execute(
-        "SELECT to_regclass('betalens.entity_dim') IS NOT NULL "
-        "AND to_regclass('betalens.market_daily_fact') IS NOT NULL AS ready"
-    )
-    row = cursor.fetchone()
-    ready = bool(row.get("ready") if isinstance(row, dict) else row[0])
-    if ready:
-        _NORMALIZED_CONNECTIONS.add(connection_key)
-    return ready
+def _query_fields(reader, table, metric, filters):
+    """Validate actual column names and explicit dimension equality filters."""
+    identifier(table)
+    if table in {"stock_industry_membership_versions", "trade_calendar_versions",
+                 "stock_suspension_intervals_versions", "index_membership"}:
+        raise NotImplementedError("参考域与指数成分必须使用专用接口核验完整范围及发布证据")
+    if metric is None:
+        raise ValueError("metric 必须显式指定数据库数值字段")
+    identifier(metric)
+    if metric in {"code", "input_ts", "datetime", "diff_hours", "name"}:
+        raise ValueError("metric 与固定返回列名冲突")
+    if filters is not None and not isinstance(filters, dict):
+        raise ValueError("filters 必须是数据库字段到单个值的字典")
+    filters = dict(filters or {})
+    for column, value in filters.items():
+        identifier(column)
+        if value is None or not pd.api.types.is_scalar(value) or pd.isna(value):
+            raise ValueError("filters 仅接受非空标量相等条件")
+    if table == "fundamental_periodic" and any(not filters.get(key) for key in ("statement_type", "report_type")):
+        raise ValueError("fundamental_periodic 必须在 filters 中指定 statement_type 和 report_type")
+    expected = {"security_code": "text", "event_date": "date", **PROVEN_COLUMNS}
+    if table == "fundamental_periodic":
+        expected.update(period_end="date", statement_type="text", report_type="text", version_id="text")
+    elif table in {"market_daily_raw", "market_daily_post_adjusted"}:
+        expected.update(asset_type="text", trade_date="date")
+    require_columns(reader, table, {metric: None, **{key: None for key in filters}})
+    require_columns(reader, table, expected)
+    if reader.columns(table)[metric] not in {"numeric", "integer"}:
+        raise SchemaError(f"{table}.{metric} 必须是数值字段")
+    expected[metric] = reader.columns(table)[metric]
+    return expected, [(key, "=", value) for key, value in filters.items()]
 
 
-def _time_bounds(
-    start_date: Optional[str],
-    end_date: Optional[str],
-) -> tuple[pd.Timestamp | None, pd.Timestamp | None, bool]:
-    start = pd.Timestamp(start_date) if start_date else None
-    if not end_date:
-        return start, None, False
-    end_text = str(end_date).strip()
-    end = pd.Timestamp(end_text)
-    end_exclusive = bool(_DATE_ONLY_RE.fullmatch(end_text))
-    if end_exclusive:
-        end += pd.Timedelta(days=1)
-    return start, end, end_exclusive
-
-
-def _trade_date_bounds(
-    start: pd.Timestamp | None,
-    end: pd.Timestamp | None,
-    end_exclusive: bool,
-    available_time,
-):
-    """Convert fixed intraday availability bounds into indexable dates."""
-
-    def naive(value: pd.Timestamp) -> pd.Timestamp:
-        return value.tz_localize(None) if value.tzinfo is not None else value
-
-    lower = None
-    if start is not None:
-        start = naive(start)
-        lower = start.date()
-        if datetime.combine(lower, available_time) < start.to_pydatetime():
-            lower += timedelta(days=1)
-    upper = None
-    if end is not None:
-        end = naive(end)
-        upper = end.date()
-        available_at = datetime.combine(upper, available_time)
-        if available_at > end.to_pydatetime() or (
-            end_exclusive and available_at == end.to_pydatetime()
-        ):
-            upper -= timedelta(days=1)
-    return lower, upper
-
-
-def _resolve_metric(cursor, dataset: str, metric: str):
-    cache_key = (*_connection_cache_key(cursor), dataset, metric)
-    cached = _METRIC_ROUTE_CACHE.get(cache_key)
-    if cached is not None:
-        return cached
-    cursor.execute(
-        """
-        SELECT m.metric_id, m.metric_name, m.storage_kind,
-               m.storage_column, m.availability_time
-        FROM betalens.metric_alias a
-        JOIN betalens.metric_dim m ON m.metric_id = a.metric_id
-        WHERE a.logical_dataset = %s AND a.alias = %s
-        UNION ALL
-        SELECT m.metric_id, m.metric_name, m.storage_kind,
-               m.storage_column, m.availability_time
-        FROM betalens.metric_dim m
-        WHERE m.logical_dataset = %s AND m.metric_name = %s
-          AND NOT EXISTS (
-              SELECT 1 FROM betalens.metric_alias a
-              WHERE a.logical_dataset = %s AND a.alias = %s
-          )
-        LIMIT 1
-        """,
-        (dataset, metric, dataset, metric, dataset, metric),
-    )
-    row = cursor.fetchone()
-    if row is None:
+def _codes(codes, *, required=False):
+    if codes is None and not required:
         return None
-    if isinstance(row, dict):
-        resolved = dict(row)
+    if isinstance(codes, str) or codes is None:
+        raise ValueError("codes 必须是证券代码列表")
+    result = list(codes)
+    if any(not isinstance(code, str) or not code.strip() for code in result):
+        raise ValueError("证券代码必须是非空字符串")
+    return result
+
+
+def _name_rows(reader, codes):
+    if not reader.columns("security_name_history"):
+        return {}
+    fields = {"security_code": "text", "name": "text", "start_date": "date",
+              "end_date": "date", **PROVEN_COLUMNS}
+    require_columns(reader, "security_name_history", fields)
+    grouped = {}
+    for row in reader.rows("security_name_history", list(fields), [("security_code", "IN", codes)]):
+        grouped.setdefault(row["security_code"], []).append(row)
+    return grouped
+
+
+def historical_name(rows, code, at):
+    day = local_time(at).date()
+    candidates = [r for r in (rows.get(code, []) if rows else []) if proven(r, at)
+                  and r["start_date"] is not None and r["start_date"] <= day
+                  and (r["end_date"] is None or day <= r["end_date"])]
+    if not candidates:
+        return None
+    latest = max(timestamp(r["available_at"], stored=True) for r in candidates)
+    names = {r["name"] for r in candidates if timestamp(r["available_at"], stored=True) == latest}
+    if len(names) != 1:
+        raise VersionConflictError(f"历史名称冲突: {code}")
+    return names.pop()
+
+
+def observations(reader, table, metric, codes=None, lower=None, upper=None,
+                 *, filters=None, end_exclusive=False, nearest=None):
+    expected, predicates = _query_fields(reader, table, metric, filters)
+    unit = _column_unit(reader, table, metric)
+    if codes is not None:
+        predicates.append(("security_code", "IN", list(dict.fromkeys(codes))))
+    if lower is not None:
+        predicates.append(("available_at", ">=", lower))
+    if upper is not None:
+        predicates.append(("available_at", "<" if end_exclusive else "<=", upper))
+    if nearest is None:
+        rows = reader.rows(table, list(expected), predicates)
     else:
-        keys = (
-            "metric_id",
-            "metric_name",
-            "storage_kind",
-            "storage_column",
-            "availability_time",
-        )
-        resolved = dict(zip(keys, row))
-    _METRIC_ROUTE_CACHE[cache_key] = resolved
-    return resolved
-
-
-def _row_value(row, key: str, position: int):
-    return row.get(key) if isinstance(row, dict) else row[position]
-
-
-def _resolved_core_metric(row) -> CoreMetric | None:
-    if not row or _row_value(row, "storage_kind", 2) != "core":
-        return None
-    column = _row_value(row, "storage_column", 3)
-    available_time = _row_value(row, "availability_time", 4)
-    if not column or available_time is None:
-        return None
-    return CoreMetric(
-        canonical_name=_row_value(row, "metric_name", 1),
-        column=column,
-        available_time=available_time,
-    )
-
-
-def _query_compatibility_view(
-    cursor,
-    table_name: str,
-    codes: Optional[List[str]],
-    start_date: Optional[str],
-    end_date: Optional[str],
-    metric: Optional[str],
-    limit: Optional[int],
-) -> pd.DataFrame:
-    conditions: list[psql.SQL] = []
-    params: list[Any] = []
-    start, end, end_exclusive = _time_bounds(start_date, end_date)
-    if codes:
-        conditions.append(psql.SQL("code = ANY(%s::text[])"))
-        params.append(list(codes))
-    if start is not None:
-        conditions.append(psql.SQL("datetime >= %s"))
-        params.append(start.to_pydatetime())
-    if end is not None:
-        operator = psql.SQL("<" if end_exclusive else "<=")
-        conditions.append(psql.SQL("datetime {} %s").format(operator))
-        params.append(end.to_pydatetime())
-    if metric is not None:
-        conditions.append(psql.SQL("metric = %s"))
-        params.append(metric)
-    query = psql.SQL(
-        "SELECT datetime, code, name, metric, value, remark FROM public.{}"
-    ).format(psql.Identifier(table_name))
-    if conditions:
-        query += psql.SQL(" WHERE ") + psql.SQL(" AND ").join(conditions)
-    query += psql.SQL(" ORDER BY datetime DESC, code, metric")
-    if limit is not None:
-        query += psql.SQL(" LIMIT %s")
-        params.append(max(0, int(limit)))
-    cursor.execute(query, params)
-    return pd.DataFrame(cursor.fetchall())
-
-
-def _empty_nearest(
-    codes,
-    anchors,
-    metric: str,
-    ranges: bool = False,
-    direction: str = "before",
-) -> pd.DataFrame:
+        from .matching import nearest_candidates
+        anchors, direction, ranges = nearest
+        rows = nearest_candidates(reader, table, expected, predicates, codes, anchors, direction, ranges=ranges)
+    rows = [r for r in rows if proven(r)]
+    names = _name_rows(reader, list({r["security_code"] for r in rows})) if rows else []
     records = []
-    for code in codes:
-        for anchor in anchors:
-            input_ts = (
-                anchor[0] if ranges and direction == "after"
-                else anchor[1] if ranges
-                else anchor
-            )
-            records.append(
-                {
-                    "code": code,
-                    "input_ts": pd.Timestamp(input_ts),
-                    "datetime": pd.NaT,
-                    "diff_hours": np.nan,
-                    metric: np.nan,
-                    "name": None,
-                }
-            )
-    return pd.DataFrame(
-        records,
-        columns=["code", "input_ts", "datetime", "diff_hours", metric, "name"],
-    )
+    for row in rows:
+        at = timestamp(row["available_at"], stored=True)
+        records.append({"code": row["security_code"], "available_at": at,
+                        "value": float(row[metric]) if row[metric] is not None else np.nan,
+                        "_value_key": Decimal(str(row[metric])) if row[metric] is not None else None,
+                        "name": historical_name(names, row["security_code"], at),
+                        "period_end": row.get("period_end"),
+                        "remark": {"event_date": row["event_date"].isoformat(),
+                                   "period_end": row["period_end"].isoformat() if row.get("period_end") else None,
+                                   "version_id": row.get("version_id"), "table": table, "unit": unit,
+                                   "asset_type": row.get("asset_type"),
+                                   "statement_type": row.get("statement_type"), "report_type": row.get("report_type")}})
+    # An old-period revision is a new observation, not silently a replacement
+    # for the entire time series. Simultaneous releases prefer the newest period.
+    selected = {}
+    for record in records:
+        key = (record["code"], record["available_at"])
+        old = selected.get(key)
+        if old is not None and old["period_end"] != record["period_end"]:
+            if (record["period_end"] or datetime.min.date()) > (old["period_end"] or datetime.min.date()):
+                selected[key] = record
+            continue
+        if old is not None and (old["remark"] != record["remark"] or old["_value_key"] != record["_value_key"]):
+            raise VersionConflictError(f"同一可得时间存在冲突值: {table}/{metric}/{key[0]}")
+        selected[key] = record
+    return sorted(selected.values(), key=lambda r: (r["available_at"], r["code"]))
 
 
-def _query_time_range_normalized(
-    cursor,
-    table_name: str,
-    codes: Optional[List[str]],
-    start_date: Optional[str],
-    end_date: Optional[str],
-    metric: Optional[str],
-    limit: Optional[int],
-) -> pd.DataFrame:
-    spec = get_dataset(table_name)
-    if spec is None:
-        raise ValueError(f"不支持的逻辑数据集: {table_name}")
-    if metric is None or spec.kind not in {"market", "observation"}:
-        # Multi-metric and specialized PIT reads retain the six-column view
-        # contract. Hot market/observation reads below bypass the views.
-        return _query_compatibility_view(
-            cursor, table_name, codes, start_date, end_date, metric, limit
-        )
-
-    resolved = _resolve_metric(cursor, table_name, metric)
-    core = _resolved_core_metric(resolved) or get_core_metric(table_name, metric)
-    start, end, end_exclusive = _time_bounds(start_date, end_date)
-    conditions: list[psql.SQL] = []
-    params: list[Any] = []
-    if core is not None and spec.kind == "market":
-        trade_start, trade_end = _trade_date_bounds(
-            start, end, end_exclusive, core.available_time
-        )
-        conditions.extend(
-            [
-                psql.SQL("e.entity_type = %s"),
-                psql.SQL("f.{} IS NOT NULL").format(psql.Identifier(core.column)),
-            ]
-        )
-        params.append(spec.entity_type)
-        if codes:
-            conditions.append(psql.SQL("e.code = ANY(%s::text[])"))
-            params.append(list(codes))
-        if trade_start is not None:
-            conditions.append(psql.SQL("f.trade_date >= %s"))
-            params.append(trade_start)
-        if trade_end is not None:
-            conditions.append(psql.SQL("f.trade_date <= %s"))
-            params.append(trade_end)
-        fact_query = psql.SQL(
-            """
-            SELECT f.trade_date + %s::time AS datetime,
-                   e.code, COALESCE(historical_name.name, e.current_name) AS name,
-                   %s AS metric,
-                   f.{}::double precision AS value,
-                   NULLIF(f.remark->%s, 'null'::jsonb) AS remark
-            FROM betalens.market_daily_fact f
-            JOIN betalens.entity_dim e ON e.entity_id = f.entity_id
-            LEFT JOIN LATERAL (
-                SELECT h.name
-                FROM betalens.entity_name_history h
-                WHERE h.entity_id = e.entity_id
-                  AND h.valid_from <= f.trade_date + %s::time
-                  AND (h.valid_to IS NULL OR h.valid_to > f.trade_date + %s::time)
-                ORDER BY h.valid_from DESC
-                LIMIT 1
-            ) historical_name ON TRUE
-            WHERE {}
-            """
-        ).format(psql.Identifier(core.column), psql.SQL(" AND ").join(conditions))
-        fact_params = [
-            core.available_time,
-            metric,
-            core.canonical_name,
-            core.available_time,
-            core.available_time,
-            *params,
-        ]
-        metric_id = _row_value(resolved, "metric_id", 0) if resolved else None
-        if metric_id is not None:
-            observation_conditions = [psql.SQL("o.metric_id = %s")]
-            observation_params: list[Any] = [metric_id]
-            if spec.entity_type:
-                observation_conditions.append(psql.SQL("e.entity_type = %s"))
-                observation_params.append(spec.entity_type)
-            if codes:
-                observation_conditions.append(psql.SQL("e.code = ANY(%s::text[])"))
-                observation_params.append(list(codes))
-            if start is not None:
-                observation_conditions.append(psql.SQL("o.available_at >= %s"))
-                observation_params.append(start.to_pydatetime())
-            if end is not None:
-                observation_conditions.append(
-                    psql.SQL("o.available_at {} %s").format(
-                        psql.SQL("<" if end_exclusive else "<=")
-                    )
-                )
-                observation_params.append(end.to_pydatetime())
-            observation_query = psql.SQL(
-                """
-                SELECT o.available_at AS datetime, e.code,
-                       COALESCE(historical_name.name, e.current_name) AS name,
-                       %s AS metric,
-                       o.value::double precision AS value, o.remark
-                FROM betalens.observation_fact o
-                JOIN betalens.entity_dim e ON e.entity_id = o.entity_id
-                LEFT JOIN LATERAL (
-                    SELECT h.name
-                    FROM betalens.entity_name_history h
-                    WHERE h.entity_id = e.entity_id
-                      AND h.valid_from <= o.available_at
-                      AND (h.valid_to IS NULL OR h.valid_to > o.available_at)
-                    ORDER BY h.valid_from DESC
-                    LIMIT 1
-                ) historical_name ON TRUE
-                WHERE {}
-                """
-            ).format(psql.SQL(" AND ").join(observation_conditions))
-            query = psql.SQL(
-                "SELECT * FROM (({}) UNION ALL ({})) AS logical_rows "
-                "ORDER BY datetime DESC, code, metric"
-            ).format(fact_query, observation_query)
-            query_params = [*fact_params, metric, *observation_params]
-        else:
-            query = fact_query + psql.SQL(" ORDER BY datetime DESC, code, metric")
-            query_params = fact_params
-    else:
-        resolved = resolved or _resolve_metric(cursor, table_name, metric)
-        if not resolved:
-            return pd.DataFrame(columns=["datetime", "code", "name", "metric", "value", "remark"])
-        if _row_value(resolved, "storage_kind", 2) != "observation":
-            return pd.DataFrame(columns=["datetime", "code", "name", "metric", "value", "remark"])
-        metric_id = _row_value(resolved, "metric_id", 0)
-        conditions.append(psql.SQL("o.metric_id = %s"))
-        params.append(metric_id)
-        if spec.entity_type:
-            conditions.append(psql.SQL("e.entity_type = %s"))
-            params.append(spec.entity_type)
-        if codes:
-            conditions.append(psql.SQL("e.code = ANY(%s::text[])"))
-            params.append(list(codes))
-        if start is not None:
-            conditions.append(psql.SQL("o.available_at >= %s"))
-            params.append(start.to_pydatetime())
-        if end is not None:
-            conditions.append(psql.SQL("o.available_at {} %s").format(psql.SQL("<" if end_exclusive else "<=")))
-            params.append(end.to_pydatetime())
-        query = psql.SQL(
-            """
-            SELECT o.available_at AS datetime, e.code,
-                   COALESCE(historical_name.name, e.current_name) AS name,
-                   %s AS metric, o.value::double precision AS value, o.remark
-            FROM betalens.observation_fact o
-            JOIN betalens.entity_dim e ON e.entity_id = o.entity_id
-            LEFT JOIN LATERAL (
-                SELECT h.name
-                FROM betalens.entity_name_history h
-                WHERE h.entity_id = e.entity_id
-                  AND h.valid_from <= o.available_at
-                  AND (h.valid_to IS NULL OR h.valid_to > o.available_at)
-                ORDER BY h.valid_from DESC
-                LIMIT 1
-            ) historical_name ON TRUE
-            WHERE {}
-            ORDER BY o.available_at DESC, e.code, metric
-            """
-        ).format(psql.SQL(" AND ").join(conditions))
-        query_params = [metric, *params]
-    if limit is not None:
-        query += psql.SQL(" LIMIT %s")
-        query_params.append(max(0, int(limit)))
-    cursor.execute(query, query_params)
-    return pd.DataFrame(cursor.fetchall())
+def query_time_range(cursor, table_name, codes=None, start_date=None, end_date=None,
+                     metric=None, limit=None, logger=None, *, as_of=None, filters=None):
+    reader = get_reader(cursor)
+    codes = _codes(codes)
+    lower, upper, exclusive = bounds(start_date, end_date)
+    if as_of is not None:
+        cutoff = timestamp(as_of)
+        if upper is None or cutoff < upper:
+            upper, exclusive = cutoff, False
+    if limit is not None and (isinstance(limit, bool) or int(limit) != limit or limit < 0):
+        raise ValueError("limit 必须是非负整数")
+    records = []
+    with reader.snapshot():
+        rows = observations(reader, table_name, metric, codes, lower, upper,
+                            filters=filters, end_exclusive=exclusive)
+        records.extend({"datetime": local_time(r["available_at"]), "code": r["code"],
+                        "name": r["name"], "metric": metric, "value": r["value"], "remark": r["remark"]} for r in rows)
+    result = frame(records, RANGE_COLUMNS, numeric=("value",), times=("datetime",))
+    result = result.sort_values(["datetime", "code", "metric"], ascending=[False, True, True], kind="stable")
+    return result.iloc[:limit].reset_index(drop=True)
 
 
-def _nearest_input_cte(ranges: bool) -> psql.SQL:
-    if ranges:
-        return psql.SQL(
-            """
-            input_ranges AS (
-                SELECT start_ts, end_ts, range_ord
-                FROM unnest(%s::timestamp[], %s::timestamp[]) WITH ORDINALITY
-                     AS r(start_ts, end_ts, range_ord)
-            ),
-            input_data AS (
-                SELECT c.code, r.start_ts, r.end_ts,
-                       (c.code_ord - 1) * cardinality(%s::timestamp[]) + r.range_ord AS input_ord
-                FROM unnest(%s::text[]) WITH ORDINALITY AS c(code, code_ord)
-                CROSS JOIN input_ranges r
-            )
-            """
-        )
-    return psql.SQL(
-        """
-        input_data AS (
-            SELECT c.code, t.input_ts,
-                   (c.code_ord - 1) * cardinality(%s::timestamp[]) + t.time_ord AS input_ord
-            FROM unnest(%s::text[]) WITH ORDINALITY AS c(code, code_ord)
-            CROSS JOIN unnest(%s::timestamp[]) WITH ORDINALITY AS t(input_ts, time_ord)
-        )
-        """
-    )
-
-
-def _query_nearest_normalized(
-    cursor,
-    table_name: str,
-    codes: List[str],
-    anchors,
-    metric: str,
-    direction: str,
-    time_tolerance: Optional[float],
-    ranges: bool = False,
-) -> pd.DataFrame:
-    spec = get_dataset(table_name)
-    if spec is None:
-        raise ValueError(f"不支持的逻辑数据集: {table_name}")
-    resolved_metric = _resolve_metric(cursor, table_name, metric)
-    core = _resolved_core_metric(resolved_metric) or get_core_metric(table_name, metric)
-    if direction not in {"after", "before"}:
-        raise ValueError(f"无效的 direction: {direction}")
-
-    if ranges:
-        starts = [pd.Timestamp(value[0]).to_pydatetime() for value in anchors]
-        ends = [pd.Timestamp(value[1]).to_pydatetime() for value in anchors]
-        cte_params: list[Any] = [starts, ends, starts, list(codes)]
-        input_ts = "r.start_ts" if direction == "after" else "r.end_ts"
-        range_condition = (
-            "x.available_at > r.start_ts AND x.available_at < r.end_ts"
-            if direction == "after"
-            else "x.available_at >= r.start_ts AND x.available_at <= r.end_ts"
-        )
-    else:
-        datetimes = [pd.Timestamp(value).to_pydatetime() for value in anchors]
-        cte_params = [datetimes, list(codes), datetimes]
-        input_ts = "r.input_ts"
-        range_condition = (
-            "x.available_at > r.input_ts" if direction == "after" else "x.available_at <= r.input_ts"
-        )
-    order = "ASC" if direction == "after" else "DESC"
-    diff_expr = (
-        f"x.available_at - {input_ts}" if direction == "after" else f"{input_ts} - x.available_at"
-    )
-    output_diff_expr = (
-        f"hit.available_at - {input_ts}"
-        if direction == "after"
-        else f"{input_ts} - hit.available_at"
-    )
-    tolerance_sql = ""
-    tolerance_params: list[Any] = []
+def match_nearest(rows, codes, anchors, metric, direction, time_tolerance=None, *, ranges=False):
+    """Vectorized as-of matching; duplicate inputs retain their original rows."""
+    if direction not in {"before", "after"}:
+        raise ValueError("无效匹配方向")
+    tolerance = None
     if time_tolerance is not None:
-        tolerance_sql = (
-            f"AND x.available_at <= {input_ts} + %s * INTERVAL '1 hour'"
-            if direction == "after"
-            else f"AND x.available_at >= {input_ts} - %s * INTERVAL '1 hour'"
-        )
-        tolerance_params.append(float(time_tolerance))
-
-    input_cte = _nearest_input_cte(ranges)
-    observation_time_condition = psql.SQL(range_condition.replace("x.", "o."))
-    if core is not None and spec.kind == "market":
+        if not np.isfinite(float(time_tolerance)) or float(time_tolerance) < 0:
+            raise ValueError("time_tolerance 必须是非负小时数")
+        tolerance = pd.Timedelta(hours=float(time_tolerance))
+    inputs = []
+    for code, anchor in itertools.product(codes, anchors):
+        start, end = (timestamp(anchor[0]), timestamp(anchor[1])) if ranges else (timestamp(anchor), timestamp(anchor))
+        if start > end:
+            raise ValueError("区间开始不能晚于结束")
+        inputs.append({"code": code, "input_ts": start if direction == "after" else end,
+                       "start": start, "end": end, "ordinal": len(inputs)})
+    columns = ["code", "input_ts", "datetime", "diff_hours", metric, "name"]
+    if not inputs:
+        return frame([], columns, numeric=("diff_hours", metric), times=("input_ts", "datetime"))
+    requested = pd.DataFrame(inputs)
+    if rows:
+        source = pd.DataFrame(rows)[["code", "available_at", "value", "name"]]
+        result = pd.merge_asof(requested.sort_values("input_ts"), source.sort_values("available_at"),
+            left_on="input_ts", right_on="available_at", by="code",
+            direction="backward" if direction == "before" else "forward",
+            allow_exact_matches=direction == "before", tolerance=tolerance).sort_values("ordinal")
         if ranges:
-            fact_date_condition = psql.SQL(
-                "AND f.trade_date >= r.start_ts::date "
-                "AND f.trade_date <= r.end_ts::date"
-            )
-        elif direction == "after":
-            fact_date_condition = psql.SQL("AND f.trade_date >= r.input_ts::date")
-        else:
-            fact_date_condition = psql.SQL("AND f.trade_date <= r.input_ts::date")
-        source_sql = psql.SQL(
-            """
-            SELECT f.trade_date + %s::time AS available_at,
-                   f.{}::double precision AS value
-            FROM betalens.market_daily_fact f
-            WHERE f.entity_id = r.entity_id AND f.{} IS NOT NULL {}
-            """
-        ).format(
-            psql.Identifier(core.column),
-            psql.Identifier(core.column),
-            fact_date_condition,
-        )
-        source_params: list[Any] = [core.available_time]
-        metric_id = (
-            _row_value(resolved_metric, "metric_id", 0)
-            if resolved_metric is not None
-            else None
-        )
-        if metric_id is not None:
-            source_sql += psql.SQL(
-                """
-                UNION ALL
-                SELECT o.available_at, o.value::double precision AS value
-                FROM betalens.observation_fact o
-                WHERE o.entity_id = r.entity_id AND o.metric_id = %s
-                  AND {}
-                """
-            ).format(observation_time_condition)
-            source_params.append(metric_id)
-        resolved_extra = psql.SQL("AND e.entity_type = %s")
-        resolved_params: list[Any] = [spec.entity_type]
+            valid = ((result.available_at > result.start) & (result.available_at < result.end)) if direction == "after" else (
+                (result.available_at >= result.start) & (result.available_at <= result.end))
+            result.loc[~valid, "available_at"] = pd.NaT
+            result.loc[~valid, ["value", "name"]] = [np.nan, None]
     else:
-        resolved_metric = resolved_metric or _resolve_metric(cursor, table_name, metric)
-        if not resolved_metric:
-            return _empty_nearest(
-                codes, anchors, metric, ranges=ranges, direction=direction
-            )
-        if _row_value(resolved_metric, "storage_kind", 2) != "observation":
-            return _empty_nearest(
-                codes, anchors, metric, ranges=ranges, direction=direction
-            )
-        metric_id = _row_value(resolved_metric, "metric_id", 0)
-        source_sql = psql.SQL(
-            """
-            SELECT o.available_at, o.value::double precision AS value
-            FROM betalens.observation_fact o
-            WHERE o.entity_id = r.entity_id AND o.metric_id = %s
-              AND {}
-            """
-        ).format(observation_time_condition)
-        source_params = [metric_id]
-        resolved_extra = psql.SQL("AND (%s IS NULL OR e.entity_type = %s)")
-        resolved_params = [spec.entity_type, spec.entity_type]
-
-    range_condition_sql = psql.SQL(range_condition)
-    tolerance_fragment = psql.SQL(tolerance_sql)
-    query = psql.SQL(
-        f"""
-        WITH {{input_cte}},
-        resolved AS (
-            SELECT i.*, e.entity_id, e.current_name
-            FROM input_data i
-            LEFT JOIN betalens.entity_dim e ON e.code = i.code {{resolved_extra}}
-        )
-        SELECT r.code, {input_ts} AS input_ts, hit.available_at AS datetime,
-               EXTRACT(EPOCH FROM ({output_diff_expr}))/3600.0 AS diff_hours,
-               hit.value,
-               CASE WHEN hit.available_at IS NULL THEN NULL
-                    ELSE COALESCE(historical_name.name, r.current_name) END AS name
-        FROM resolved r
-        LEFT JOIN LATERAL (
-            SELECT x.available_at, x.value
-            FROM ({{source_sql}}) x
-            WHERE {{range_condition}} {{tolerance}}
-            ORDER BY x.available_at {order}
-            LIMIT 1
-        ) hit ON TRUE
-        LEFT JOIN LATERAL (
-            SELECT h.name
-            FROM betalens.entity_name_history h
-            WHERE h.entity_id = r.entity_id
-              AND h.valid_from <= hit.available_at
-              AND (h.valid_to IS NULL OR h.valid_to > hit.available_at)
-            ORDER BY h.valid_from DESC
-            LIMIT 1
-        ) historical_name ON hit.available_at IS NOT NULL
-        ORDER BY r.input_ord
-        """
-    ).format(
-        input_cte=input_cte,
-        resolved_extra=resolved_extra,
-        source_sql=source_sql,
-        range_condition=range_condition_sql,
-        tolerance=tolerance_fragment,
-    )
-    params = [*cte_params, *resolved_params, *source_params, *tolerance_params]
-    cursor.execute(query, params)
-    df = pd.DataFrame(cursor.fetchall())
-    if "value" in df.columns:
-        df.rename(columns={"value": metric}, inplace=True)
-    return df
+        result = requested.assign(available_at=pd.NaT, value=np.nan, name=None)
+    records = []
+    for r in result.to_dict("records"):
+        hit = r["available_at"]
+        diff = abs((r["input_ts"] - hit).total_seconds()) / 3600 if not pd.isna(hit) else np.nan
+        records.append({"code": r["code"], "input_ts": local_time(r["input_ts"]),
+                        "datetime": local_time(hit), "diff_hours": diff, metric: r["value"], "name": r["name"]})
+    return frame(records, columns, numeric=("diff_hours", metric), times=("input_ts", "datetime"))
 
 
-def _query_trade_status_normalized(
-    cursor,
-    codes: Optional[List[str]],
-    dates: List[str],
-    logger: logging.Logger,
-) -> pd.DataFrame:
-    date_days = sorted({pd.Timestamp(value).normalize() for value in dates})
-    cursor.execute(
-        "SELECT max_available_at FROM betalens.dataset_coverage "
-        "WHERE logical_dataset = 'trade_status'"
-    )
-    coverage = cursor.fetchone()
-    coverage_value = None
-    if coverage:
-        coverage_value = coverage.get("max_available_at") if isinstance(coverage, dict) else coverage[0]
-    if coverage_value is None or date_days[-1].date() > pd.Timestamp(coverage_value).date():
-        logger.warning(
-            "trade_status 数据覆盖不足：请求截至 %s，已知覆盖截至 %s；"
-            "覆盖外日期只按上市状态和已知异常事件还原",
-            date_days[-1].date(),
-            None if coverage_value is None else pd.Timestamp(coverage_value).date(),
-        )
-    if codes:
-        entity_source = """
-            SELECT c.code, e.entity_id, e.current_name, e.first_trade_date, e.delist_date
-            FROM unnest(%s::text[]) WITH ORDINALITY AS c(code, code_ord)
-            LEFT JOIN betalens.entity_dim e ON e.code = c.code AND e.entity_type = 'stock'
-        """
-        params: list[Any] = [list(codes), [value.to_pydatetime() for value in date_days]]
-    else:
-        entity_source = """
-            SELECT e.code, e.entity_id, e.current_name, e.first_trade_date, e.delist_date
-            FROM betalens.entity_dim e WHERE e.entity_type = 'stock'
-        """
-        params = [[value.to_pydatetime() for value in date_days]]
-    query = f"""
-        WITH entities AS ({entity_source}),
-        requested_dates AS (
-            SELECT value::date AS status_date
-            FROM unnest(%s::timestamp[]) AS d(value)
-        )
-        SELECT e.code, d.status_date::timestamp AS datetime,
-               CASE
-                   WHEN e.entity_id IS NULL OR e.first_trade_date IS NULL
-                        OR d.status_date < e.first_trade_date
-                        OR (e.delist_date IS NOT NULL AND d.status_date > e.delist_date) THEN -1
-                   WHEN s.entity_id IS NOT NULL THEN s.status
-                   ELSE 1
-               END AS value,
-               CASE
-                   WHEN e.entity_id IS NULL OR e.first_trade_date IS NULL
-                        OR d.status_date < e.first_trade_date
-                        OR (e.delist_date IS NOT NULL AND d.status_date > e.delist_date) THEN '无法交易'
-                   WHEN s.entity_id IS NOT NULL THEN COALESCE(s.status_text, '异常')
-                   ELSE '交易'
-               END AS status_text,
-               COALESCE(historical_name.name, e.current_name) AS name
-        FROM entities e CROSS JOIN requested_dates d
-        LEFT JOIN LATERAL (
-            SELECT h.name
-            FROM betalens.entity_name_history h
-            WHERE h.entity_id = e.entity_id
-              AND h.valid_from <= d.status_date::timestamp
-              AND (h.valid_to IS NULL OR h.valid_to > d.status_date::timestamp)
-            ORDER BY h.valid_from DESC
-            LIMIT 1
-        ) historical_name ON e.entity_id IS NOT NULL
-        LEFT JOIN betalens.trade_status_event s
-          ON s.entity_id = e.entity_id AND s.event_date = d.status_date
-        ORDER BY d.status_date, e.code
-    """
-    cursor.execute(query, params)
-    return pd.DataFrame(
-        cursor.fetchall(),
-        columns=["code", "datetime", "value", "status_text", "name"],
-    )
+def _nearest(cursor, table_name, codes, anchors, metric, direction, time_tolerance,
+             *, ranges=False, filters=None, engine=None):
+    codes = _codes(codes, required=True)
+    if metric is None:
+        raise ValueError("metric 必须显式指定数据库数值字段")
+    identifier(metric)
+    if isinstance(anchors, (str, datetime)):
+        raise ValueError("查询时点/区间必须是列表")
+    anchors = list(anchors)
+    if ranges and any(not isinstance(a, (list, tuple)) or len(a) != 2 for a in anchors):
+        raise ValueError("ranges 的每个元素必须是 (start, end)")
+    # Validate direction, ranges and tolerance even when no source rows exist.
+    empty = match_nearest([], codes, anchors, metric, direction, time_tolerance, ranges=ranges)
+    reader = get_reader(cursor)
+    if not codes or not anchors:
+        with reader.snapshot():
+            _query_fields(reader, table_name, metric, filters)
+        return empty
+    times = [timestamp(x) for a in anchors for x in a] if ranges else [timestamp(a) for a in anchors]
+    lower = min(times) if direction == "after" or ranges else None
+    upper = max(times) if direction == "before" or ranges else None
+    if time_tolerance is not None and not ranges:
+        delta = pd.Timedelta(hours=float(time_tolerance))
+        lower = min(times) - delta if direction == "before" else lower
+        upper = max(times) + delta if direction == "after" else upper
+    if engine is None:
+        engine = "python"
+        native = isinstance(reader, (PostgresReader, ClickHouseReader))
+        count = len(set(codes))
+        # Only use the SQL wins demonstrated by the reproducible benchmark.
+        # Other query shapes keep the simpler bulk Python implementation.
+        if native and direction == "before" and not ranges:
+            if reader.backend == "postgres" and count >= 200:
+                engine = "sql"
+            elif reader.backend == "clickhouse" and count >= 5000 and len(set(times)) == 1:
+                engine = "sql"
+    if engine not in {"python", "sql"}:
+        raise ValueError("无效的内部匹配实现")
+    with reader.snapshot():
+        rows = observations(reader, table_name, metric, codes, lower, upper,
+                            filters=filters,
+                            nearest=(anchors, direction, ranges) if engine == "sql" else None)
+    return match_nearest(rows, codes, anchors, metric, direction, time_tolerance, ranges=ranges)
 
+
+def query_nearest_before(cursor, table_name, codes, datetimes, metric, time_tolerance=None, logger=None, *, filters=None):
+    return _nearest(cursor, table_name, codes, datetimes, metric, "before", time_tolerance, filters=filters)
+
+
+def query_nearest_after(cursor, table_name, codes, datetimes, metric, time_tolerance=None, logger=None, *, filters=None):
+    return _nearest(cursor, table_name, codes, datetimes, metric, "after", time_tolerance, filters=filters)
+
+
+def query_nearest_in_range_before(cursor, table_name, codes, ranges, metric, time_tolerance=None, logger=None, *, filters=None):
+    return _nearest(cursor, table_name, codes, ranges, metric, "before", time_tolerance, ranges=True, filters=filters)
+
+
+def query_nearest_in_range_after(cursor, table_name, codes, ranges, metric, time_tolerance=None, logger=None, *, filters=None):
+    return _nearest(cursor, table_name, codes, ranges, metric, "after", time_tolerance, ranges=True, filters=filters)
+
+
+def get_available_dates(cursor, table_name, code, metric, start_date=None, end_date=None, logger=None, *, as_of=None, filters=None):
+    result = query_time_range(cursor, table_name, [code], start_date, end_date, metric,
+                              as_of=as_of, filters=filters)
+    return sorted(value.to_pydatetime() for value in result.datetime.drop_duplicates())
+
+
+def get_latest_date(cursor, table_name, code=None, metric=None, logger=None, *, as_of=None, filters=None):
+    result = query_time_range(cursor, table_name, [code] if code else None, metric=metric,
+                              limit=1, as_of=as_of, filters=filters)
+    return None if result.empty else result.datetime.iloc[0].to_pydatetime()
+
+
+def query_trade_status(cursor, table_name, codes, dates, metric="交易状态", logger=None):
+    from .reference import load_reference, known_scopes, suspension_status
+
+    if table_name != "stock_suspension_intervals_versions" or metric != "交易状态":
+        raise NotImplementedError("交易状态查询仅支持 stock_suspension_intervals_versions/交易状态")
+    codes = _codes(codes)
+    if isinstance(dates, str):
+        raise ValueError("dates 必须是列表")
+    dates = list(dates)
+    reader = get_reader(cursor)
+    records = []
+    with reader.snapshot():
+        scopes = load_reference(reader, "suspension", codes=codes) if dates and codes != [] else []
+        if codes is None:
+            require_columns(reader, "security_dim", {"security_code": "text", "asset_type": "text"})
+            securities = reader.rows("security_dim", ["security_code"], [("asset_type", "=", "stock")])
+            codes = sorted({r["security_code"] for r in securities} | {s["selector"]["security_code"] for s in scopes})
+        names = _name_rows(reader, codes) if codes and dates else []
+        for date in dates:
+            at = timestamp(date)
+            day = local_time(at).date().isoformat()
+            selected = {s["selector"]["security_code"]: s for s in known_scopes(scopes, at)
+                        if s["selector"].get("trade_date") == day}
+            for code in codes:
+                scope = selected.get(code)
+                value, reason = suspension_status(scope, at) if scope else (None, "缺少历史可知的完整停牌范围")
+                records.append({"code": code, "datetime": local_time(at), "value": value,
+                                "status_text": reason, "name": historical_name(names, code, at)})
+    return frame(records, STATUS_COLUMNS, integers=("value",), times=("datetime",))
 
 def _get_default_logger():
     """获取默认logger"""
@@ -690,7 +332,6 @@ def _get_default_logger():
         ch.setFormatter(formatter)
         logger.addHandler(ch)
     return logger
-
 
 def build_query(
     table_name: str,
@@ -730,7 +371,6 @@ def build_query(
 
     return query, params
 
-
 def generate_input_pairs(
     codes: List[str],
     datetimes: List[str]
@@ -747,7 +387,6 @@ def generate_input_pairs(
     """
     return list(itertools.product(codes, datetimes))
 
-
 def generate_input_range_pairs(
     codes: List[str],
     ranges: List[Tuple[str, str]]
@@ -763,7 +402,6 @@ def generate_input_range_pairs(
         (code, start_ts, end_ts) 元组列表
     """
     return [(code, start, end) for code, (start, end) in itertools.product(codes, ranges)]
-
 
 def build_nearest_in_range_query(
     table_name: str,
@@ -856,7 +494,6 @@ def build_nearest_in_range_query(
 
     return sql, params_list
 
-
 def build_nearest_query(
     table_name: str,
     input_tuples: List[Tuple[str, str]],
@@ -943,623 +580,6 @@ def build_nearest_query(
     
     return sql, params_list
 
-
-def query_nearest_after(
-    cursor,
-    table_name: str,
-    codes: List[str],
-    datetimes: List[str],
-    metric: str,
-    time_tolerance: Optional[float] = None,
-    logger: Optional[logging.Logger] = None
-) -> pd.DataFrame:
-    """
-    查询每个时点之后最近的有效值
-    
-    用途：主要用于回测时提取价格
-    时间结构：最新特征 <= 提数时点 < 调仓时点
-    
-    Args:
-        cursor: 数据库游标
-        table_name: 表名
-        codes: 代码列表
-        datetimes: 时间戳列表，格式'YYYY-MM-DD HH:MM:SS'
-        metric: 查询的指标名称
-        time_tolerance: 允许的最大时间间隔（单位：小时）
-        logger: 日志记录器，如果为None则使用默认logger
-        
-    Returns:
-        DataFrame，包含列：
-            - code: 代码
-            - input_ts: 输入时间戳（提数时点）
-            - datetime: 匹配到的数据时间戳
-            - diff_hours: 时间差（小时）
-            - value: 数据值
-            - name: 名称
-    """
-    if logger is None:
-        logger = _get_default_logger()
-    
-    # 参数验证
-    if not codes:
-        raise ValueError("codes不能为空")
-    if not datetimes:
-        raise ValueError("datetimes不能为空")
-    if not metric:
-        raise ValueError("metric不能为空")
-
-    dataset = get_dataset(table_name)
-    if (
-        dataset is not None
-        and dataset.kind in {"market", "observation"}
-        and _normalized_schema_available(cursor)
-    ):
-        return _query_nearest_normalized(
-            cursor, table_name, codes, datetimes, metric,
-            direction="after", time_tolerance=time_tolerance,
-        )
-    
-    # 生成输入对
-    input_tuples = generate_input_pairs(codes, datetimes)
-    
-    # 构建查询
-    sql, params = build_nearest_query(
-        table_name=table_name,
-        input_tuples=input_tuples,
-        metric=metric,
-        direction='after',
-        time_tolerance=time_tolerance
-    )
-    
-    # 执行查询
-    logger.info(f"执行query_nearest_after: {len(codes)}个代码 × {len(datetimes)}个时点 = {len(input_tuples)}个查询")
-    
-    cursor.execute(sql, params)
-    df = pd.DataFrame(cursor.fetchall())
-    
-    # 重命名value列为实际指标名
-    if not df.empty and 'value' in df.columns:
-        df.rename(columns={'value': metric}, inplace=True)
-    
-    logger.info(f"查询完成，返回 {len(df)} 条记录")
-    
-    return df
-
-
-def query_nearest_before(
-    cursor,
-    table_name: str,
-    codes: List[str],
-    datetimes: List[str],
-    metric: str,
-    time_tolerance: Optional[float] = None,
-    logger: Optional[logging.Logger] = None
-) -> pd.DataFrame:
-    """
-    查询每个时点之前最近的有效值
-    
-    用途：主要用于回测时提取历史价格特征
-    时间结构：调仓时点 <= 提数时点 < 最新特征时点
-    
-    Args:
-        cursor: 数据库游标
-        table_name: 表名
-        codes: 代码列表
-        datetimes: 时间戳列表，格式'YYYY-MM-DD HH:MM:SS'
-        metric: 查询的指标名称
-        time_tolerance: 允许的最大时间间隔（单位：小时）
-        logger: 日志记录器，如果为None则使用默认logger
-        
-    Returns:
-        DataFrame，包含列：
-            - code: 代码
-            - input_ts: 输入时间戳（提数时点）
-            - datetime: 匹配到的数据时间戳
-            - diff_hours: 时间差（小时）
-            - value: 数据值
-            - name: 名称
-    """
-    if logger is None:
-        logger = _get_default_logger()
-    
-    # 参数验证
-    if not codes:
-        raise ValueError("codes不能为空")
-    if not datetimes:
-        raise ValueError("datetimes不能为空")
-    if not metric:
-        raise ValueError("metric不能为空")
-
-    dataset = get_dataset(table_name)
-    if (
-        dataset is not None
-        and dataset.kind in {"market", "observation"}
-        and _normalized_schema_available(cursor)
-    ):
-        return _query_nearest_normalized(
-            cursor, table_name, codes, datetimes, metric,
-            direction="before", time_tolerance=time_tolerance,
-        )
-    
-    # 生成输入对
-    input_tuples = generate_input_pairs(codes, datetimes)
-    
-    # 构建查询
-    sql, params = build_nearest_query(
-        table_name=table_name,
-        input_tuples=input_tuples,
-        metric=metric,
-        direction='before',
-        time_tolerance=time_tolerance
-    )
-    
-    # 执行查询
-    logger.info(f"执行query_nearest_before: {len(codes)}个代码 × {len(datetimes)}个时点 = {len(input_tuples)}个查询")
-    
-    cursor.execute(sql, params)
-    df = pd.DataFrame(cursor.fetchall())
-    
-    # 重命名value列为实际指标名
-    if not df.empty and 'value' in df.columns:
-        df.rename(columns={'value': metric}, inplace=True)
-    
-    logger.info(f"查询完成，返回 {len(df)} 条记录")
-
-    return df
-
-
-def query_nearest_in_range_after(
-    cursor,
-    table_name: str,
-    codes: List[str],
-    ranges: List[Tuple[str, str]],
-    metric: str,
-    time_tolerance: Optional[float] = None,
-    logger: Optional[logging.Logger] = None
-) -> pd.DataFrame:
-    """
-    在每个 (start, end) 区间内查询距 start 最近的有效值（向后查）
-
-    时间结构：start <= t.datetime - epsilon, t.datetime < end，锚点 = start
-
-    Args:
-        cursor: 数据库游标
-        table_name: 表名
-        codes: 代码列表
-        ranges: (start, end) 区间列表，时间格式 'YYYY-MM-DD HH:MM:SS'
-        metric: 指标名
-        time_tolerance: 锚点容差（小时），与区间共同生效
-        logger: 日志记录器
-
-    Returns:
-        DataFrame: code, input_ts(=start), datetime, diff_hours, value, name
-    """
-    if logger is None:
-        logger = _get_default_logger()
-
-    if not codes:
-        raise ValueError("codes不能为空")
-    if not ranges:
-        raise ValueError("ranges不能为空")
-    if not metric:
-        raise ValueError("metric不能为空")
-
-    dataset = get_dataset(table_name)
-    if (
-        dataset is not None
-        and dataset.kind in {"market", "observation"}
-        and _normalized_schema_available(cursor)
-    ):
-        return _query_nearest_normalized(
-            cursor, table_name, codes, ranges, metric,
-            direction="after", time_tolerance=time_tolerance, ranges=True,
-        )
-
-    input_tuples = generate_input_range_pairs(codes, ranges)
-
-    sql, params = build_nearest_in_range_query(
-        table_name=table_name,
-        input_tuples=input_tuples,
-        metric=metric,
-        direction='after',
-        time_tolerance=time_tolerance
-    )
-
-    logger.info(
-        f"执行query_nearest_in_range_after: {len(codes)}个代码 × "
-        f"{len(ranges)}个区间 = {len(input_tuples)}个查询"
-    )
-
-    cursor.execute(sql, params)
-    df = pd.DataFrame(cursor.fetchall())
-
-    if not df.empty and 'value' in df.columns:
-        df.rename(columns={'value': metric}, inplace=True)
-
-    logger.info(f"查询完成，返回 {len(df)} 条记录")
-
-    return df
-
-
-def query_nearest_in_range_before(
-    cursor,
-    table_name: str,
-    codes: List[str],
-    ranges: List[Tuple[str, str]],
-    metric: str,
-    time_tolerance: Optional[float] = None,
-    logger: Optional[logging.Logger] = None
-) -> pd.DataFrame:
-    """
-    在每个 (start, end) 区间内查询距 end 最近的有效值（向前查）
-
-    时间结构：start <= t.datetime <= end，锚点 = end
-
-    Args:
-        cursor: 数据库游标
-        table_name: 表名
-        codes: 代码列表
-        ranges: (start, end) 区间列表，时间格式 'YYYY-MM-DD HH:MM:SS'
-        metric: 指标名
-        time_tolerance: 锚点容差（小时），与区间共同生效
-        logger: 日志记录器
-
-    Returns:
-        DataFrame: code, input_ts(=end), datetime, diff_hours, value, name
-    """
-    if logger is None:
-        logger = _get_default_logger()
-
-    if not codes:
-        raise ValueError("codes不能为空")
-    if not ranges:
-        raise ValueError("ranges不能为空")
-    if not metric:
-        raise ValueError("metric不能为空")
-
-    dataset = get_dataset(table_name)
-    if (
-        dataset is not None
-        and dataset.kind in {"market", "observation"}
-        and _normalized_schema_available(cursor)
-    ):
-        return _query_nearest_normalized(
-            cursor, table_name, codes, ranges, metric,
-            direction="before", time_tolerance=time_tolerance, ranges=True,
-        )
-
-    input_tuples = generate_input_range_pairs(codes, ranges)
-
-    sql, params = build_nearest_in_range_query(
-        table_name=table_name,
-        input_tuples=input_tuples,
-        metric=metric,
-        direction='before',
-        time_tolerance=time_tolerance
-    )
-
-    logger.info(
-        f"执行query_nearest_in_range_before: {len(codes)}个代码 × "
-        f"{len(ranges)}个区间 = {len(input_tuples)}个查询"
-    )
-
-    cursor.execute(sql, params)
-    df = pd.DataFrame(cursor.fetchall())
-
-    if not df.empty and 'value' in df.columns:
-        df.rename(columns={'value': metric}, inplace=True)
-
-    logger.info(f"查询完成，返回 {len(df)} 条记录")
-
-    return df
-
-
-def query_time_range(
-    cursor,
-    table_name: str,
-    codes: Optional[List[str]] = None,
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    metric: Optional[str] = None,
-    limit: Optional[int] = None,
-    logger: Optional[logging.Logger] = None
-) -> pd.DataFrame:
-    """
-    查询指定时间范围的数据
-
-    Args:
-        cursor: 数据库游标
-        table_name: 表名
-        codes: 代码列表，None表示所有代码
-        start_date: 开始日期
-        end_date: 结束日期
-        metric: 指标名称
-        limit: 最大返回行数，None表示不限制（按 datetime DESC 返回最新的 N 行）
-        logger: 日志记录器，如果为None则使用默认logger
-
-    Returns:
-        DataFrame
-    """
-    if logger is None:
-        logger = _get_default_logger()
-
-    if get_dataset(table_name) and _normalized_schema_available(cursor):
-        return _query_time_range_normalized(
-            cursor, table_name, codes, start_date, end_date, metric, limit
-        )
-
-    conditions = []
-    params = []
-
-    if start_date:
-        conditions.append("datetime >= %s::TIMESTAMP")
-        params.append(start_date)
-
-    if end_date:
-        end_text = str(end_date).strip()
-        if _DATE_ONLY_RE.fullmatch(end_text):
-            conditions.append("datetime < %s::TIMESTAMP")
-            params.append(str(pd.Timestamp(end_text) + pd.Timedelta(days=1)))
-        else:
-            conditions.append("datetime <= %s::TIMESTAMP")
-            params.append(end_date)
-
-    if codes:
-        placeholders = ','.join(['%s'] * len(codes))
-        conditions.append(f"code IN ({placeholders})")
-        params.extend(codes)
-
-    if metric:
-        conditions.append("metric = %s")
-        params.append(metric)
-
-    sql, params = build_query(
-        table_name, conditions, params,
-        order_by="datetime DESC, code, metric",
-        limit=limit,
-    )
-
-    logger.info(f"执行时间范围查询: {sql}")
-
-    cursor.execute(sql, params)
-    df = pd.DataFrame(cursor.fetchall())
-
-    logger.info(f"查询完成，返回 {len(df)} 条记录")
-
-    return df
-
-
-def get_available_dates(
-    cursor,
-    table_name: str,
-    code: str,
-    metric: str,
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    logger: Optional[logging.Logger] = None
-) -> List[datetime]:
-    """
-    获取指定代码和指标的可用日期列表
-    
-    Args:
-        cursor: 数据库游标
-        table_name: 表名
-        code: 代码
-        metric: 指标
-        start_date: 开始日期
-        end_date: 结束日期
-        logger: 日志记录器，如果为None则使用默认logger
-        
-    Returns:
-        日期列表
-    """
-    if logger is None:
-        logger = _get_default_logger()
-
-    if get_dataset(table_name) and _normalized_schema_available(cursor):
-        data = _query_time_range_normalized(
-            cursor, table_name, [code], start_date, end_date, metric, None
-        )
-        if data.empty or "datetime" not in data:
-            return []
-        return sorted(pd.to_datetime(data["datetime"]).dropna().unique().tolist())
-    
-    conditions = []
-    params = []
-    
-    conditions.append("code = %s")
-    params.append(code)
-    
-    conditions.append("metric = %s")
-    params.append(metric)
-    
-    if start_date:
-        conditions.append("datetime >= %s::TIMESTAMP")
-        params.append(start_date)
-    
-    if end_date:
-        end_text = str(end_date).strip()
-        if _DATE_ONLY_RE.fullmatch(end_text):
-            conditions.append("datetime < %s::TIMESTAMP")
-            params.append(str(pd.Timestamp(end_text) + pd.Timedelta(days=1)))
-        else:
-            conditions.append("datetime <= %s::TIMESTAMP")
-            params.append(end_date)
-    
-    sql, params = build_query(table_name, conditions, params, select_columns='DISTINCT datetime')
-    sql += " ORDER BY datetime"
-    
-    cursor.execute(sql, params)
-    results = cursor.fetchall()
-    
-    dates = [row['datetime'] for row in results]
-    
-    logger.info(f"获取到 {len(dates)} 个可用日期")
-    
-    return dates
-
-
-def get_latest_date(
-    cursor,
-    table_name: str,
-    code: Optional[str] = None,
-    metric: Optional[str] = None,
-    logger: Optional[logging.Logger] = None
-) -> Optional[datetime]:
-    """
-    获取最新的数据日期
-    
-    Args:
-        cursor: 数据库游标
-        table_name: 表名
-        code: 代码，None表示所有代码
-        metric: 指标，None表示所有指标
-        logger: 日志记录器，如果为None则使用默认logger
-        
-    Returns:
-        最新日期
-    """
-    if logger is None:
-        logger = _get_default_logger()
-
-    if get_dataset(table_name) and _normalized_schema_available(cursor):
-        data = _query_time_range_normalized(
-            cursor, table_name, [code] if code else None, None, None, metric, 1
-        )
-        if data.empty or "datetime" not in data:
-            return None
-        return pd.Timestamp(data.iloc[0]["datetime"]).to_pydatetime()
-    
-    conditions = []
-    params = []
-    
-    if code:
-        conditions.append("code = %s")
-        params.append(code)
-    
-    if metric:
-        conditions.append("metric = %s")
-        params.append(metric)
-    
-    sql, params = build_query(table_name, conditions, params, select_columns='MAX(datetime) as max_date')
-    
-    cursor.execute(sql, params)
-    result = cursor.fetchone()
-    
-    if result and result['max_date']:
-        return result['max_date']
-    
-    return None
-
-
-def query_trade_status(
-    cursor,
-    table_name: str,
-    codes: Optional[List[str]],
-    dates: List[str],
-    metric: str = '交易状态',
-    logger: Optional[logging.Logger] = None
-) -> pd.DataFrame:
-    """
-    查询个券交易状态（适配稀疏存储）
-
-    表中仅存异常状态(value=0)与首次正常交易日锚点(value=1, remark.first_normal=true)。
-    本函数在 Python 端把稀疏记录解析为每个 (code, date) 的完整状态：
-        -1 = 无法交易（首次正常交易日之前，视为未上市/未交易）
-         0 = 异常（停牌等，status_text 给出文本）
-         1 = 正常交易
-
-    Args:
-        cursor: 数据库游标（RealDictCursor）
-        table_name: 表名（trade_status）
-        codes: 代码列表；None 表示全市场（取所有有锚点的代码）
-        dates: 日期列表，格式 'YYYY-MM-DD' 或带时间，按自然日匹配
-        metric: 指标名，默认 '交易状态'
-        logger: 日志记录器
-
-    Returns:
-        DataFrame，列：code, datetime(=输入日), value(-1/0/1), status_text, name
-    """
-    if logger is None:
-        logger = _get_default_logger()
-    if not dates:
-        raise ValueError("dates不能为空")
-
-    if table_name == "trade_status" and _normalized_schema_available(cursor):
-        return _query_trade_status_normalized(cursor, codes, dates, logger)
-
-    # 输入日期归一到自然日
-    date_days = sorted({pd.Timestamp(d).normalize() for d in dates})
-    day_start = date_days[0]
-    day_end = date_days[-1] + pd.Timedelta(days=1)
-
-    # 1) 查首次正常交易日锚点（每个 code 一条）
-    anchor_conds = ["metric = %s", "value = 1"]
-    anchor_params: List = [metric]
-    if codes:
-        anchor_conds.append(f"code IN ({','.join(['%s'] * len(codes))})")
-        anchor_params.extend(codes)
-    anchor_sql = (
-        f"SELECT code, name, MIN(datetime) AS first_normal "
-        f"FROM {table_name} WHERE {' AND '.join(anchor_conds)} GROUP BY code, name"
-    )
-    cursor.execute(anchor_sql, anchor_params)
-    anchor_rows = cursor.fetchall()
-    first_normal = {r['code']: pd.Timestamp(r['first_normal']).normalize() for r in anchor_rows}
-    name_map = {r['code']: r['name'] for r in anchor_rows}
-
-    # 2) 查请求日期范围内的异常记录
-    abn_conds = ["metric = %s", "value = 0",
-                 "datetime >= %s::TIMESTAMP", "datetime < %s::TIMESTAMP"]
-    abn_params: List = [metric, str(day_start), str(day_end)]
-    if codes:
-        abn_conds.append(f"code IN ({','.join(['%s'] * len(codes))})")
-        abn_params.extend(codes)
-    abn_sql = (
-        f"SELECT code, name, datetime, remark "
-        f"FROM {table_name} WHERE {' AND '.join(abn_conds)}"
-    )
-    cursor.execute(abn_sql, abn_params)
-    abn_rows = cursor.fetchall()
-    # (code, day) -> status_text
-    abnormal: Dict[Tuple[str, pd.Timestamp], str] = {}
-    for r in abn_rows:
-        day = pd.Timestamp(r['datetime']).normalize()
-        remark = r.get('remark') or {}
-        status_text = remark.get('status') if isinstance(remark, dict) else None
-        abnormal[(r['code'], day)] = status_text or '异常'
-        name_map.setdefault(r['code'], r['name'])
-
-    # 3) 目标代码集合：显式 codes 或全部有锚点的 code
-    target_codes = codes if codes else list(first_normal.keys())
-
-    # 4) 解析每个 (code, day) 的状态
-    records = []
-    for code in target_codes:
-        fn = first_normal.get(code)
-        for day in date_days:
-            if (code, day) in abnormal:
-                value, text = 0, abnormal[(code, day)]
-            elif fn is None or day < fn:
-                value, text = -1, '无法交易'
-            else:
-                value, text = 1, '交易'
-            records.append({
-                'code': code,
-                'datetime': day,
-                'value': value,
-                'status_text': text,
-                'name': name_map.get(code),
-            })
-
-    df = pd.DataFrame(
-        records, columns=['code', 'datetime', 'value', 'status_text', 'name']
-    )
-    logger.info(f"query_trade_status: {len(target_codes)}个代码 × {len(date_days)}个日期 = {len(df)} 条状态")
-    return df
-
-
-# DataFrame辅助函数（保持为独立函数）
 def pivot_to_wide(
     df: pd.DataFrame,
     index_cols: List[str],
@@ -1584,7 +604,6 @@ def pivot_to_wide(
         values=value_col,
         aggfunc='first'
     ).reset_index()
-
 
 def align_to_dates(
     df: pd.DataFrame,
@@ -1622,7 +641,6 @@ def align_to_dates(
         result = result.bfill()
     
     return result
-
 
 def calculate_returns(
     df: pd.DataFrame,

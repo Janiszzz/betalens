@@ -10,7 +10,7 @@ from typing import Any, Iterator
 from psycopg2.extensions import connection as Connection
 from psycopg2.pool import ThreadedConnectionPool
 
-from .config import get_database_config
+from .config import load_subscription_config
 
 
 _CONNECTION_KEYS = ("dbname", "user", "password", "host", "port")
@@ -19,9 +19,7 @@ _POOLS_LOCK = threading.RLock()
 
 
 def _clean_config(config: dict[str, Any] | None) -> dict[str, Any]:
-    raw = dict(get_database_config())
-    if config:
-        raw.update(config)
+    raw = dict(config) if config is not None else load_subscription_config(backend="postgres")
     cleaned = {key: raw[key] for key in _CONNECTION_KEYS if key in raw}
     cleaned["connect_timeout"] = int(raw.get("connect_timeout", 5))
     return cleaned

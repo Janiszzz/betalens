@@ -15,7 +15,6 @@ from .inspection import coverage, sample, tables
 from .mapping import all_source_mappings, source_capabilities
 from .service import TushareImportService
 from .util import dumps, digest
-from .worker import Scheduler
 
 
 def create_app(service: TushareImportService | None = None) -> FastAPI:
@@ -59,6 +58,8 @@ def create_app(service: TushareImportService | None = None) -> FastAPI:
 
     @app.post("/api/config")
     def save_config(payload: dict = Body(...)):
+        payload=dict(payload);destination=payload.pop('env_file',None)
+        if destination is not None and (not isinstance(destination,str) or not destination.strip()):raise ValueError('配置文件路径不能为空')
         allowed = {"PGHOST", "PGPORT", "PGDATABASE", "PGUSER", "PGPASSWORD", "PGSCHEMA", "CLICKHOUSE_URL", "CLICKHOUSE_DB", "CLICKHOUSE_USER", "CLICKHOUSE_PASSWORD", "CLICKHOUSE_WRITER_MODE", "TUSHARE_TOKEN", "TUSHARE_RPM", "BETALENS_INFRA_STATE", "BETALENS_INFRA_ARCHIVE", "WIND_API_KEY", "WIND_USER", "BETALENS_DB_MANAGER_CONFIG", "BETALENS_DB_MANAGER_STATE"}
         allowed |= {v.get("auth",{}).get("env") for v in service.sources.values.values()} if hasattr(service,"sources") else set()
         unknown = set(payload) - allowed
@@ -67,12 +68,15 @@ def create_app(service: TushareImportService | None = None) -> FastAPI:
         value_fields={'PGHOST':'pg_host','PGPORT':'pg_port','PGDATABASE':'pg_database','PGSCHEMA':'pg_schema','PGUSER':'pg_user','PGPASSWORD':'pg_password','CLICKHOUSE_URL':'ch_url','CLICKHOUSE_DB':'ch_database','CLICKHOUSE_USER':'ch_user','CLICKHOUSE_PASSWORD':'ch_password','CLICKHOUSE_WRITER_MODE':'ch_writer_mode','TUSHARE_TOKEN':'token','TUSHARE_RPM':'requests_per_minute'}
         candidate_values={value_fields[k]:int(v) if k in {'PGPORT','TUSHARE_RPM'} else str(v) for k,v in payload.items() if k in value_fields and v not in (None,'')}
         replace(service.settings,**candidate_values)  # Validate before publishing a private file.
-        path = service.settings.write_private_env(payload)
+        active_path=service.settings.env_file or service.settings.config_dir/'credentials.env'
+        path = service.settings.write_private_env(payload,destination)
         from .config import Settings
         candidate=Settings.from_env(path)
-        restart_required=candidate.state_dir!=service.settings.state_dir or candidate.config_dir!=service.settings.config_dir
+        restart_required=path.resolve()!=active_path.resolve() or candidate.state_dir!=service.settings.state_dir or candidate.config_dir!=service.settings.config_dir
         updated=service.reload_config() if hasattr(service,'reload_config') and not restart_required else service.settings.public()
-        return response({'saved':True,'path':str(path),'restart_required':restart_required,'config':updated,'pending_config':candidate.public() if restart_required else None})
+        import shlex,sys
+        return response({'saved':True,'path':str(path),'active_path':str(active_path),'restart_required':restart_required,'config':updated,'pending_config':candidate.public() if restart_required else None,
+                         'restart_command':shlex.join([sys.executable,'-m','betalens_db_manager','--env',str(path),'serve','--port','8010']) if restart_required else None})
 
     @app.post('/api/config/test')
     def test_config(payload: dict = Body(...)):
@@ -83,7 +87,10 @@ def create_app(service: TushareImportService | None = None) -> FastAPI:
                 'CLICKHOUSE_URL':'ch_url','CLICKHOUSE_DB':'ch_database','CLICKHOUSE_USER':'ch_user','CLICKHOUSE_PASSWORD':'ch_password','CLICKHOUSE_WRITER_MODE':'ch_writer_mode','TUSHARE_TOKEN':'token','TUSHARE_RPM':'requests_per_minute'}
         candidate={fields[key]:int(value) if key in {'PGPORT','TUSHARE_RPM'} else str(value) for key,value in payload.items() if key in fields and value not in (None,'')}
         settings=replace(service.settings,**candidate);result={}
+        targets=payload.get('targets',['postgres','clickhouse'])
+        if not isinstance(targets,list) or not targets or set(targets)-{'postgres','clickhouse'}:raise ValueError('数据库目标无效')
         for name,target in [('postgres',Postgres(settings)),('clickhouse',ClickHouse(settings))]:
+            if name not in targets:continue
             try:
                 if name=='postgres':
                     with target.connect(readonly=True,database='postgres') as conn,conn.cursor() as cur:cur.execute('SELECT 1')
@@ -174,7 +181,12 @@ def create_app(service: TushareImportService | None = None) -> FastAPI:
     def jobs(limit:int=100,offset:int=0): return response(service.state.jobs(limit,target=service.settings.fingerprint,offset=offset))
 
     @app.get("/api/jobs/{job}")
-    def job_info(job: str): return response(service._job(job))
+    def job_info(job: str):
+        item=service._job(job)
+        if item['plan'].get('pipeline_version')==2:
+            from .pipeline import Pipeline
+            return response(Pipeline(service).detail(job))
+        return response(item)
 
     @app.get("/api/jobs/{job}/source-preview")
     def source_preview(job: str, dataset: str | None = None, limit: int = 100):
@@ -310,10 +322,10 @@ def create_app(service: TushareImportService | None = None) -> FastAPI:
         return response(service.pg.query(dataset, code, start, end, limit, after))
 
     @app.get("/api/schedules")
-    def schedules(): return response(Scheduler(service).list())
+    def schedules(): return JSONResponse({"detail":"自动更新功能已移除，请手动创建任务"},status_code=410)
 
     @app.post("/api/schedules")
-    def save_schedule(payload: dict = Body(...)): return response(Scheduler(service).save(**payload))
+    def save_schedule(payload: dict = Body(...)): return JSONResponse({"detail":"自动更新功能已移除，请手动创建任务"},status_code=410)
 
     @app.post("/api/replica/sync")
     def sync(): raise ValueError("PG/CH 已是同等目标，请针对原任务选择目标库后重试")
@@ -321,6 +333,8 @@ def create_app(service: TushareImportService | None = None) -> FastAPI:
     if hasattr(service,"registry"):
         from .management_api import install_routes
         install_routes(app,service,response)
+        from .workspace_api import install_routes as install_workspace
+        install_workspace(app,service,response)
         from .reference_api import install_routes as install_reference_routes
         install_reference_routes(app,service,response)
     # Public task routes and legacy job records share one durable store.
@@ -328,13 +342,15 @@ def create_app(service: TushareImportService | None = None) -> FastAPI:
         path=getattr(route,"path","")
         if path.startswith("/api/jobs"):
             app.add_api_route(path.replace("/api/jobs","/api/tasks",1),route.endpoint,methods=list(route.methods or ["GET"]))
+    from .pipeline_api import install_routes as install_pipeline
+    install_pipeline(app,service,response)
     web = Path(__file__).parent / "web"
     if web.is_dir() and (web / "index.html").exists():
         def manager_page():
             return FileResponse(web / "index.html", media_type="text/html", headers={"Cache-Control":"no-cache"})
         # Only known UI paths receive the application shell; missing API routes
         # and assets must retain their real 404 response.
-        for path in ("/", "/tables", "/tasks", "/mappings", "/sources", "/settings", "/schedules", "/integrity"):
+        for path in ("/", "/tables", "/updates", "/tasks", "/tasks/review", "/mappings", "/sources", "/settings", "/schedules", "/integrity"):
             app.add_api_route(path, manager_page, methods=["GET", "HEAD"], include_in_schema=False)
         app.mount("/", StaticFiles(directory=web, html=True), name="web")
     else:

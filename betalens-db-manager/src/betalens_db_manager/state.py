@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 
 from .util import dumps, now, digest
@@ -41,17 +42,43 @@ class State:
                     next_run TEXT, last_job TEXT);
                 CREATE TABLE IF NOT EXISTS rate_limit(id INTEGER PRIMARY KEY CHECK(id=1), next REAL NOT NULL);
                 CREATE TABLE IF NOT EXISTS request_rate(scope TEXT PRIMARY KEY, next REAL NOT NULL);
+                CREATE TABLE IF NOT EXISTS event_log(id INTEGER PRIMARY KEY AUTOINCREMENT,job TEXT NOT NULL,created TEXT NOT NULL,event TEXT NOT NULL,value TEXT NOT NULL);
+                CREATE INDEX IF NOT EXISTS event_log_job_id ON event_log(job,id);
+                CREATE TABLE IF NOT EXISTS pipeline_review_decisions(
+                    id TEXT PRIMARY KEY,job TEXT NOT NULL,bucket TEXT NOT NULL,action TEXT NOT NULL,
+                    status TEXT NOT NULL,note TEXT NOT NULL,version TEXT NOT NULL,payload TEXT NOT NULL,
+                    operation_job TEXT,result TEXT,error TEXT,created TEXT NOT NULL,updated TEXT NOT NULL);
+                CREATE INDEX IF NOT EXISTS pipeline_review_task ON pipeline_review_decisions(job,bucket,created);
                 CREATE TABLE IF NOT EXISTS sync_outbox(
                     task TEXT NOT NULL,target TEXT NOT NULL,revision INTEGER NOT NULL DEFAULT 1,
                     acknowledged INTEGER NOT NULL DEFAULT 0,error TEXT,last_attempt TEXT,
                     PRIMARY KEY(task,target));
             """)
 
+        self.retire_schedules()
+
+    def retire_schedules(self):
+        """One-time retirement; preserve old schedules and already running imports."""
+        with self.connect() as conn:
+            if conn.execute("SELECT 1 FROM ledger WHERE table_name='migration' AND row_key='retire_schedules_v1'").fetchone():return
+            conn.execute('BEGIN IMMEDIATE')
+            marker=conn.execute("SELECT 1 FROM ledger WHERE table_name='migration' AND row_key='retire_schedules_v1'").fetchone()
+            if marker:return
+            conn.execute('UPDATE schedules SET enabled=0,next_run=NULL')
+            queued=conn.execute("SELECT id,job FROM tasks WHERE status='queued' AND json_extract(payload,'$.schedule') IS NOT NULL").fetchall()
+            for task in queued:
+                conn.execute("UPDATE tasks SET status='cancelled',error='自动更新功能已移除' WHERE id=?",(task['id'],))
+                conn.execute("UPDATE jobs SET status='cancelled',error='自动更新功能已移除',updated=? WHERE id=? AND status NOT IN ('completed','rolled_back') AND NOT EXISTS(SELECT 1 FROM tasks WHERE job=jobs.id AND status='running')",(now(),task['job']))
+            conn.execute("INSERT INTO ledger VALUES('migration','retire_schedules_v1',?)",(dumps({'finished_at':now(),'cancelled_queued_operations':len(queued)}),))
+
+    @contextmanager
     def connect(self):
-        conn = sqlite3.connect(self.path, timeout=30)
+        conn = sqlite3.connect(self.path, timeout=getattr(self,'busy_timeout',30))
         conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys=ON")
-        return conn
+        try:
+            conn.execute("PRAGMA foreign_keys=ON")
+            with conn:yield conn
+        finally:conn.close()
 
     def create_job(self, plan: dict, target: str) -> dict:
         job = uuid.uuid4().hex
@@ -79,7 +106,7 @@ class State:
             return result
 
     def jobs(self, limit: int = 100, target: str | None = None, offset: int = 0) -> list[dict]:
-        condition=' WHERE target=?' if target else ''
+        condition=" WHERE json_extract(plan,'$.pipeline_parent') IS NULL"+(' AND target=?' if target else '')
         params=[target,max(1,min(limit,1000)),max(0,offset)] if target else [max(1,min(limit,1000)),max(0,offset)]
         with self.connect() as conn:
             return [dict(r) for r in conn.execute('SELECT id,created,updated,status,error FROM jobs'+condition+' ORDER BY created DESC LIMIT ? OFFSET ?',params)]
@@ -88,6 +115,14 @@ class State:
         with self.connect() as conn:
             row = conn.execute("SELECT * FROM slices WHERE job=? AND id=?", (job,key)).fetchone()
         return dict(row) if row else None
+
+    def copy_slices(self,source_job,target_job,identifiers):
+        """Copy validated archive references in bounded transactions, retaining wire bytes."""
+        identifiers=list(dict.fromkeys(identifiers))
+        for offset in range(0,len(identifiers),128):
+            group=identifiers[offset:offset+128];marks=','.join('?' for _ in group)
+            with self.connect() as conn:
+                conn.execute('INSERT OR REPLACE INTO slices(job,id,dataset,request,status,archive,sha,rows,result) SELECT ?,id,dataset,request,status,archive,sha,rows,result FROM slices WHERE job=? AND id IN ('+marks+')',(target_job,source_job,*group))
 
     def update_job(self, job: str, **values):
         if not set(values) <= {"status", "preview", "error", "cancel"}: raise ValueError("无效任务字段")
@@ -108,17 +143,23 @@ class State:
     def enqueue(self, job: str, operation: str, payload: dict | None = None) -> str:
         task = uuid.uuid4().hex
         with self.connect() as conn:
+            payload=dict(payload or {})
+            planned=conn.execute("SELECT json_extract(plan,'$.pipeline_version'),json_extract(plan,'$.request.run_in_background') FROM jobs WHERE id=?",(job,)).fetchone()
+            if planned and planned[0]==2:payload.setdefault('background',True if planned[1] is None else bool(planned[1]))
+            serialized=dumps(payload)
             conn.execute("BEGIN IMMEDIATE")
             if conn.execute("SELECT 1 FROM tasks WHERE job=? AND status IN ('queued','running')", (job,)).fetchone():
                 raise ValueError("该任务已有等待或执行中的操作")
             conn.execute("INSERT INTO tasks VALUES(?,?,?,?,?,?,NULL)",
-                         (task, job, operation, dumps(payload or {}), "queued", now()))
+                         (task, job, operation, serialized, "queued", now()))
+            if operation=='pipeline_run':conn.execute("UPDATE jobs SET status='queued',cancel=0,error=NULL,updated=? WHERE id=? AND status NOT IN ('completed','rolled_back','partially_rolled_back')",(now(),job))
+            elif operation=='pipeline_review':conn.execute("UPDATE jobs SET status='queued',cancel=0,error=NULL,updated=? WHERE id=?",(now(),job))
         return task
 
     def claim(self,allow_ui=True) -> dict | None:
         with self.connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
-            condition="" if allow_ui else " AND json_extract(payload,'$.owner')='cli'"
+            condition="" if allow_ui else " AND json_extract(payload,'$.background')=1"
             row = conn.execute("SELECT * FROM tasks WHERE status='queued'"+condition+" ORDER BY created LIMIT 1").fetchone()
             if row is None: return None
             conn.execute("UPDATE tasks SET status='running' WHERE id=?", (row["id"],))
@@ -131,9 +172,11 @@ class State:
             conn.execute("UPDATE tasks SET status=?,error=? WHERE id=?", ("failed" if error else "completed", error, task))
 
     def cancel(self, job: str):
-        self.update_job(job, cancel=1)
         with self.connect() as conn:
+            conn.execute('BEGIN IMMEDIATE')
+            conn.execute('UPDATE jobs SET cancel=1,updated=? WHERE id=?',(now(),job))
             conn.execute("UPDATE tasks SET status='cancelled' WHERE job=? AND status='queued'", (job,))
+            conn.execute("UPDATE jobs SET status='cancelled' WHERE id=? AND status NOT IN ('completed','rolled_back','partially_rolled_back','audit_pending') AND NOT EXISTS(SELECT 1 FROM tasks WHERE job=jobs.id AND status='running')",(job,))
 
     def check_cancel(self, job: str):
         with self.connect() as conn:
@@ -142,19 +185,42 @@ class State:
 
 
     def ledger_put(self, table: str, key: str, value: dict):
-        with self.connect() as conn:
-            conn.execute('INSERT INTO ledger VALUES(?,?,?) ON CONFLICT(table_name,row_key) DO UPDATE SET value=excluded.value', (table,key,dumps(value)))
-            if table in {'import_task','import_source_archive','import_target_status','import_row_audit','import_rollback','meta_source_mapping','meta_source_capability'}:
+        self.ledger_put_many([(table,key,value)])
+
+    def ledger_put_many(self,records,task_targets=None,batch_size=128):
+        """Prepare JSON and routing before short, bounded write transactions."""
+        prepared=[(table,key,dumps(value),value) for table,key,value in records]
+        mirrored={'import_task','import_source_archive','import_target_status','import_row_audit','import_rollback','meta_source_mapping','meta_source_capability'}
+        routes=dict(task_targets or {})
+        missing={v.get('task_id') or v.get('source_task_id') for t,_,_,v in prepared if t in mirrored and v.get('target') not in {'postgres','clickhouse'}}-set(routes)-{None}
+        if missing:
+            with self.connect() as conn:
+                routes.update({task:self._job_targets(conn,task) for task in missing})
+        for offset in range(0,len(prepared),batch_size):
+            block=prepared[offset:offset+batch_size];sync={}
+            for table,_,_,value in block:
+                if table not in mirrored:continue
                 task=value.get('task_id') or value.get('source_task_id')
-                if task:
-                    targets=[value['target']] if value.get('target') in {'postgres','clickhouse'} else self._job_targets(conn,task)
-                    self._queue_sync(conn,task,targets)
-                if table=='import_rollback':self._queue_sync(conn,value['rollback_task_id'],[value['target']])
+                if task:sync.setdefault(task,set()).update([value['target']] if value.get('target') in {'postgres','clickhouse'} else routes.get(task,[]))
+                if table=='import_rollback':sync.setdefault(value['rollback_task_id'],set()).add(value['target'])
+            with self.connect() as conn:
+                conn.executemany('INSERT INTO ledger VALUES(?,?,?) ON CONFLICT(table_name,row_key) DO UPDATE SET value=excluded.value',[(t,k,v) for t,k,v,_ in block])
+                for task,targets in sync.items():self._queue_sync(conn,task,targets)
+
+    def invalidate_validation_reports(self,tables,targets):
+        """Conservative invalidation on managed writes, without scanning business data."""
+        with self.connect() as conn:
+            for row in conn.execute("SELECT row_key,value FROM ledger WHERE table_name='pipeline_validation'").fetchall():
+                report=json.loads(row['value']);scope=report.get('scope',{})
+                if report['status']=='stale' or not set(targets).intersection(scope.get('targets',[])):continue
+                if scope.get('tables') and not set(tables).intersection(scope['tables']):continue
+                report.update(previous_status=report['status'],status='stale',stale_at=now(),stale_reason='所选表发生后续写入或回退，请重新校验当前快照')
+                conn.execute("UPDATE ledger SET value=? WHERE table_name='pipeline_validation' AND row_key=?",(dumps(report),row['row_key']))
 
     @staticmethod
     def _job_targets(conn,task):
-        row=conn.execute('SELECT plan FROM jobs WHERE id=?',(task,)).fetchone()
-        return json.loads(row[0]).get('request',{}).get('targets',[]) if row else []
+        row=conn.execute("SELECT json_extract(plan,'$.request.targets') FROM jobs WHERE id=?",(task,)).fetchone()
+        return json.loads(row[0] or '[]') if row else []
 
     @staticmethod
     def _queue_sync(conn,task,targets):
@@ -267,13 +333,25 @@ class State:
         from .security import redact
         values=redact(values)
         with self.connect() as conn:
-            conn.execute('CREATE TABLE IF NOT EXISTS event_log(id INTEGER PRIMARY KEY AUTOINCREMENT,job TEXT NOT NULL,created TEXT NOT NULL,event TEXT NOT NULL,value TEXT NOT NULL)')
             conn.execute('INSERT INTO event_log(job,created,event,value) VALUES(?,?,?,?)',(job,now(),event,dumps(values)))
 
-    def logs(self,job,after=0,limit=200):
+    def logs(self,job,after=0,limit=200,*,latest=False):
+        """Return a bounded chronological page, optionally taken from the tail."""
         with self.connect() as conn:
-            conn.execute('CREATE TABLE IF NOT EXISTS event_log(id INTEGER PRIMARY KEY AUTOINCREMENT,job TEXT NOT NULL,created TEXT NOT NULL,event TEXT NOT NULL,value TEXT NOT NULL)')
-            return [{**dict(r),**json.loads(r['value'])} for r in conn.execute('SELECT * FROM event_log WHERE job=? AND id>? ORDER BY id LIMIT ?',(job,after,max(1,min(limit,1000))))]
+            size=max(1,min(limit,1000))
+            if latest:
+                rows=list(conn.execute('SELECT * FROM event_log WHERE job=? ORDER BY id DESC LIMIT ?',(job,size)))
+                rows.reverse()
+            else:
+                rows=conn.execute('SELECT * FROM event_log WHERE job=? AND id>? ORDER BY id LIMIT ?',(job,after,size))
+            return [{**dict(r),**json.loads(r['value'])} for r in rows]
+
+    def live_status(self,job):
+        """Small change notification; log streaming must not load frozen requests."""
+        with self.connect() as conn:
+            row=conn.execute('SELECT id,updated,status,cancel FROM jobs WHERE id=?',(job,)).fetchone()
+            if row is None:raise ValueError('任务不存在')
+            return {**dict(row),'tasks':[dict(r) for r in conn.execute('SELECT id,operation,status FROM tasks WHERE job=? ORDER BY created',(job,))]}
 
 
     def ledger_get(self,table,key):

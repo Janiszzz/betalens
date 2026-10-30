@@ -23,9 +23,12 @@ def normalize_request(value):
     """Reject ambiguous/unbounded scopes and secret-bearing unexpected options."""
     allowed = {'modules','targets','security_codes','start_date','end_date','exchanges',
                'schemes','levels','check_times','requests_per_minute','parent_task_id','source_id'}
+    from .pipeline_options import DEFAULTS,options
+    allowed|=set(DEFAULTS)
     if not isinstance(value,dict) or set(value)-allowed:
         raise ValueError('完整性请求包含未登记字段')
     out = deepcopy(value)
+    if out.get('pipeline_version')==2:out.update(options(out))
     for key,default,valid in (
         ('modules',list(MODULE_TABLE),set(MODULE_TABLE)),
         ('targets',['postgres','clickhouse'],{'postgres','clickhouse'}),
@@ -129,13 +132,27 @@ class ReferenceWorkflow:
                     for current in ('Y','N'):add(endpoint,{'ts_code':code,'is_new':current})
                 if scheme!='CITICS':
                     for level in request['levels']:add('index_classify',{'src':scheme,'level':'L'+str(level)},True)
+        if request.get('pipeline_version')==2:
+            from .pipeline_plan import params_for
+            compact_request={**request,'codes':request['security_codes']}
+            optimized=[]
+            for root in roots:
+                if root['endpoint'] in {'trade_cal','suspend_d','stock_basic'}:
+                    for params in params_for(root['endpoint'],compact_request,{}):
+                        candidate={**root,'parameters':params}
+                        if candidate not in optimized:optimized.append(candidate)
+                elif root not in optimized:optimized.append(root)
+            roots=optimized
         # Distinct SW source revisions cannot be separated by index_member_all
         # (no src filter); evidence explicitly preserves the dictionary match.
         contracts={sid+':'+r['endpoint']:deepcopy(self.s.sources.endpoint(sid,r['endpoint'])) for r in roots}
-        policies={key:tushare_policy(key.split(':',1)[1]) for key in contracts if sid=='tushare'}
+        policies={key:tushare_policy(key.split(':',1)[1],points=5000 if request.get('pipeline_version')==2 else None) for key in contracts if sid=='tushare'}
         plan={'revision':'reference-v1','request':request,'requests':roots,'source_contracts':contracts,
               'retrieval_policies':policies,'mapping_version':VERSION,'contract_hash':CONTRACT_HASH,
               'source_identity':source_identity(self.s.sources.values[sid]),'parent_task_id':request.get('parent_task_id')}
+        if request.get('pipeline_version')==2:
+            plan['pipeline_version']=2
+            plan['request']['requests_per_minute']=min(request.get('requests_per_minute',450),450)
         item=self.s.state.create_job(plan,self.s.settings.fingerprint)
         self.s.state.log(item['id'],'reference_task_created',request=request,actual_requests=roots)
         return item
@@ -166,6 +183,10 @@ class ReferenceWorkflow:
         source=self.s.source;source.active_job=job
         source.requests_per_minute=item['plan']['request'].get('requests_per_minute',self.s.settings.requests_per_minute)
         source.retrieval_policies=item['plan']['retrieval_policies']
+        if item['plan'].get('pipeline_version')==2:
+            failures=TaskDownloader(self.s,item).run(item['plan']['requests'],workers=item['plan']['request']['download_workers'])
+            self.s.state.update_job(job,status='partial' if failures else 'downloaded')
+            return self.s.state.job(job)
         with self.attempt(job,'download'):
             for root in item['plan']['requests']:
                 self.s.state.check_cancel(job)
@@ -322,6 +343,7 @@ class ReferenceWorkflow:
                             verified=store.verify(revision['revision_id'])
                             if not verified.get('verified'):raise ValueError('目标库追加版本核验失败：'+dumps(verified))
                             published=store.publish(revision['revision_id'],expected)
+                            self.s.state.invalidate_validation_reports([MODULE_TABLE[module]],[target])
                             row.update(status='published',revision_id=revision['revision_id'],verification=verified,publication=published)
                             self.s.state.log(job,'reference_module_published',target=target,module=module,revision_id=revision['revision_id'])
                         except InterruptedError:raise
@@ -343,7 +365,9 @@ class ReferenceWorkflow:
         with self.attempt(rollback['id'],'rollback'):
             for revision in self.s.state.ledger_rows('reference_revision',job):
                 if revision['target'] not in targets:continue
-                try:result=self.store(revision['target']).revoke(revision['revision_id'],rollback['id'])
+                try:
+                    result=self.store(revision['target']).revoke(revision['revision_id'],rollback['id'])
+                    self.s.state.invalidate_validation_reports([MODULE_TABLE[revision['module']]],[revision['target']])
                 except Exception as exc:result={'status':'failed','reason':self.s.safe_error(exc)}
                 result.update(target=revision['target'],module=revision['module'],revision_id=revision['revision_id'])
                 results.append(result)

@@ -9,7 +9,7 @@ description = "Standalone multi-source database lifecycle and audited ingestion 
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-  "requests>=2.32,<3", "psycopg2-binary>=2.9,<3", "tushare>=1.4,<2",
+  "pyarrow>=14", "requests>=2.32,<3", "psycopg2-binary>=2.9,<3", "tushare>=1.4,<2",
   "python-dotenv>=1,<2", "PyYAML>=6,<7", "fastapi>=0.115,<1", "uvicorn>=0.30,<1", "websockets>=13,<17", "tzdata>=2024.1",
 ]
 

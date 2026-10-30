@@ -9,7 +9,7 @@ from pathlib import Path
 import gzip,hashlib,json,uuid
 import yaml
 from .service import TushareImportService,normalize_source,dates,SHANGHAI
-from .canonical import canonical,load_canonical_catalog,registry_context,builtin_catalog
+from .canonical import canonical,load_canonical_catalog,registry_context,builtin_catalog,catalog_snapshot
 from .registry import TableRegistry,GENERATED
 from .schema_manager import SchemaManager
 from .mapping_store import MappingStore,DETAILS
@@ -34,7 +34,10 @@ def scoped(cls):
         def wrap(method):
             @wraps(method)
             def wrapped(self,*args,**kwargs):
-                with registry_context(self.registry):return method(self,*args,**kwargs)
+                with registry_context(self.registry):
+                    if method.__name__=='_build_canonical':
+                        with catalog_snapshot(self.registry):return method(self,*args,**kwargs)
+                    return method(self,*args,**kwargs)
             return wrapped
         setattr(cls,name,wrap(method))
     return cls
@@ -95,8 +98,13 @@ class DatabaseManagerService(TushareImportService):
         return row
 
     def _map_part(self,endpoint,source_rows,job,downloaded,calendar,source_name='tushare'):
+        from .pipeline_options import LIGHT
+        light=LIGHT.get()
         output,factors=super()._map_part(endpoint,source_rows,job,downloaded,calendar,source_name)
-        if output.get('market_daily_raw'):
+        indexed={name:{} for name in output}
+        for name,values in output.items():
+            for row in values:indexed[name].setdefault(row.get('source_row_no'),[]).append(row)
+        if output.get('market_daily_raw') and not light:
             from .mapping import FIELD_MAP
             by_row={s['_row']:s for s in source_rows}
             for row in output['market_daily_raw']:
@@ -128,13 +136,14 @@ class DatabaseManagerService(TushareImportService):
                             available,basis=_event_available(source.get('f_ann_date') or source.get('ann_date'),'announcement_next_calendar_day_assumed')
                         row=self._canonical_record(spec,partial,endpoint,job,downloaded,source['_row'],raw,event,available,basis,source_name)
                         row['mapping_version']=mapping.get('version',digest(mapping));output[name].append(row)
+                        indexed.setdefault(name,{}).setdefault(row.get('source_row_no'),[]).append(row)
                     else:
                         # Enrich computed canonical rows by the explicit source key.
-                        for row in output.get(name,[]):
+                        for row in indexed.get(name,{}).get(source['_row'],[]):
                             if row.get('source_row_no')==source['_row']:
                                 row.update(partial);row['mapping_version']=mapping.get('version',digest(mapping))
-                    for row in output.get(name,[]):
-                        if row.get('source_row_no')!=source['_row']:continue
+                    for row in indexed.get(name,{}).get(source['_row'],[]):
+                        if light and name!='fundamental_periodic':continue
                         origins=row.setdefault('_field_origins',{})
                         for field in evidence:
                             c=field['column']
@@ -144,11 +153,13 @@ class DatabaseManagerService(TushareImportService):
                                 origins.setdefault(c,{'selected':False,'source_null':True,'origins':[]})
                         if name=='fundamental_periodic':
                             row['version_id']=digest({'source_business_version':row['version_id'],'mapped_business':{f['name']:row.get(f['name']) for f in spec.fields if f['name'] not in GENERATED|{'version_id','event_date','available_at','availability_basis'}}})
-                    if evidence and (source['_row']<=20 or any(f.get('conflict') for f in evidence)):self.state.ledger_put('field_evidence',digest([job,name,endpoint,source['_row']]),{'task_id':job,'table':name,'source_row':source['_row'],'fields':evidence})
+                    if not light and evidence and (source['_row']<=20 or any(f.get('conflict') for f in evidence)):self.state.ledger_put('field_evidence',digest([job,name,endpoint,source['_row']]),{'task_id':job,'table':name,'source_row':source['_row'],'fields':evidence})
         return output,factors
 
     def _merge(self,rows,spec):
         result=super()._merge(rows,spec)
+        from .pipeline_options import LIGHT
+        if LIGHT.get():return result
         by={row_key(spec,r):r for r in result}
         for original in rows:
             current=by[row_key(spec,original)];origins=current.setdefault('_field_origins',{})
@@ -157,6 +168,9 @@ class DatabaseManagerService(TushareImportService):
         return result
 
     def compile(self,request):
+        if request.get('pipeline_version')==2:
+            from .pipeline_plan import compile_plan
+            return compile_plan(self,request)
         self.registry.refresh();self.sources.refresh();self.mappings.refresh()
         from .security import validate_parameters
         validate_parameters(request.get('parameters',{}),path='request.parameters')
@@ -190,6 +204,8 @@ class DatabaseManagerService(TushareImportService):
                 validate_parameters(params,auth=self.sources.values[sid].get('auth'))
                 if sid=='tushare':
                     normalized={'start_date':str(start or date(1900,1,1)),'end_date':str(end),'codes':request.get('codes',[]),'parameters':{endpoint:params}}
+                    from .pipeline_options import PLANNING_SEED
+                    if PLANNING_SEED.get() and not normalized['codes']:normalized['codes']=['000001.SZ']
                     universe=[]
                     if not normalized['codes'] and strategy in {'security','index'}:
                         universe=self._universe({'slices':[],'plan':{'request':{'targets':targets}}},'fund' if endpoint.startswith('fund_') else 'index' if endpoint in {'index_daily','sw_daily','index_weight'} else 'stock')
@@ -268,14 +284,21 @@ class DatabaseManagerService(TushareImportService):
         return item
 
     def _record_mapping_plan(self,item):
+        records=[]
         for table,mapping in item['plan'].get('mapping_snapshots',{}).items():
+            mapping_version=mapping.get('version') or digest(mapping)
             for b in mapping.get('bindings',[]):
                 fields={f['name']:f for f in self.sources.endpoint(b['source_id'],b['endpoint'])['fields']}
                 targets={f['name']:f for f in self.registry.spec(table).fields}
                 for rule in b.get('fields',[]):
                     f=fields[rule['source_field']];target=targets[rule['column']]
-                    row={'task_id':item['id'],'source_name':b['source_id'],'source_endpoint':b['endpoint'],'source_field':rule['source_field'],'canonical_table':table,'canonical_column':rule['column'],'source_type':f['type'],'target_type':target['type'],'source_unit':rule.get('source_unit',''),'target_unit':target.get('unit',''),'transform_expression':rule.get('formula') or 'Decimal(value)*'+str(rule.get('multiplier','1')),'date_role':target.get('date_role',''),'required':int(rule.get('required',False)),'mapping_version':mapping.get('version',digest(mapping)),'description':f.get('description','')}
-                    self.state.ledger_put('meta_source_mapping',digest([item['id'],table,b['source_id'],b['endpoint'],rule['source_field'],rule['column']]),row)
+                    row={'task_id':item['id'],'source_name':b['source_id'],'source_endpoint':b['endpoint'],'source_field':rule['source_field'],'canonical_table':table,'canonical_column':rule['column'],'source_type':f['type'],'target_type':target['type'],'source_unit':rule.get('source_unit',''),'target_unit':target.get('unit',''),'transform_expression':rule.get('formula') or 'Decimal(value)*'+str(rule.get('multiplier','1')),'date_role':target.get('date_role',''),'required':int(rule.get('required',False)),'mapping_version':mapping_version,'description':f.get('description','')}
+                    records.append(('meta_source_mapping',digest([item['id'],table,b['source_id'],b['endpoint'],rule['source_field'],rule['column']]),row))
+        self.state.ledger_put_many(records,task_targets={item['id']:item['plan']['request']['targets']})
+
+    def replan_retrieval(self,job):
+        from .retrieval_replan import replan
+        return replan(self,job)
 
     def replay_archive(self,job):
         """Reaudit original request facts; never compile or silently fetch new requests."""
@@ -359,6 +382,8 @@ class DatabaseManagerService(TushareImportService):
             self.state.update_job(job,status='cancelled' if isinstance(exc,InterruptedError) else 'failed',error=self.safe_error(exc));raise
 
     def _build_canonical(self,item):
+        from .pipeline_options import LIGHT
+        light=LIGHT.get()
         if item['plan'].get('revision')!='manager-v1':return super()._build_canonical(item)
         for mapping in item['plan']['mapping_snapshots'].values():self.mappings.validate(mapping)
         archive_errors=validate_archives(self,item)
@@ -369,7 +394,9 @@ class DatabaseManagerService(TushareImportService):
             request=part['request'];sid=request['source_id'];endpoint=request['endpoint']
             data=read_archive(Path(part['archive']),part['sha']);meta=json.loads(Path(part['archive']).with_suffix('.meta.json').read_text());contract=item['plan']['source_contracts'][sid+':'+endpoint]
             known={f['name'] for f in contract['fields']};actual=data['fields']
-            if len(actual)!=len(set(actual)) or set(actual)-known or set(contract.get('keys',[]))-set(actual):
+            from .catalog import optional_source_fields
+            required_keys=set(contract.get('keys',[]))-(optional_source_fields(endpoint) if sid=='tushare' else set())
+            if len(actual)!=len(set(actual)) or set(actual)-known or required_keys-set(actual):
                 rejects.append({'dataset':endpoint,'reason':part.get('result',{}).get('blocked') or '源字段合同不匹配','blocking':True});continue
             if sid=='tushare' and any(name in builtin_catalog() for name in item['plan']['request']['tables']):
                 from .catalog import dataset
@@ -415,7 +442,8 @@ class DatabaseManagerService(TushareImportService):
             for name in derived:
                 traces=(self.state.ledger_get('task_column_lineage',item['id']+':'+name) or {}).get('rows',{})
                 values=built.get(name,[])
-                for row in values:row['_field_origins']=traces.get(row_key(canonical(name),row),{})
+                if not light:
+                    for row in values:row['_field_origins']=traces.get(row_key(canonical(name),row),{})
                 tables[name]=values+[r for r in tables.get(name,[]) if r.get('_binding_identity')]
             rejects.extend(bad)
         if tables.get('fund_nav_daily'):
@@ -428,7 +456,12 @@ class DatabaseManagerService(TushareImportService):
                 try:
                     binding_id=row.get('_binding_identity')
                     origins=row.get('_field_origins',{})
+                    mapped_row=row
                     row=typed(spec,row)
+                    if not light:
+                        # Evidence follows the declared target precision (e.g. Decimal(28,8)).
+                        # Preserve provenance only when it actually described this mapped value.
+                        origins={c:({**proof,'value_hash':digest(row.get(c))} if proof.get('value_hash')==digest(mapped_row.get(c)) else proof) for c,proof in origins.items()}
                     for binding in item['plan']['mapping_snapshots'][name]['bindings']:
                         if resolve_processor(name,binding) is not None and binding['endpoint'] in str(row.get('source_endpoint','')).split(','):validate_output(binding,row)
                     time_field=self.registry.get(name).get('time_field')
@@ -478,7 +511,7 @@ class DatabaseManagerService(TushareImportService):
                 normalized[name]=list(merged.values())
                 for key,row in merged.items():
                     proof=column_lineage.setdefault(key,{})
-                    for producer in item['plan']['mapping_snapshots'][name].get('producers',[]):
+                    for producer in ([] if light else item['plan']['mapping_snapshots'][name].get('producers',[])):
                         c=producer['column']
                         if c not in proof and row.get(c) is not None and producer['kind'] in {'computed','copy','constant','system'}:
                             proof[c]={'selected':True,'value_hash':digest(row[c]),'origins':['producer:'+producer['kind']+':'+str(producer.get('processor') or c)]}
@@ -530,6 +563,9 @@ class DatabaseManagerService(TushareImportService):
 
     def resume(self,job):
         item=self._job(job)
+        if item['plan'].get('pipeline_version')==2:
+            from .pipeline import Pipeline
+            return Pipeline(self).run(job)
         if item['plan'].get('revision')=='reference-v1':
             from .reference_service import ReferenceWorkflow
             # A resumed operation never grants visibility to an interrupted
@@ -543,6 +579,9 @@ class DatabaseManagerService(TushareImportService):
         self.download(job);self.preview(job);return self.state.job(job)
 
     def rollback(self,job,targets=None):
+        if self.state.job(job)['plan'].get('pipeline_version')==2 and not self.state.job(job)['plan'].get('pipeline_parent'):
+            from .pipeline import Pipeline
+            return Pipeline(self).rollback(job,targets)
         if self.state.job(job)['plan'].get('revision')=='reference-v1':
             from .reference_service import ReferenceWorkflow
             return ReferenceWorkflow(self).rollback(job,targets)
@@ -552,6 +591,9 @@ class DatabaseManagerService(TushareImportService):
         if self.state.job(job)['plan'].get('revision')=='reference-v1':
             from .reference_service import ReferenceWorkflow
             return ReferenceWorkflow(self).detail(job)
+        if self.state.job(job)['plan'].get('pipeline_version')==2:
+            from .pipeline import Pipeline
+            return Pipeline(self).audit(job,after,limit)
         return super().audit(job,after,limit)
 
     def field_audit(self,job=None):

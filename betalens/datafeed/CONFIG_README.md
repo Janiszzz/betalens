@@ -1,146 +1,33 @@
-# Datafeed 配置管理
+# 数据订阅连接配置
 
-`betalens.datafeed` 使用外置 JSON 配置管理只读数据库连接和日志。Excel、EDE、Wind 解析及所有写入能力归 `betalens_db_manager`。
-
-## 快速开始
-
-复制模板并修改本地数据库连接：
-
-```powershell
-Copy-Item betalens\datafeed\config.example.json betalens\datafeed\config.local.json
-```
+Datafeed 使用独立 JSON 配置，只读加载，不调用 db-manager 服务、不建表、不写入业务数据。
+模板为 [config.example.json](config.example.json)。`reader` 是示例账号，不代表已经创建；使用实际连接账号。
 
 ```python
 from betalens.datafeed import Datafeed
 
-df = Datafeed("daily_market")
-prices = df.query_time_range(
-    codes=["000001.SZ"],
-    start_date="2024-01-01",
-    end_date="2024-01-31",
-    metric="收盘价(元)",
-)
-df.close()
+with Datafeed("market_daily_raw", config_file="/path/to/subscription.json",
+              backend="clickhouse") as data:
+    prices = data.query_time_range(
+        codes=["000001.SZ"], start_date="2024-01-01", end_date="2024-02-01",
+        metric="close", filters={"asset_type": "stock"}, as_of="2024-02-01 16:00:00",
+    )
 ```
 
-## 配置文件
+配置优先级：构造参数 / `db_config` > 环境变量 > 选中的文件。
 
-- `config.example.json`：模板文件，建议提交。
-- `config.local.json`：仓库内本地配置文件，已被 Git 忽略。
-- `%APPDATA%\betalens\config.json`：推荐的仓库外用户配置文件。
-- `config.json`：旧版本地配置路径，仍可读取但不再推荐。
+- 文件选择：显式 `config_file` > `BETALENS_CONFIG` > 用户配置 > 旧 `config.local.json/config.json`。
+- 用户配置：Windows 为 `%APPDATA%/betalens/config.json`；Linux 为 `$XDG_CONFIG_HOME/betalens/config.json`，未设置时 `~/.config/betalens/config.json`。
+- 文件明确指定但不存在、JSON 无效、必需连接项缺少时直接报错，不连接内置默认库。
+- 无文件时可通过完整 `db_config` 或环境变量连接。旧 JSON 的 `database` 节仍可作为 PG 配置读取。
+- `backend` 为 `postgres`（默认）或 `clickhouse`。价格口径由表名明确选择，不再接受 `adjustment` 参数或配置项；旧配置含此项会明确报错，请移除。
+- PG 环境变量保留 `BETALENS_DB_HOST/PORT/NAME/USER/PASSWORD`，增加 `BETALENS_DB_SCHEMA`。
+- CH 使用 `BETALENS_CH_URL/DATABASE/USER/PASSWORD`；后端可用 `BETALENS_BACKEND` 选择。
+- 配置按实例加载并固定；修改文件只影响新建实例，不支持查询中途热切换。
 
-也可用 `BETALENS_CONFIG` 显式指定配置文件路径。
+PG 使用只读、可重复读事务和连接池；CH 使用 HTTP 参数绑定与 `readonly=1`，不提供 PG 游标。
+连接失败会抛出异常，不自动切换后端。两个后端的数据覆盖可能不同，结构一致不意味着数据已经同步。
 
-## 配置优先级
+`ConfigManager` 的 `get/set/save` 等旧入口尚未迁移，保留供外部代码兼容。新查询运行时不依赖其全局单例和内置默认值；变更运行参数请传构造参数，持久化配置由管理端维护。
 
-1. 运行时参数，例如 `Datafeed(..., db_config={...})`。
-2. `BETALENS_DB_*` 环境变量。
-3. `BETALENS_CONFIG` 指定的配置文件。
-4. `%APPDATA%\betalens\config.json`。
-5. `betalens/datafeed/config.local.json`。
-6. 旧的 `betalens/datafeed/config.json`。
-7. 代码内置默认值。
-
-```python
-from betalens.datafeed import Datafeed
-
-df = Datafeed(
-    "daily_market",
-    db_config={"dbname": "research", "user": "postgres"},
-)
-```
-
-## 配置内容
-
-### database
-
-数据库连接信息：
-
-```json
-{
-  "database": {
-    "host": "localhost",
-    "port": "5432",
-    "dbname": "datafeed",
-    "user": "postgres",
-    "password": "your_password"
-  }
-}
-```
-
-### logging
-
-日志目录、日志级别和格式。默认日志目录通常是 `./logs`。
-
-## 读取和修改配置
-
-```python
-from betalens.datafeed.config import get_config
-
-config = get_config()
-db_name = config.get("database.dbname")
-
-config.set("database.dbname", "new_database")
-config.save()
-```
-
-使用独立配置文件：
-
-```python
-from betalens.datafeed.config import ConfigManager
-
-config = ConfigManager("betalens/datafeed/config.prod.json")
-```
-
-## 与数据库管理工具的关系
-
-`Datafeed` 是研究运行时查询层，适合读取 `daily_market`、`fundamentals`、`industry`、`index_universe`、`trade_status` 等表。
-
-文件预览、冲突检查、导入记录、schema 创建和 GUI 管理建议使用 `betalens_db_manager`：
-
-```python
-from betalens_db_manager import ImportJobRunner
-
-runner = ImportJobRunner()
-preview = runner.preview("data.xlsx", import_type="ede")
-record = runner.run("data.xlsx", import_type="ede", table="daily_market")
-```
-
-解析参数通过 `runner.preview(..., options={...})`、`runner.run(..., options={...})` 或 `betalens_db_manager.adapters` 函数参数显式传入。
-
-## 常见场景
-
-### 开发环境
-
-复制 `config.example.json` 为 `config.local.json`，填本地 PostgreSQL 连接即可。
-默认数据库名为 `datafeed`；可使用 `python -m betalens_db_manager init --yes` 创建并初始化。
-
-### 生产或共享环境
-
-创建单独的配置文件，例如 `config.prod.json`，并在代码中显式传入或用 `ConfigManager` 读取。
-
-### 敏感信息
-
-可以用环境变量覆盖密码：
-
-```python
-import os
-from betalens.datafeed.config import get_config
-
-config = get_config()
-config.set("database.password", os.environ["DB_PASSWORD"])
-```
-
-## 注意事项
-
-- 不要提交包含真实密码的 `config.json`、`config.prod.json`、`config.local.json`。
-- 当前主行情表名是 `daily_market`，基本面表名是 `fundamentals`。
-- `pre_query_characteristic_data` 的 `time_tolerance` 单位是小时。
-- 回测默认从 `daily_market` 读取 `收盘价(元)`。
-
-## 更多文档
-
-- [Datafeed 指南](../../docs/guide/datafeed.rst)
-- [数据库管理工具](../../docs/guide/db-manager.rst)
-- [Datafeed API](../../docs/api/datafeed.rst)
+`market_daily_post_adjusted` 为后复权，`market_daily_raw` 为未复权；后复权不适合直接用于真实成交手数换算。回测引擎中的该问题留待另行修复。

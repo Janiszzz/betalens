@@ -16,6 +16,8 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="Betalens DB Manager — 独立数据接入与维护工具")
     parser.add_argument("--env", type=Path, help="私有环境文件；不依赖研究框架配置")
     commands = parser.add_subparsers(dest="command", required=True)
+    monitor = commands.add_parser('monitor',help='独立只读任务监控，不启动 worker 或初始化状态')
+    monitor.add_argument('--port',type=int,default=8011)
     commands.add_parser("doctor", help="检查配置、数据库及磁盘")
     commands.add_parser('migration-preview',help='只读盘点两库物理类型、可空性与待迁移字段，不执行DDL')
     repair=commands.add_parser('mapping-repair',help='预览或发布逐列生产规则和已核对的映射修复；不执行DDL或补写')
@@ -31,10 +33,11 @@ def main(argv=None):
     schema.add_argument("--token", help="schema plan 输出的结构计划令牌")
     plan = commands.add_parser("plan", help="创建数据导入计划，不自动下载")
     plan.add_argument("request", type=Path, help="JSON/YAML 请求文件")
-    for name in ["download", "preview", "commit", "resume", "cancel", "job", "sync-audit"]:
+    for name in ["download", "preview", "commit", "resume", "cancel", "job", "sync-audit", "run"]:
         command = commands.add_parser(name)
         command.add_argument("job")
         if name == "commit": command.add_argument("--token", required=True)
+    validator=commands.add_parser('validate');validator.add_argument('job');validator.add_argument('--rules',nargs='+',choices=['values','relations','readback'],default=['values','relations'])
     commands.add_parser("jobs")
     probe = commands.add_parser("probe"); probe.add_argument("datasets", nargs="+")
     query = commands.add_parser("query"); query.add_argument("dataset")
@@ -70,8 +73,17 @@ def main(argv=None):
             print(dumps({"error": "凭据审计初始化失败；请检查配置路径和权限"}), file=sys.stderr)
             return 1
     settings = Settings.from_env(args.env)
-    service = DatabaseManagerService(settings)
+    if args.command=='monitor':
+        import uvicorn
+        from .monitor import create_monitor_app
+        uvicorn.run(create_monitor_app(settings),host='127.0.0.1',port=args.port,log_level='warning')
+        return 0
+    service = None
     try:
+        if args.command=='worker':
+            from .worker import retry_control
+            service=retry_control('initialize',lambda:DatabaseManagerService(settings),settings)
+        else:service=DatabaseManagerService(settings)
         result = None
         if args.command == "doctor": result = service.doctor()
         elif args.command == 'migration-preview':
@@ -99,6 +111,11 @@ def main(argv=None):
         elif args.command == "download": result = {"task":service.state.enqueue(args.job,"download",{"owner":"cli"})}
         elif args.command == "preview": result = service.preview(args.job)
         elif args.command == "commit": result = {"task":service.state.enqueue(args.job,"commit",{"token":args.token,"owner":"cli"})}
+        elif args.command=='run':
+            item=service._job(args.job)
+            if item['plan'].get('pipeline_version')!=2:raise ValueError('run 仅适用于新管线任务')
+            result={'task':service.state.enqueue(args.job,'pipeline_run',{'owner':'cli','background':True})}
+        elif args.command=='validate':result={'task':service.state.enqueue(args.job,'pipeline_validate',{'owner':'cli','background':True,'validation':{'rules':args.rules}})}
         elif args.command == "resume": result = {"task":service.state.enqueue(args.job,"resume",{"owner":"cli"})}
         elif args.command == "sync-audit":result={'task':service.state.enqueue(args.job,'sync_audit',{'owner':'cli'})}
         elif args.command == "cancel": service.state.cancel(args.job); result = {"cancel_requested": True}
@@ -135,30 +152,24 @@ def main(argv=None):
             import uvicorn
             import signal
             from .api import create_app
-            child = None
+            supervisor = None
             if not args.no_worker:
-                command = [sys.executable, "-m", "betalens_db_manager"]
-                if args.env: command.extend(["--env", str(args.env.resolve())])
-                command.append("worker")
-                log = (settings.state_dir / "worker.log").open("a")
-                child = subprocess.Popen(command, stdout=log, stderr=log)
-                log.close()
+                from .worker_supervisor import WorkerSupervisor
+                supervisor=WorkerSupervisor(settings);supervisor.start()
             # Uvicorn replays SIGTERM after shutdown. Convert that replay to a
             # Python exit so our finally block also stops the owned worker.
             previous_term = signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
             try: uvicorn.run(create_app(service), host="127.0.0.1", port=args.port, log_level="warning", timeout_graceful_shutdown=10)
             finally:
-                if child and child.poll() is None:
-                    child.terminate()
-                    try: child.wait(timeout=70)
-                    except subprocess.TimeoutExpired:
-                        child.kill();child.wait(timeout=5)
+                if supervisor:supervisor.close()
                 signal.signal(signal.SIGTERM, previous_term)
         if result is not None:
             from .security import public_data
             print(dumps(public_data(result,service.settings,service.sources.values.values())))
         return 0
     except Exception as exc:
-        print(dumps({"error": service.safe_error(exc)}), file=sys.stderr)
+        from .security import safe_error
+        from .util import now
+        print(dumps({"at":now(),"command":args.command,"exception":type(exc).__name__,"error":service.safe_error(exc) if service else safe_error(exc,settings)}), file=sys.stderr)
         return 1
 

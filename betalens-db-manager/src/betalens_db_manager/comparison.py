@@ -1,6 +1,6 @@
 """Shared typed comparison for every canonical target and audit hash."""
 from datetime import date, datetime, timezone
-from decimal import Decimal, localcontext
+from decimal import Decimal, localcontext, ROUND_HALF_UP
 
 from .integer_contract import validate_int64
 from .util import digest
@@ -9,9 +9,9 @@ PROVENANCE = {'ingested_at','schema_version','source_id','downloaded_at','availa
               'source_endpoint','source_row_no','source_record_hash','mapping_version','data_quality_status'}
 
 
-def typed(spec, row):
+def typed(spec, row, keys_only=False):
     result = {}
-    for field in spec.fields:
+    for field in (tuple(f for f in spec.fields if f['name'] in spec.keys) if keys_only else spec.fields):
         name, kind = field['name'], field['type']
         value = row.get(name)
         if value is None:
@@ -38,11 +38,24 @@ def typed(spec, row):
     import re
     for name in ('security_code','previous_code','index_code'):
         value=result.get(name)
-        if value is not None and not re.fullmatch(r'[A-Z0-9_]+\.(SH|SZ|BJ|SI|CI|CSI|CNI|OF|WI|IB)',value):
+        if value is not None and not re.fullmatch(r'[A-Z0-9_!]+\.(SH|SZ|BJ|SI|CI|CSI|CNI|OF|WI|IB)',value):
             raise ValueError(f'{name}: 需要带境内市场后缀的标准证券代码，不能丢失前导零')
     if result.get('asset_type') is not None and result['asset_type'] not in {'stock','fund','index'}:
         raise ValueError('asset_type 不是已登记的资产类型')
     return result
+
+
+def quote_close_precision_matches(spec, column, first, second):
+    """Accept stock daily/daily_basic rounding, keeping exact audit comparisons."""
+    if spec.name!='market_daily_raw' or column!='close':return False
+    if first.get('asset_type')!='stock' or second.get('asset_type')!='stock':return False
+    a=set(str(first.get('source_endpoint') or '').split(','))
+    b=set(str(second.get('source_endpoint') or '').split(','))
+    if not ('daily' in a and 'daily_basic' in b or 'daily_basic' in a and 'daily' in b):return False
+    with localcontext() as context:
+        context.prec=80
+        values=[Decimal(str(row['close'])) for row in (first,second)]
+        return all(v.is_finite() for v in values) and values[0].quantize(Decimal('.01'),rounding=ROUND_HALF_UP)==values[1].quantize(Decimal('.01'),rounding=ROUND_HALF_UP)
 
 
 def row_hash(spec, row):
@@ -50,13 +63,14 @@ def row_hash(spec, row):
 
 
 def row_key(spec, row):
-    normalized = typed(spec, row)
+    normalized = typed(spec, row, keys_only=True)
     return digest([normalized.get(key) for key in spec.keys])
 
 
 def compare(spec, rows, existing, mode):
     if mode not in {'fill_missing','refresh_source'}: raise ValueError('不支持的写入模式')
-    old = {tuple(typed(spec, value).get(key) for key in spec.keys): typed(spec, value) for value in existing}
+    normalized_old=[typed(spec,value) for value in existing]
+    old={tuple(value.get(key) for key in spec.keys):value for value in normalized_old}
     changes, snapshots, checks, conflicts = [], [], [], []
     counts = {'inserted':0,'updated':0,'skipped':0,'conflicts':0}
     business = [f['name'] for f in spec.fields if f['name'] not in PROVENANCE]
@@ -65,10 +79,10 @@ def compare(spec, rows, existing, mode):
         key = tuple(incoming.get(k) for k in spec.keys)
         if any(value is None for value in key): raise ValueError(f'{spec.name}: 主键不能为空 {spec.keys}')
         before = old.get(key)
-        snapshots.append([row_key(spec,incoming), row_hash(spec,before) if before else None])
-        checks.append({'row_key':row_key(spec,incoming),
-                       'key':{name:incoming[name] for name in spec.keys},
-                       'before_hash':row_hash(spec,before) if before else None})
+        identity=digest([incoming.get(k) for k in spec.keys])
+        before_hash=digest({k:v for k,v in before.items() if k!='ingested_at'}) if before else None
+        snapshots.append([identity,before_hash])
+        checks.append({'row_key':identity,'key':{name:incoming[name] for name in spec.keys},'before_hash':before_hash})
         after = dict(incoming)
         if before is None:
             counts['inserted'] += 1
@@ -98,8 +112,8 @@ def compare(spec, rows, existing, mode):
                     if 'source_endpoint' in after:after['source_endpoint']=','.join(sorted(set(str(before.get('source_endpoint','')).split(',')+str(incoming.get('source_endpoint','')).split(','))))
                     if 'source_record_hash' in after:after['source_record_hash']=digest([before.get('source_record_hash'),incoming.get('source_record_hash'),preserved])
                     if 'data_quality_status' in after:after['data_quality_status']='mixed_sources'
-        changes.append({'before':before,'after':after,'row_key':row_key(spec,after),
-                        'before_hash':row_hash(spec,before) if before else None,'after_hash':row_hash(spec,after)})
+        changes.append({'before':before,'after':after,'row_key':identity,
+                        'before_hash':before_hash,'after_hash':digest({k:v for k,v in after.items() if k!='ingested_at'})})
     return {'counts':counts,'changes':changes,'checks':checks,'conflicts':conflicts,
             'signature':digest({'snapshots':snapshots,'changes':[[c['row_key'],c['before_hash'],c['after_hash']] for c in changes]})}
 

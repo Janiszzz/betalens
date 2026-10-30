@@ -52,11 +52,13 @@ class ClickHouse:
                 result.update(status='writer_verification_failed',reason=safe_error(exc,self.settings))
         return result
 
-    def execute(self, query: str, data: str | None = None, timeout: int = 180) -> str:
+    def execute(self, query: str, data: str | bytes | None = None, timeout: int = 180, *, external_tables=None) -> str:
         # Unknown/new SQL forms are conservatively coordinated. A blacklist
         # missed DELETE and administrative forms such as ATTACH/DETACH.
         first=query.lstrip().split(None,1)[0].upper() if query.strip() else ''
         mutation=first not in {'SELECT','SHOW','DESCRIBE','DESC','EXISTS','EXPLAIN'}
+        if external_tables and (mutation or data is not None):
+            raise ValueError('外部临时键表仅用于只读查询')
         if mutation and self.write_coordinator is not None and not self._write_window.get():
             with self.write_window('sql:'+digest(query)):
                 return self.execute(query,data,timeout)
@@ -72,7 +74,15 @@ class ClickHouse:
             params['query_id']=query_id
         payload = data if data is not None else query
         if data is None: params.pop("query")
-        response = requests.post(self.settings.ch_url, params=params, data=payload.encode(),
+        body={'data':payload if isinstance(payload,bytes) else payload.encode()}
+        if external_tables:
+            params['query']=query
+            body={'files':{}}
+            for name,table in external_tables.items():
+                identifier(name)
+                params[name+'_format']=table['format'];params[name+'_structure']=table['structure']
+                body['files'][name]=(name,table['data'],'application/octet-stream')
+        response = requests.post(self.settings.ch_url, params=params, **body,
                                  auth=(self.settings.ch_user, self.settings.ch_password), timeout=timeout)
         if response.status_code != 200:
             from .security import safe_error
@@ -146,20 +156,8 @@ class ClickHouse:
 
     def _find_existing(self, spec: CanonicalTable, rows: list[dict]) -> dict[tuple, dict]:
         if not rows: return {}
-        result = {}
-        # Large snapshots such as stock_basic can contain tens of thousands
-        # of keys.  Keep each HTTP query bounded so ClickHouse does not reject
-        # the request body before SQL parsing.
-        keys = [tuple(row.get(k) for k in spec.keys) for row in rows]
-        for offset in range(0, len(keys), 500):
-            conditions = []
-            for key in keys[offset:offset + 500]:
-                conditions.append("(" + " AND ".join(f"`{field}`={self._literal(value)}" for field, value in zip(spec.keys, key)) + ")")
-            query = f"SELECT * FROM {self.table(spec.name)} FINAL WHERE {' OR '.join(conditions)} FORMAT JSONEachRow"
-            for row in self._json_rows(self.execute(query)):
-                row=typed(spec,row)
-                result[tuple(row.get(k) for k in spec.keys)] = row
-        return result
+        from .clickhouse_keys import find_existing
+        return find_existing(self,spec,rows)
 
     @staticmethod
     def _literal(value):
@@ -214,9 +212,10 @@ class ClickHouse:
         with self.write_window('rollback:'+rollback_task_id):
             return self._apply_rollback(spec,audits,rollback_task_id)
 
-    def table_digest(self,spec,name=None):
+    def table_digest(self,spec,name=None,partitions=None):
         fields=','.join('`'+f['name']+'`' for f in spec.fields)
-        rows=self._json_rows(self.execute(f'SELECT count() AS rows,groupBitXor(cityHash64(tuple({fields}))) AS content FROM {self.table(name or spec.name)} FINAL FORMAT JSONEachRow'))
+        where=' WHERE _partition_id IN ('+','.join(self._literal(p) for p in sorted(partitions))+')' if partitions else ''
+        rows=self._json_rows(self.execute(f'SELECT count() AS rows,groupBitXor(cityHash64(tuple({fields}))) AS content FROM {self.table(name or spec.name)} FINAL{where} FORMAT JSONEachRow'))
         return {k:str(v) for k,v in rows[0].items()}
 
     def cleanup_rollback(self,rollback_task_id,state):
@@ -323,14 +322,18 @@ class ClickHouse:
                 lines.append(dumps({f["name"]:dumps(row.get(f["name"])) if f["name"] in json_fields and row.get(f["name"]) is not None else self._parse(row.get(f["name"]),f["type"]) for f in spec.fields}))
             self.execute(f"INSERT INTO {self.table(name)} FORMAT JSONEachRow", "\n".join(lines)+"\n")
 
-    def refresh_coverage(self,name):
+    def refresh_coverage(self,name,codes=None):
         spec=canonical(name);names=columns(spec)
         asset="coalesce(asset_type,'')" if 'asset_type' in names else "''"
         code="coalesce(security_code,'')" if 'security_code' in names else "''"
         dates="minOrNull(event_date) AS first_event_date,maxOrNull(event_date) AS last_event_date" if 'event_date' in names else "NULL AS first_event_date,NULL AS last_event_date"
-        records=self._json_rows(self.execute(f'SELECT {asset} AS asset_type,{code} AS security_code,{dates},count() AS rows FROM {self.table(name)} FINAL GROUP BY asset_type,security_code FORMAT JSONEachRow'))
-        if not records:records=[{'asset_type':'','security_code':'','first_event_date':None,'last_event_date':None,'rows':0}]
+        scoped=codes is not None and 'security_code' in names
+        if scoped and not codes:return []
+        condition='security_code IN ('+','.join(self._literal(c) for c in sorted(codes))+')' if scoped else ''
+        where=' WHERE '+condition if scoped else ''
+        records=self._json_rows(self.execute(f'SELECT {asset} AS asset_type,{code} AS security_code,{dates},count() AS rows FROM {self.table(name)} FINAL{where} GROUP BY asset_type,security_code FORMAT JSONEachRow'))
+        if not records and not scoped:records=[{'asset_type':'','security_code':'','first_event_date':None,'last_event_date':None,'rows':0}]
         for row in records:row.update(table_name=name,updated_at=datetime.now(timezone.utc))
-        self.execute(f"ALTER TABLE {self.table('dataset_coverage')} DELETE WHERE table_name={self._literal(name)} SETTINGS mutations_sync=1")
-        self.control_write('dataset_coverage',records)
+        self.execute(f"ALTER TABLE {self.table('dataset_coverage')} DELETE WHERE table_name={self._literal(name)}"+(' AND '+condition if scoped else '')+" SETTINGS mutations_sync=1")
+        if records:self.control_write('dataset_coverage',records)
         return records

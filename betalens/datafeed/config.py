@@ -281,3 +281,71 @@ def get_logging_config() -> Dict[str, str]:
     """获取日志配置"""
     return get_config().get_section('logging')
 
+
+def load_subscription_config(db_config=None, *, config_file=None, backend=None):
+    """Load a fresh read-only configuration; never fall back after a bad file.
+
+    Legacy ConfigManager mutation methods remain available pending migration,
+    but the query runtime intentionally does not use its global/default state.
+    Precedence: explicit arguments > environment > selected file.
+    """
+    from urllib.parse import urlsplit
+
+    explicit = config_file or os.environ.get("BETALENS_CONFIG")
+    root = Path(os.environ.get("APPDATA") or os.environ.get("XDG_CONFIG_HOME")
+                or Path.home() / ".config")
+    candidates = [root / "betalens" / "config.json",
+                  Path(__file__).with_name("config.local.json"),
+                  Path(__file__).with_name("config.json")]
+    path = Path(explicit).expanduser() if explicit else next(
+        (p for p in candidates if p.exists()), None)
+    config = {}
+    if path is not None:
+        try:
+            config = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise ValueError(f"无法读取订阅配置: {path}") from exc
+        if not isinstance(config, dict):
+            raise ValueError("订阅配置必须是 JSON 对象")
+    overrides = dict(db_config or {})
+    target = backend if backend is not None else overrides.get("backend") or os.environ.get("BETALENS_BACKEND") or config.get("backend", "postgres")
+    if target not in {"postgres", "clickhouse"}:
+        raise ValueError("backend 必须是 postgres 或 clickhouse")
+    if "adjustment" in overrides or "adjustment" in config:
+        raise ValueError("不再通过 adjustment 切换行情表，请直接指定数据库表名并移除该配置项")
+    section = config.get(target, config.get("database", {}) if target == "postgres" else {})
+    if not isinstance(section, dict):
+        raise ValueError(f"{target} 配置必须是对象")
+    if "adjustment" in section:
+        raise ValueError("连接配置不再接受 adjustment，请直接指定数据库表名")
+    connection = dict(section)
+    env_names = {
+        "postgres": {"host": "BETALENS_DB_HOST", "port": "BETALENS_DB_PORT",
+                     "dbname": "BETALENS_DB_NAME", "user": "BETALENS_DB_USER",
+                     "password": "BETALENS_DB_PASSWORD", "schema": "BETALENS_DB_SCHEMA"},
+        "clickhouse": {"url": "BETALENS_CH_URL", "database": "BETALENS_CH_DATABASE",
+                       "user": "BETALENS_CH_USER", "password": "BETALENS_CH_PASSWORD"},
+    }
+    connection.update({key: os.environ[env] for key, env in env_names[target].items() if env in os.environ})
+    connection.update({key: value for key, value in overrides.items()
+                       if key != "backend"})
+    required = ("host", "dbname", "user") if target == "postgres" else ("url", "database", "user")
+    missing = [key for key in required if not connection.get(key)]
+    if missing:
+        raise ValueError(f"{target} 订阅配置缺少: {', '.join(missing)}")
+    if target == "postgres":
+        connection.setdefault("schema", "betalens")
+        connection["port"] = int(connection.get("port", 5432))
+    else:
+        url = urlsplit(connection["url"])
+        if url.scheme not in {"http", "https"} or not url.hostname or url.username or url.password or url.query or url.fragment:
+            raise ValueError("ClickHouse URL 必须是无凭据、无查询参数的 HTTP(S) 地址")
+    for key, default in (("connect_timeout", 5), ("statement_timeout_ms", 120000),
+                         ("pool_min_connections", 1), ("pool_max_connections", 10)):
+        connection[key] = int(connection.get(key, default))
+        if connection[key] <= 0:
+            raise ValueError(f"{key} 必须为正整数")
+    if connection["pool_max_connections"] < connection["pool_min_connections"]:
+        raise ValueError("pool_max_connections 不能小于 pool_min_connections")
+    return {**connection, "backend": target}
+

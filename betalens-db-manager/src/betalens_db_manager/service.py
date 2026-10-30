@@ -9,8 +9,8 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from .canonical import CanonicalTable, canonical, load_canonical_catalog, FINANCIAL_ALIASES
-from .comparison import typed, row_key, PROVENANCE
-from .catalog import Dataset, dataset, load_catalog
+from .comparison import typed, row_key, PROVENANCE, quote_close_precision_matches
+from .catalog import Dataset, dataset, load_catalog, optional_source_fields
 from .config import Settings
 from .mapping import FIELD_MAP, VERSION
 from .clickhouse import ClickHouse
@@ -63,7 +63,7 @@ def normalize_source(spec: Dataset, data: dict, job: str, slice_id: str, downloa
     expected = {field["name"] for field in spec.fields}
     actual = set(data.get("fields", []))
     missing, extra = expected - actual, actual - expected
-    required = set(spec.keys) - {"out_date", "f_ann_date", "suspend_timing"}
+    required = set(spec.keys) - {"out_date", "f_ann_date", "suspend_timing"} - optional_source_fields(spec.name)
     required |= {'adj_factor'} if spec.name in {'adj_factor','fund_adj'} else {'open','high','low','close','vol','amount'} if spec.name in {'daily','fund_daily','index_daily'} else set()
     if len(data.get("fields", [])) != len(actual): raise ValueError(f"{spec.name} 返回重复字段名")
     if missing & required:
@@ -87,7 +87,7 @@ def normalize_source(spec: Dataset, data: dict, job: str, slice_id: str, downloa
                     if not value.is_finite(): raise ValueError(f"{key}: 非有限数值")
                 else: value = str(value)
                 row[key] = value
-            if any(row.get(key) is None for key in set(spec.keys)-{'out_date','f_ann_date','suspend_timing'}): raise ValueError("源数据业务主键为空")
+            if any(row.get(key) is None for key in set(spec.keys)-{'out_date','f_ann_date','suspend_timing'}-optional_source_fields(spec.name)): raise ValueError("源数据业务主键为空")
             key = digest([row.get(k) for k in spec.keys])
             payload_hash = digest(row)
             identity = (key, payload_hash)
@@ -513,7 +513,7 @@ class TushareImportService:
             available, basis = _event_available(event_date)
             if source.get("ann_date") or source.get("f_ann_date"):
                 announcement = source.get("f_ann_date") or source.get("ann_date"); available, basis = _event_available(announcement, "announcement_next_calendar_day_assumed;historical_revision_not_proven")
-            if endpoint in {'income','balancesheet','cashflow','fina_indicator'} and not (source.get('ann_date') or source.get('f_ann_date')):
+            if endpoint in {'income','balancesheet','cashflow','fina_indicator','fund_nav'} and not (source.get('ann_date') or source.get('f_ann_date')):
                 available,basis=None,'unknown_announcement_date'
             if endpoint in {'index_member_all','ci_index_member'}:
                 basis='membership_effective_date_assumed;historical_disclosure_unproven'
@@ -590,7 +590,10 @@ class TushareImportService:
             current = result[key]
             for name in columns(spec):
                 if name not in PROVENANCE and name not in spec.keys and current.get(name) is not None and row.get(name) is not None and current[name]!=row[name]:
-                    current['data_quality_status']='conflicting_source_rows'
+                    if quote_close_precision_matches(spec,name,current,row):
+                        # The price feed wins regardless of archive ordering.
+                        if 'daily' in str(row.get('source_endpoint') or '').split(','):current[name]=row[name]
+                    else:current['data_quality_status']='conflicting_source_rows'
                 if current.get(name) is None and row.get(name) is not None: current[name] = row[name]
             current["source_endpoint"] = ",".join(sorted(set(filter(None, str(current.get("source_endpoint", "")).split(",") + [str(row.get("source_endpoint", ""))]))))
             current["source_record_hash"] = digest([current.get("source_record_hash"), row.get("source_record_hash")])
@@ -598,6 +601,8 @@ class TushareImportService:
 
     @high_precision
     def _build_canonical(self, item: dict):
+        from .pipeline_options import LIGHT,DOMAIN_CHECKS
+        light=LIGHT.get() or not DOMAIN_CHECKS.get()
         tables = defaultdict(list); factors = {}; rejects = []; calendar = self._job_calendar(item); download_stamp=item["created"]
         for part in item["slices"]:
             if part["status"] == "split" or not part["archive"]: continue
@@ -726,9 +731,9 @@ class TushareImportService:
                             raise ValueError("本地必需字段为空："+field["name"])
                     date_field=next((name for name in ('trade_date','period_end','valid_from') if name in row and row[name] is not None),None)
                     if date_field and 'event_date' in row and row['event_date']!=row[date_field]:raise ValueError('事件日期与业务日期错位')
-                    if 'high' in row and row.get('high') is not None and row.get('low') is not None and row['high']<row['low']:raise ValueError('最高价低于最低价')
-                    if row.get('volume') is not None and row['volume']<0:raise ValueError('成交量不能为负')
-                    if row.get('valid_to') and row.get('valid_from') and row['valid_to']<row['valid_from']:raise ValueError('剔除日期早于纳入日期')
+                    if not light and 'high' in row and row.get('high') is not None and row.get('low') is not None and row['high']<row['low']:raise ValueError('最高价低于最低价')
+                    if not light and row.get('volume') is not None and row['volume']<0:raise ValueError('成交量不能为负')
+                    if not light and row.get('valid_to') and row.get('valid_from') and row['valid_to']<row['valid_from']:raise ValueError('剔除日期早于纳入日期')
                     valid.append(row)
                     from .comparison import row_key
                     lineage[row_key(spec,row)]={c:p for c,p in origins.items() if p.get('source_null') or p.get('value_hash')==digest(row.get(c))}

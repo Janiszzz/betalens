@@ -1,0 +1,33 @@
+import {test,expect} from '@playwright/test';
+
+test('异步任务关闭网页继续运行，完成后按范围追加校验并导出报告',async({page,request,context})=>{
+ page.on('dialog',d=>d.accept());
+ const name='pipeline_browser_prices';
+ const definition={name,zh_name:'异步验收行情',description:'隔离库网页验收',grain:'代码日期一行',keys:['code','business_date'],time_field:'business_date',temporal_rule:'calendar_day',fields:[{name:'code',type:'text'},{name:'business_date',type:'date'},{name:'price',type:'numeric',precision:28,scale:8}]};
+ let response=await request.post('/api/tables',{data:{definition}});expect(response.ok(),await response.text()).toBeTruthy();
+ const source={source_id:'pipeline_browser_http',provider:'http',base_url:'http://127.0.0.1:18082',endpoints:{prices:{path:'/prices',strategy:'range',keys:['ticker','day'],date_field:'day',date_format:'%Y/%m/%d',fields:[{name:'ticker',type:'text'},{name:'day',type:'date'},{name:'price_milli',type:'numeric'}]}}};
+ response=await request.post('/api/sources',{data:source});expect(response.ok(),await response.text()).toBeTruthy();
+ const mapping={format_version:1,table:name,bindings:[{source_id:'pipeline_browser_http',endpoint:'prices',fields:[{source_field:'ticker',column:'code'},{source_field:'day',column:'business_date',date_format:'%Y/%m/%d'},{source_field:'price_milli',column:'price',multiplier:'0.001'}]}]};
+ response=await request.post('/api/tables/'+name+'/mapping',{data:{mapping}});expect(response.ok(),await response.text()).toBeTruthy();
+ const schema=await (await request.post('/api/tables/'+name+'/schema-plan',{data:{}})).json();
+ response=await request.post('/api/tables/schema-apply',{data:{token:schema.token}});expect(response.ok(),await response.text()).toBeTruthy();
+ const job=await (await request.post('/api/tasks',{data:{pipeline_version:2,tables:[name],source_id:'pipeline_browser_http',start_date:'2026-10-13',end_date:'2026-10-13',min_free_bytes:0}})).json();
+ expect(job.status).toBe('planned');expect(job.plan.request.post_check_rules).toEqual([]);
+ await page.goto('/tasks?task='+job.id);
+ const progress=page.getByRole('region',{name:'任务执行详情'});
+ await expect(progress.getByRole('button',{name:'启动异步采集并自动入库'})).toBeVisible();
+ await progress.getByRole('button',{name:'启动异步采集并自动入库'}).click();
+ await page.close({runBeforeUnload:true});
+ await expect.poll(async()=>{const j=await (await request.get('/api/tasks/'+job.id)).json();return j.status;},{timeout:60000}).toBe('completed');
+ const reopened=await context.newPage();reopened.on('dialog',d=>d.accept());await reopened.goto('/tasks?task='+job.id);
+ const panel=reopened.getByRole('region',{name:'任务执行详情'});
+ await panel.getByRole('tab',{name:'追加校验',exact:true}).click();
+ await panel.getByLabel('L1 单表业务值',{exact:true}).uncheck();await panel.getByLabel('L2 跨表与时间关系',{exact:true}).uncheck();await panel.getByLabel('L3 完整读回与来源核验',{exact:true}).check();
+ await panel.getByRole('button',{name:'运行所选校验'}).click();
+ await expect.poll(async()=>{const reports=await (await request.get('/api/tasks/'+job.id+'/validations')).json();return reports.at(-1)?.status;},{timeout:60000}).toBe('passed');
+ await expect(panel.getByText('通过',{exact:true}).first()).toBeVisible();
+ await panel.locator('summary').filter({hasText:/通过/}).click();
+ await expect(panel.getByRole('link',{name:'导出报告'})).toHaveCount(1);
+ const audit=await (await request.get('/api/tasks/'+job.id+'/audit')).json();expect(audit.changes).toHaveLength(2);
+ expect(audit.changes.every((c:any)=>c.after_value.price==='12.34567890'||c.after_value.price==='12.3456789')).toBeTruthy();
+});

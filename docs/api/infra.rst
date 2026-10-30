@@ -41,6 +41,28 @@ Python 入口
 
 通用 HTTP 路由：
 
+* ``GET /api/schema-manifest``：统一结构清单，自动写入外部配置目录。
+* ``POST /api/databases/inspect``：可选 ``targets[]``、``tables[]``，仅查询数据库系统目录。
+* ``POST /api/schema/batch-plan``：``selections: {postgres: [表名], clickhouse: [表名]}``，返回依赖及确认令牌。
+* ``POST /api/schema/batch-apply``：输入 ``token``，核对版本、目标和快照，只补建缺失表及索引。
+* ``GET /api/task-history``：``limit/offset/status/target/table/search``，分页返回任务摘要，隐藏内部子任务。
+* ``GET /api/task-history/{job}``：所选任务详情，参考域撤销归入原任务。
+  普通异步任务返回固定 ``pipeline.progress`` 总量与人工审计汇总；页面仅携带前 100 个归档分片，
+  完整拒收详情通过以下分页接口读取，避免每次刷新传输所有拒收样例。
+* ``GET /api/tasks/{job}/reviews``：``offset/limit/status``，分页查询拒收批次及决定状态。
+* ``GET /api/tasks/{job}/reviews/{batch}``：拒收样例、来源归档、合格缓存样例、字段合同与版本。
+* ``GET /api/tasks/{job}/reviews/{batch}/export|template``：下载审计元信息或 JSON 修补模板。
+* ``POST /api/tasks/{job}/reviews/{batch}/preview``：``action=release|repair``、``version``、``note``、
+  可选 ``targets``；修补另传 ``rows: {表名: [记录]}`` 和 ``include_cached``。
+  来源覆盖异常可显式传 ``accept_coverage=true``，仅在独立预览转换进程接受覆盖类异常，
+  不放宽哈希、字段及范围检查；决定与导入质量标记保留人工接受记录。
+* ``POST /api/tasks/{job}/reviews/{batch}/confirm``：输入预览 ``token``，幂等登记后台人工写入。
+* ``POST /api/tasks/{job}/reviews/{batch}/reject``：输入 ``version/note``，拒绝并返回元信息下载地址。
+* ``POST /api/tasks/{job}/reviews/{batch}/retry|reopen``：重试失败决定，或对失败/已拒绝的决定重新审计。
+
+人工写入沿用原任务范围、合同及写入策略，检查预览前值和物理结构，回执归属于原任务。
+原始拒收不会删除，人工决定也不会将原任务的来源完整性改报为通过。
+
 * ``GET /api/table-registry``：持久化表清单及实际 PG/CH 部署、行数和日期状态。
 * ``POST /api/tables``：保存 ``definition`` 或 ``yaml`` 草稿。
 * ``GET /api/tables/{name}/definition``：表定义与文件哈希。
@@ -53,9 +75,14 @@ Python 入口
 * ``POST /api/tasks/{job}/download|preview|commit|resume|cancel|rollback``：登记受管理操作。
 * ``GET /api/tasks/{job}/cache|logs|evidence|audit``：缓存分页、日志、转换及入库证据。
 * ``POST /api/tasks/{job}/replay``：保留原任务，用当前规则建立关联审计任务。
-* ``WS /api/live/{job}``：同源实时事件。
+* ``POST /api/tasks/{job}/replan``：空请求体；已停止的普通异步任务按原业务范围冻结新获取规则。
+  返回未启动的关联任务及经参数、合同、分页规则和归档哈希检查后的复用数量，保留原任务和归档。
+* ``WS /api/live/{job}?after=<日志ID>``：同源实时事件和增量日志。
 * ``GET|POST /api/config`` / ``POST /api/config/test``：私有配置及连接测试，不回传凭据。
+  保存可带 ``env_file`` 另存路径，返回 ``active_path/path/restart_required/restart_command``；另存不切换当前配置。
+* ``GET|POST /api/schedules``：HTTP 410，自动更新已移除。
 * ``GET /api/write-capabilities``：当前实际可写能力。
+* ``GET /api/worker-status``：执行器心跳、可用性与服务监护重启状态，不写入 SQLite。
 
 网页操作通常返回队列编号；HTTP 200 不代表数据已写入或业务完整。
 ``/api/jobs`` 与 ``/api/tasks`` 共用旧任务存储。参考任务使用下一节专用路由。

@@ -95,6 +95,8 @@ def live_manager(tmp_path):
     base=Settings.from_env('/home/janiszzz/betalens-infra/tushare.private.env')
     suffix=uuid.uuid4().hex[:10]
     settings=replace(base,config_dir=tmp_path/'config',state_dir=tmp_path/'state',archive_dir=None,env_file=None,pg_database='manager_test_'+suffix,ch_database='manager_test_'+suffix)
+    assert settings.pg_database==settings.ch_database=='manager_test_'+suffix
+    assert settings.pg_database!='betalens' and settings.env_file is None
     s=DatabaseManagerService(settings)
     from controlled_ch import configure_writer
     cleanup=configure_writer(s)
@@ -280,14 +282,10 @@ def test_financial_publication_dates_remain_distinct(tmp_path):
     assert row['end_type']=='4'
 
 
-def test_table_schedule_keeps_source_selection_and_stops_at_audit(tmp_path):
-    from betalens_db_manager.worker import Scheduler
-    s=manager(tmp_path);s.registry.save(table_definition())
-    s.mappings.save({'format_version':1,'table':'sample_prices','bindings':[{'source_id':'tushare','endpoint':'daily','fields':[{'source_field':'ts_code','column':'code'},{'source_field':'trade_date','column':'business_date'},{'source_field':'close','column':'price'}]}]},None)
-    request={'tables':['sample_prices'],'source_id':'tushare','codes':['000001.SZ'],'start_date':'2026-10-13','end_date':'2026-10-13'}
-    saved=Scheduler(s).save('单表更新',request)
-    assert saved['enabled'] is False and saved['request']['source_id']=='tushare'
-    assert s.compile(saved['request'])['request']['sources']==['tushare']
+def test_table_schedule_creation_is_removed(tmp_path):
+    s=manager(tmp_path)
+    with TestClient(create_app(s)) as client:
+        assert client.post('/api/schedules',json={'label':'旧计划','request':{'tables':['market_daily_raw']},'enabled':True}).status_code==410
     assert not s.state.jobs()
 
 
@@ -515,10 +513,12 @@ def test_serving_sigterm_stops_owned_worker(tmp_path):
     try:
         for _ in range(60):
             try:
-                requests.get(f'http://127.0.0.1:{port}/api/config',timeout=.2).raise_for_status();break
-            except requests.RequestException:time.sleep(.1)
+                health=requests.get(f'http://127.0.0.1:{port}/api/worker-status',timeout=.2).json()
+                if health.get('available'):break
+            except requests.RequestException:pass
+            time.sleep(.1)
         else:raise AssertionError('server did not start')
-        workers=[int(p) for p in Path(f'/proc/{child.pid}/task/{child.pid}/children').read_text().split()]
+        workers=[health['heartbeat']['pid']]
         assert workers
         child.terminate();assert child.wait(timeout=12)==0
         assert all(not Path(f'/proc/{pid}').exists() for pid in workers)

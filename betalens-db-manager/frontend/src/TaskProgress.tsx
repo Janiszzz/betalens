@@ -1,0 +1,7 @@
+import React from 'react';
+import {Status,targetNames,type R} from './ui';
+export default function TaskProgress({job}:{job:R}){
+ const p=job.pipeline?.progress;
+ if(!p||p.phase==='planning')return <div aria-label="固定任务进度"><p className="notice">正在规划任务范围；来源证券清单和交易日历确定后冻结请求、处理批次总量。</p></div>;
+ return <div aria-label="固定任务进度"><div className="phase-grid"><div><small>{p.basis==='historical_archives'?'历史请求归档处理':'逻辑请求处理'}</small><strong>{p.requests.processed} / {p.requests.total}</strong><progress aria-label="请求处理进度" value={p.requests.processed} max={p.requests.total||1}/><small>异常 {p.requests.failed} 项</small></div><div><small>转换批次处理</small><strong>{p.batches.processed} / {p.batches.total}</strong><progress aria-label="转换批次进度" value={p.batches.processed} max={p.batches.total||1}/><small>通过 {p.batches.passed} · 拒收 {p.batches.rejected}</small></div>{Object.entries(p.writes||{}).map(([target,v]:[string,any])=><div key={target}><small>{targetNames[target]} 批次处理</small><strong>{v.processed} / {v.total}</strong><progress aria-label={targetNames[target]+' 批次进度'} value={v.processed} max={v.total||1}/><small>已写入 {v.written} · 拒收未写 {v.rejected}</small></div>)}<div><small>审计同步</small><Status value={job.audit_sync_status}/></div></div><p className="muted">任务总量已冻结。处理完成包含明确失败或拒收；拒收记录尚未写入。{p.basis==='historical_archives'?'旧任务按结束时的完整归档冻结总量。':<>已登记物理请求 {p.physical_requests} 个，其中分页、拆分和依赖追加 {p.additional_requests} 个，不增加逻辑请求总量。</>}</p></div>;
+}
