@@ -104,8 +104,12 @@ def test_schedule_retirement_preserves_running_and_manual_jobs(tmp_path):
     s=manager(tmp_path);queued=s.state.create_job({'request':{'targets':['postgres']}},s.settings.fingerprint)
     running=s.state.create_job({'request':{'targets':['postgres']}},s.settings.fingerprint)
     manual=s.state.create_job({'request':{'targets':['postgres']}},s.settings.fingerprint)
-    s.state.enqueue(queued['id'],'update',{'schedule':'legacy'});running_task=s.state.enqueue(running['id'],'update',{'schedule':'legacy'})
-    s.state.enqueue(manual['id'],'download')
+    # Reproduce persisted pre-upgrade operations without reopening the retired
+    # execution API for new legacy tasks.
+    running_task='legacy-running'
+    with s.state.connect() as c:
+        for task,item,payload in [('legacy-waiting',queued,{'schedule':'legacy'}),(running_task,running,{'schedule':'legacy'}),('manual-waiting',manual,{})]:
+            c.execute('INSERT INTO tasks VALUES(?,?,?,?,?,?,NULL)',(task,item['id'],'update',dumps(payload),'queued',now()))
     with s.state.connect() as c:
         c.execute("INSERT INTO schedules VALUES('legacy','legacy','{}',1,0,1,'2026-01-01',NULL)")
         c.execute("UPDATE tasks SET status='running' WHERE id=?",(running_task,))

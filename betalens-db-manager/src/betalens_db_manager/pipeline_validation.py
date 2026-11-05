@@ -1,12 +1,15 @@
 """Read-only, independently queued business and storage checks."""
 from collections import Counter,defaultdict
 from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
+from collections import deque
+from .resource_budget import BUDGET,shared_slot
 from .target_lanes import target_lanes
 from datetime import date
 from decimal import Decimal
 import uuid
 from .canonical import registry_context,catalog_snapshot
-from .comparison import row_key,content_hash,row_hash
+from .comparison import row_key,content_hash,row_hash,typed,typed_row_hash,typed_content_hash
 from .pipeline_cache import read_rows,load_journal
 from .pipeline_store import PipelineStore
 from .publishing import existing
@@ -14,6 +17,21 @@ from .util import digest,now,parse_date
 from .pipeline_options import RULES
 
 VERSION='business-checks-2026-10-27.1'
+
+
+VALUE_COLUMNS = {'open','high','low','close','volume','amount','adjustment_factor','valid_from','valid_to'}
+RELATION_COLUMNS = {'raw_close','adjustment_factor','close','total_assets','total_equity',
+    'equity_including_minority','total_hldr_eqy_inc_min_int','total_liabilities','disclosure_precision',
+    'available_at','event_date','availability_basis','announcement_date','trade_date','security_code',
+    'volume','asset_type','period_end','report_type'}
+
+
+def required_columns(spec, rules):
+    if 'readback' in rules:return None
+    selected=set(spec.keys)|{'security_code','code'}
+    if 'values' in rules:selected.update(VALUE_COLUMNS)
+    if 'relations' in rules:selected.update(RELATION_COLUMNS)
+    return [f['name'] for f in spec.fields if f['name'] in selected]
 
 
 def values(row):
@@ -51,7 +69,7 @@ def relations(row):
         if any(x in basis.lower() for x in ('unknown','assumed','not_proven','download')) or not basis:unknown.append('historical_availability_unproven')
         else:checked.append('availability_evidence')
         event=row.get('announcement_date') or row['event_date']
-        from .service import SHANGHAI
+        from .manager_kernel import SHANGHAI
         if row['available_at'].astimezone(SHANGHAI).date()<event:problems.append('available_before_event')
     return checked,unknown,problems
 
@@ -60,6 +78,7 @@ class ValidationRunner:
     def __init__(self,service):self.s=service;self.store=PipelineStore(service.state)
 
     def run(self,job,payload):
+        self.s.state.ensure_execution(job)
         allowed={'rules','targets','tables','codes','start_date','end_date'}
         if set(payload)-allowed:raise ValueError('校验请求包含未知字段')
         rules=payload.get('rules',list(RULES))
@@ -81,64 +100,94 @@ class ValidationRunner:
         if parent['status'] in {'running','downloading','committing'}:raise ValueError('请等待写入结束后运行事后校验')
         if parent['plan']['revision']=='reference-v1':return self._reference(parent,rules,targets,report)
         dependencies=self._dependencies(parent) if 'relations' in rules else {}
-        with registry_context(self.s.registry),catalog_snapshot(self.s.registry),ThreadPoolExecutor(max_workers=2,thread_name_prefix='validate') as pool:
+        watermarks=self.s.state.validation_watermarks(tables,targets)
+        def merge(future, name, target):
+            try:part=future.result()
+            except Exception as exc:
+                report['checks'].append({'stage':'target_check','table':name,'target':target,'failed':1,'error':self.s.safe_error(exc)})
+                return
+            report['checks'].extend(part['checks']);report['samples'].extend(part['samples']);report['fingerprints'].update(part['fingerprints'])
+            if part.get('field_audit'):report.setdefault('field_audit',[]).extend(part['field_audit'])
+        pending=deque()
+        with registry_context(self.s.registry),catalog_snapshot(self.s.registry),ThreadPoolExecutor(max_workers=BUDGET.validation_io_workers,thread_name_prefix='validate') as pool:
             for unit in self.store.units(job,'normalize'):
+                self.s.state.check_cancel(job)
                 if unit['status']!='completed':continue
                 snapshot=unit['result'];child=snapshot['child_id'];child_item=None
-                if 'readback' in rules:
-                    # Expensive source/column lineage is rebuilt only on explicit L3 requests.
-                    child_item=self.s._job(child,True)
-                    from .pipeline_options import source_replay
-                    with source_replay():_,rejected=self.s._build_canonical(child_item)
-                    if rejected:report['checks'].append({'stage':'source_replay','child_id':child,'failed':len(rejected),'samples':rejected[:20]})
                 for name,records in snapshot['tables'].items():
                     if name not in tables:continue
                     spec=self.s.registry.spec(name);time_field=self.s.registry.get(name).get('time_field')
+                    names={f['name'] for f in spec.fields}
+                    columns=None if 'readback' in rules else [n for n in names if n in set(spec.keys)|{'security_code','code',time_field}]
+                    import pyarrow.dataset as ds
+                    predicate=None
+                    if time_field:
+                        field=ds.field(time_field)
+                        predicate=field.is_null()|((field>=a)&(field<=b))
+                    if codes:
+                        codefield=next((n for n in ('security_code','code') if n in names),None)
+                        if codefield is None:continue
+                        condition=ds.field(codefield).isin(codes)
+                        predicate=condition if predicate is None else predicate&condition
                     for record_index,record in enumerate(records):
-                        expected=read_rows(record,spec)
-                        expected=[r for r in expected if (not codes or r.get('security_code',r.get('code')) in codes) and (not time_field or not r.get(time_field) or a<=r[time_field]<=b)]
+                        limits=record.get('ranges',{}).get(time_field,{})
+                        if limits.get('null_count')==0 and limits.get('min') and limits.get('max') and (parse_date(limits['max'])<a or parse_date(limits['min'])>b):continue
+                        expected=read_rows(record,spec,columns=columns,filters=predicate)
                         if not expected:continue
-                        outcomes=target_lanes(targets,lambda target:self._target_check(job,child,name,record_index,spec,expected,rules,dependencies,child_item,target),pool)
-                        for outcome in outcomes:
-                            if outcome.error is not None:
-                                report['checks'].append({'stage':'target_check','table':name,'target':outcome.target,'failed':1,'error':self.s.safe_error(outcome.error)})
-                                continue
-                            part=outcome.value
-                            report['checks'].extend(part['checks']);report['samples'].extend(part['samples']);report['fingerprints'].update(part['fingerprints'])
-                            if part.get('field_audit'):report.setdefault('field_audit',[]).extend(part['field_audit'])
+                        if 'readback' in rules and child_item is None:
+                            child_item=self.s._job(child,True)
+                            from .pipeline_options import source_replay
+                            with shared_slot(self.s.settings.state_dir,'cpu',BUDGET.cpu_workers),source_replay():_,rejected=self.s._build_canonical(child_item)
+                            if rejected:report['checks'].append({'stage':'source_replay','child_id':child,'failed':len(rejected),'samples':rejected[:20]})
+                        for target in targets:
+                            # Incremental L3 field evidence for the same child is
+                            # deliberately serialized; L1/L2 batches are parallel.
+                            capacity=1 if 'readback' in rules else BUDGET.validation_io_workers
+                            while len(pending)>=capacity:merge(*pending.popleft())
+                            future=pool.submit(copy_context().run,self._target_check,job,child,name,record_index,spec,expected,rules,dependencies,child_item,target)
+                            pending.append((future,name,target))
+            while pending:merge(*pending.popleft())
         failed=any(r.get('failed') or r.get('missing') for r in report['checks'])
         unknown=not report['checks'] or any(r.get('unknown') or r.get('readback_preserved_or_unwritten') for r in report['checks'])
         applicable=any(c.get('values_checked') or c.get('relations_checked') or c.get('readback_verified') for c in report['checks'])
         report.update(status='failed' if failed else 'unknown' if unknown else 'passed' if applicable else 'not_applicable',finished_at=now())
-        self.s.state.ledger_put('pipeline_validation',report['id'],report);return report
+        self.s.state.save_validation_report(report,watermarks);return report
 
     def _target_check(self,job,child,name,record_index,spec,expected,rules,dependencies,child_item,target):
         result={'checks':[],'samples':[],'fingerprints':{}}
         db=self.s.pg if target=='postgres' else self.s.ch
-        live=existing(db,spec,expected);counts=Counter();sample=[]
-        receipt=self.store.receipt(job,child+':'+name+':'+str(record_index),target)
-        journal=load_journal(receipt['manifest'],spec) if receipt else None
-        intended={row_key(spec,r):r for r in read_rows(journal['expected'],spec)} if journal and journal.get('expected') else {}
-        fingerprint=digest(sorted((k,content_hash(spec,r)) for k,r in live.items()))
+        fields=required_columns(spec,rules)
+        with shared_slot(self.s.settings.state_dir,'read-'+target,BUDGET.readonly_per_target):
+            live=existing(db,spec,expected,fields=fields) if fields is not None else existing(db,spec,expected)
+        counts=Counter();sample=[];journal=None;intended={}
+        if 'readback' in rules:
+            receipt=self.store.receipt(job,child+':'+name+':'+str(record_index),target)
+            journal=load_journal(receipt['manifest'],spec) if receipt else None
+            intended={row_key(spec,r):r for r in read_rows(journal['expected'],spec)} if journal and journal.get('expected') else {}
+        # A target read is one consumption boundary. Validate each complete row
+        # once, then reuse it for the two distinct hash contracts below.
+        if fields is None:live={k:typed(spec,r) for k,r in live.items()}
+        fingerprint=digest(sorted((k,typed_content_hash(r) if fields is None else digest(r)) for k,r in live.items()))
         result['fingerprints'][target+':'+child+':'+name+':'+str(record_index)]=fingerprint
-        for row in expected:
-            key=row_key(spec,row);current=live.get(key)
-            if current is None:counts['missing']+=1;continue
-            problems=[]
-            if 'values' in rules:
-                problems.extend(values(current))
-                counts['values_checked' if any(current.get(k) is not None for k in ('open','high','low','close','volume','amount','adjustment_factor','valid_from','valid_to')) else 'not_applicable']+=1
-            if 'relations' in rules:
-                checked,unknown,bad=relations(current);counts['relations_checked']+=len(checked);counts['unknown']+=len(unknown);problems.extend(bad)
-                checked,unknown,bad=self._cross_relations(current,dependencies);counts['relations_checked']+=len(checked);counts['unknown']+=len(unknown);problems.extend(bad)
-                if not checked and not unknown:counts['not_applicable']+=1
-            if 'readback' in rules:
-                if key not in intended:counts['readback_preserved_or_unwritten']+=1
-                elif row_hash(spec,current)!=row_hash(spec,intended[key]):problems.append('stored_value_changed')
-                else:counts['readback_verified']+=1
-            if problems:
-                counts['failed']+=1
-                if len(sample)<20:sample.append({'row_key':key,'security_code':current.get('security_code',current.get('code')),'problems':problems})
+        with shared_slot(self.s.settings.state_dir,'cpu',BUDGET.cpu_workers):
+            for row in expected:
+                key=row_key(spec,row);current=live.get(key)
+                if current is None:counts['missing']+=1;continue
+                problems=[]
+                if 'values' in rules:
+                    problems.extend(values(current))
+                    counts['values_checked' if any(current.get(k) is not None for k in ('open','high','low','close','volume','amount','adjustment_factor','valid_from','valid_to')) else 'not_applicable']+=1
+                if 'relations' in rules:
+                    checked,unknown,bad=relations(current);counts['relations_checked']+=len(checked);counts['unknown']+=len(unknown);problems.extend(bad)
+                    checked,unknown,bad=self._cross_relations(current,dependencies);counts['relations_checked']+=len(checked);counts['unknown']+=len(unknown);problems.extend(bad)
+                    if not checked and not unknown:counts['not_applicable']+=1
+                if 'readback' in rules:
+                    if key not in intended:counts['readback_preserved_or_unwritten']+=1
+                    elif typed_row_hash(current)!=row_hash(spec,intended[key]):problems.append('stored_value_changed')
+                    else:counts['readback_verified']+=1
+                if problems:
+                    counts['failed']+=1
+                    if len(sample)<20:sample.append({'row_key':key,'security_code':current.get('security_code',current.get('code')),'problems':problems})
         result['checks'].append({'table':name,'target':target,'rows':len(expected),**dict(counts)})
         result['samples'].extend(sample)
         if 'readback' in rules and journal:
@@ -200,8 +249,12 @@ class ValidationRunner:
         from .reference_service import ReferenceWorkflow
         from .reference_contracts import MODULE_TABLE
         scope=report['scope'];a=parse_date(scope['start_date']);b=parse_date(scope['end_date']);codes=scope.get('codes',[])
-        for target in targets:
-            store=ReferenceWorkflow(self.s).store(target);snapshot=store.snapshot(audit=True)
+        def check_target(target):
+            report={'checks':[],'samples':[],'fingerprints':{}}
+            store=ReferenceWorkflow(self.s).store(target)
+            revisions=store.task_revisions(parent['id'])
+            ids={ident for r in revisions if MODULE_TABLE[r['module']] in scope['tables'] for ident in r['scope_ids']}
+            with shared_slot(self.s.settings.state_dir,'read-'+target,BUDGET.readonly_per_target):snapshot=store.snapshot(audit=True,scope_ids=ids)
             for revision in snapshot['revisions']:
                 if revision['import_task_id']!=parent['id']:continue
                 if MODULE_TABLE[revision['module']] not in scope['tables']:continue
@@ -235,7 +288,14 @@ class ValidationRunner:
                             if len(report['samples'])<100:report['samples'].append({'target':target,'problems':['industry_interval_overlap'],'record_id':right['record_id']})
                 report['fingerprints'][target+':'+revision['revision_id']]=digest([revision['manifest_hash'],active])
                 report['checks'].append({'target':target,'table':MODULE_TABLE[revision['module']],'revision_id':revision['revision_id'],'rows':len(rows),'verified':verification['verified'],'publication_current':active,'rules':rules,**dict(counts),'errors':verification['errors']})
+            return report
+        watermarks=self.s.state.validation_watermarks(scope['tables'],targets)
+        for outcome in target_lanes(targets,check_target):
+            if outcome.error is not None:
+                report['checks'].append({'target':outcome.target,'verified':False,'publication_current':False,'failed':1,'errors':[self.s.safe_error(outcome.error)]})
+            else:
+                report['checks'].extend(outcome.value['checks']);report['samples'].extend(outcome.value['samples']);report['fingerprints'].update(outcome.value['fingerprints'])
         failed=any(not c['verified'] or c.get('failed') for c in report['checks'])
         unknown=not report['checks'] or any(not c['publication_current'] or c.get('unknown') for c in report['checks'])
         report.update(status='failed' if failed else 'unknown' if unknown else 'passed',finished_at=now())
-        self.s.state.ledger_put('pipeline_validation',report['id'],report);return report
+        self.s.state.save_validation_report(report,watermarks);return report

@@ -25,6 +25,7 @@ from betalens_db_manager.api import create_app
 from betalens_db_manager.catalog import load_catalog
 from betalens_db_manager.config import Settings
 from betalens_db_manager.manager import DatabaseManagerService
+from betalens_db_manager.pipeline import Pipeline
 from betalens_db_manager.reference_service import ReferenceWorkflow
 from betalens_db_manager.util import atomic_json, dumps, parse_date
 from controlled_ch import configure_writer
@@ -93,10 +94,7 @@ def main():
                             item = workflow.plan({'modules': ['calendar'], 'targets': ['postgres', 'clickhouse'],
                                 'start_date': day, 'end_date': day, 'exchanges': ['SSE'],
                                 'security_codes': [], 'source_id': 'reference_http'})
-                            service.download(item['id'])
-                            preview = service.preview(item['id'])
-                            assert not preview['blocking'], preview
-                            committed = service.commit(item['id'], preview['token'])
+                            committed = Pipeline(service).run(item['id'])
                             assert committed['status'] == 'completed', committed
                             seeds.append(item['id'])
                     result = {'seed_tasks': seeds, 'targets': snapshot()}

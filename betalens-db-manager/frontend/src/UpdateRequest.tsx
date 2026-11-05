@@ -10,7 +10,7 @@ export default function UpdateRequest({initialTable,onCreated,onNavigate}:{initi
  const [pipeline,setPipeline]=useState(true),[checks,setChecks]=useState<string[]>([]),[advanced,setAdvanced]=useState<R>({}),[compiled,setCompiled]=useState<R>(),[page,setPage]=useState(0),[busy,setBusy]=useState(false),[error,setError]=useState('');
  useEffect(()=>{let active=true;Promise.all([api('/catalog'),api('/sources'),api('/config')]).then(([c,s,cfg])=>{if(active){setCatalog(c);setSources(s);setConfig(cfg);}}).catch(e=>{if(active)setError(e.message);});return()=>{active=false;};},[]);
  useEffect(()=>{if(initialTable)setTables([initialTable]);},[initialTable]);
- const request={tables,asset_types:assets,start_date:start,end_date:end,targets,source_id:source||undefined,codes:codes.split(/[\s,，]+/).filter(Boolean),mode,requests_per_minute:rpm||config.requests_per_minute||450,...(pipeline?{...advanced,pipeline_version:2,auto_commit:true,run_in_background:true,validation_profile:'light',post_check_rules:checks}:{pipeline_version:1})};
+ const request={tables,asset_types:assets,start_date:start,end_date:end,targets,source_id:source||undefined,codes:codes.split(/[\s,，]+/).filter(Boolean),mode,requests_per_minute:rpm||config.requests_per_minute||450,...advanced,pipeline_version:2,auto_commit:pipeline,run_in_background:true,validation_profile:'light',post_check_rules:checks};
  const signature=JSON.stringify(request);
  useEffect(()=>{setCompiled(undefined);setPage(0);},[signature]);
  const run=async(fn:()=>Promise<void>)=>{setBusy(true);setError('');try{await fn();}catch(e:any){setError(e.message);}finally{setBusy(false);}};

@@ -34,9 +34,9 @@ Python 入口
 * ``service.schema.apply(token)``：执行确认的结构操作，分别记录两库结果。
 * ``service.mappings.document(name)`` / ``save(value, expected)``：读取与校验保存映射。
 * ``service.compile(request)``：根据本地表、来源和日期编译请求，不进行网络提数。
-* ``service.plan(request)`` / ``download(job)`` / ``preview(job)`` / ``commit(job, preview_token, accept_partial=False)``。
-* ``service.resume(job)``：通用任务恢复至待审计；参考任务建立关联新任务，不放行中断版本。
-* ``service.audit(job, after=0, limit=100)`` / ``rollback(job, targets=None)``。
+* ``service.plan(request)``：仅登记 v2 任务；默认版本 2，显式版本 1 返回 422。
+* ``Pipeline(service).run(job)`` / ``commit(job)`` / ``rollback(job, targets=None)``：统一执行、提交及回退。
+* ``service.audit(job, after=0, limit=100)``：读取审计；历史 v1 任务仅查看/导出，变更返回 410。
 * ``service.field_audit(job=None)``：区分映射登记、响应验证与实际存储验证。
 
 通用 HTTP 路由：
@@ -68,11 +68,10 @@ Python 入口
 * ``GET /api/tables/{name}/definition``：表定义与文件哈希。
 * ``GET|POST /api/tables/{name}/mapping``：映射读取或保存；写入携带 ``file_hash`` 防止覆盖外部编辑。
 * ``POST /api/tables/{name}/schema-plan`` / ``/api/tables/schema-apply``：结构预览和确认。
-* ``POST /api/tables/archive-backfill``：从已有归档创建补字段任务，不自动入库。
 * ``GET|POST /api/sources``：订阅源实例、查询合同及鉴权环境变量引用。
 * ``POST /api/tasks/compile`` / ``/api/tasks``：请求匹配、持久化任务。
 * ``GET /api/tasks`` / ``/api/tasks/{job}``：任务列表与详情。
-* ``POST /api/tasks/{job}/download|preview|commit|resume|cancel|rollback``：登记受管理操作。
+* ``POST /api/tasks/{job}/start|pipeline/commit|validations|cancel|rollback``：登记受管理操作。
 * ``GET /api/tasks/{job}/cache|logs|evidence|audit``：缓存分页、日志、转换及入库证据。
 * ``POST /api/tasks/{job}/replay``：保留原任务，用当前规则建立关联审计任务。
 * ``POST /api/tasks/{job}/replan``：空请求体；已停止的普通异步任务按原业务范围冻结新获取规则。
@@ -90,12 +89,8 @@ Python 入口
 参考表与完整性检查
 ------------------
 
-``ReferenceWorkflow(service)`` 提供 ``plan(request)``、``download(job)``、
-``preview(job)``、``commit(job, token, accept_partial=False)``、
-``rollback(job, targets=None)``、``retry(job)``、``detail(job)``、``check(request)``
-及 ``baseline(request, source_task_ids)``。
-``baseline`` 只复制重新核验通过的原始归档；证据不足标为 ``needs_reacquisition``，
-仍需重新审计和确认。服务方法直接执行，网页 POST 执行操作则进入受管理队列。
+``ReferenceWorkflow(service)`` 提供计划、详情、完整性查询及基线归档读取。
+执行统一使用 ``Pipeline(service)`` 和 v2 队列；原始归档、完整范围证据及可信发布合同保持核验。
 
 .. list-table:: 参考表 HTTP 路由
    :header-rows: 1
@@ -123,13 +118,13 @@ Python 入口
      - ``/api/reference/tasks/{job}``
      - 请求、尝试、展开的日志列、预览、分库分模块结果及撤销记录。
    * - POST
-     - ``/api/reference/tasks/{job}/download`` / ``preview``
-     - 排队执行提数并审计，或重新审计缓存。
+     - ``/api/tasks/{job}/start``
+     - 执行 v2 下载、标准化；自动发布由 auto_commit 决定。
    * - POST
-     - ``/api/reference/tasks/{job}/commit``
-     - 输入 ``token``、``accept_partial``；分别追加、核验、发布。
+     - ``/api/tasks/{job}/pipeline/commit``
+     - 手动提交通过核验的原缓存及原版本头；分别追加、核验、发布。
    * - POST
-     - ``/api/reference/tasks/{job}/rollback``
+     - ``/api/tasks/{job}/rollback``
      - 输入可选 ``targets``；新任务追加撤销事件，不删除业务行。
    * - POST
      - ``/api/reference/tasks/{job}/retry``

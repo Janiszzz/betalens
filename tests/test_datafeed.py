@@ -154,13 +154,13 @@ def test_reference_integrity_and_calendar_gaps():
 def test_industry_replaces_whole_scope_and_does_not_fill_old_values():
     scope = {"scope_id": "A:SW2021:1", "selector": {"security_code": "A", "scheme_code": "SW2021", "level": 1},
              "complete": True, "evidence": {"availability": evidence()},
-             "rows": [{"security_code": "A", "scheme_code": "SW2021", "level": 1,
+             "rows": [{"security_code": "A", "scheme_code": "SW2021", "classification_version": "SW2021", "membership_status": "mapped", "level": 1,
                        "industry_code": "01", "industry_name": "old", "valid_from": "2020-01-01", "valid_to": None,
                        "boundary_basis": "source_effective_interval", **evidence()}]}
     newer = deepcopy(scope)
     newer["rows"][0]["industry_name"] = None
     reader = reference_reader("industry", [("old", [scope], "publish"), ("new", [newer], "publish")])
-    result = query_industry(reader, ["A", "unknown"], ["2024-01-02"], "申万一级行业（2021）")
+    result = query_industry(reader, ["A", "unknown"], ["2024-01-02"], "SW2021")
     assert result.ind_name.isna().all()
     assert result.ind_code.iloc[0] == "01"
     assert result.ind_code.iloc[1] is None
@@ -215,7 +215,7 @@ def test_config_explicit_invalid_file_never_falls_back_and_overrides_are_isolate
     path = tmp_path / "subscription.json"
     path.write_text(json.dumps({"postgres": {"host": "db", "dbname": "research", "user": "reader"},
                                 "clickhouse": {"url": "http://db:8123", "database": "research", "user": "reader"}}))
-    monkeypatch.setenv("BETALENS_DB_NAME", "from_env")
+    monkeypatch.setenv("BETALENS_PG_DATABASE", "from_env")
     assert load_subscription_config(config_file=path)["dbname"] == "from_env"
     assert load_subscription_config({"dbname": "explicit"}, config_file=path)["dbname"] == "explicit"
     assert load_subscription_config(config_file=path, backend="clickhouse")["database"] == "research"
@@ -255,7 +255,8 @@ def test_calendar_half_year_is_not_a_rolling_two_quarter_group():
     from betalens.datafeed.core import _period_days
     days = ["2024-03-29", "2024-06-28", "2024-09-30", "2024-12-31"]
     assert _period_days(days, "H") == [date(2024, 6, 28), date(2024, 12, 31)]
-    assert _period_days(days, "S") == _period_days(days, "H")
+    with pytest.raises(ValueError):
+        _period_days(days, "S")
 
 
 def test_native_unit_metadata_is_returned_without_alias_assumptions():
@@ -355,7 +356,7 @@ def test_direct_filters_validate_names_and_keep_financial_scope_explicit():
 def test_calendar_uses_sse_literally_without_shse_fallback():
     reader = reference_reader("calendar", [("r", [calendar_scope()], "publish")])
     assert calendar_days(reader, "2024-01-02", "2024-01-02", exchange="SSE") == [date(2024, 1, 2)]
-    with pytest.raises(PITUnavailableError, match="SHSE"):
+    with pytest.raises(ValueError, match="exchange"):
         calendar_days(reader, "2024-01-02", "2024-01-02", exchange="SHSE")
 
 
@@ -363,3 +364,166 @@ def test_direct_field_queries_cannot_bypass_reference_publication_checks():
     reader = reference_reader("calendar", [("r", [calendar_scope()], "revoke")])
     with pytest.raises(NotImplementedError, match="发布证据"):
         query.query_time_range(reader, "trade_calendar_versions", metric="is_open")
+
+
+@pytest.mark.parametrize('value', [20240103, 1.5, True, '20240103', '2024/01/03', 'now', '2024-1-3', '2024-01-03 12:00:00.0000001'])
+def test_ambiguous_or_numeric_dates_are_rejected(value):
+    with pytest.raises(ValueError):
+        timestamp(value)
+
+
+def test_shanghai_user_times_and_utc_storage_are_distinct():
+    from datetime import datetime
+    from betalens.datafeed.contracts import bounds
+    at = timestamp(datetime(2024, 1, 2, 15))
+    assert at == timestamp('2024-01-02T07:00:00Z')
+    assert at == timestamp(datetime(2024, 1, 2, 7), stored=True)
+    _, upper, exclusive = bounds(end='2024-01-02')
+    assert exclusive and upper == timestamp('2024-01-03')
+    _, upper, exclusive = bounds(end='2024-01-02 15:00')
+    assert not exclusive and upper == at
+    with pytest.raises(ValueError):
+        bounds('2024-01-03', '2024-01-02')
+
+
+def test_timestamp_filters_use_same_shanghai_rule_on_both_backends():
+    from datetime import datetime
+    reader = market_reader()
+    filters = {'available_at': datetime(2024, 1, 2, 15)}
+    assert query.query_time_range(reader, 'market_daily_post_adjusted', metric='close', filters=filters).value.tolist() == [10]
+    reader.backend = 'clickhouse'
+    sql, params = select_sql(reader, 'market_daily_raw', ['close'], [('available_at', '=', filters['available_at'])])
+    assert "DateTime64(6,'UTC')" in sql
+    assert list(params.values()) == ['2024-01-02 07:00:00.000000']
+
+
+@pytest.mark.parametrize('value', [True, 1.0, '1', -1])
+def test_limit_is_a_nonnegative_integer(value):
+    with pytest.raises(ValueError):
+        query.query_time_range(market_reader(), 'market_daily_raw', metric='close', limit=value)
+
+
+def test_missing_evidence_quality_is_never_accepted():
+    from betalens.datafeed.contracts import proven
+    proof = evidence()
+    proof.pop('data_quality_status')
+    assert not proven(proof)
+
+
+@pytest.mark.parametrize('kind', ['Array(Int64)', 'Array(String)', 'Tuple(String,Int64)', 'Map(String,String)', 'Nullable(Array(Decimal(38,12)))'])
+def test_composite_database_types_are_not_scalar_aliases(kind):
+    from betalens.datafeed.readers import logical_type
+    reader = market_reader()
+    reader.types['market_daily_raw']['close'] = logical_type(kind)
+    with pytest.raises(SchemaError, match='数组'):
+        query.query_time_range(reader, 'market_daily_raw', metric='close')
+
+
+def test_decimal_shapes_and_metadata_are_checked_without_rounding():
+    from decimal import Decimal
+    from betalens.datafeed.readers import logical_type, decimal_shape
+    assert logical_type("LowCardinality(Nullable(DateTime64(6, 'UTC')))") == 'timestamp'
+    assert decimal_shape('Nullable(Decimal(38, 12))') == (38, 12)
+    reader = market_reader()
+    reader.backend = 'clickhouse'
+    reader._numeric_shapes = {'market_daily_raw': {'close': (8, 2)}}
+    sql, params = select_sql(reader, 'market_daily_raw', ['close'], [('close', '=', Decimal('10.25'))])
+    assert 'Decimal(8,2)' in sql and list(params.values()) == ['10.25']
+    with pytest.raises(ValueError, match='拒绝截断'):
+        select_sql(reader, 'market_daily_raw', ['close'], [('close', '=', Decimal('10.251'))])
+    reader.types['meta_column'] = {'table_name': 'text', 'column_name': 'text', 'unit': 'text', 'precision': 'integer', 'scale': 'integer'}
+    reader.tables['meta_column'] = [{'table_name': 'market_daily_raw', 'column_name': 'close', 'unit': '元', 'precision': 18, 'scale': 4}]
+    with pytest.raises(SchemaError, match='精度'):
+        query.query_time_range(reader, 'market_daily_raw', metric='close')
+
+
+def test_only_modern_config_and_exact_numeric_options_are_accepted(tmp_path, monkeypatch):
+    import os
+    for key in list(os.environ):
+        if key.startswith('BETALENS_'):
+            monkeypatch.delenv(key)
+    monkeypatch.setenv('XDG_CONFIG_HOME', str(tmp_path))
+    connection = {'host': 'db', 'dbname': 'research', 'user': 'reader'}
+    path = tmp_path / 'subscription.json'
+    path.write_text(json.dumps({'database': connection}))
+    with pytest.raises(ValueError, match='配置键'):
+        load_subscription_config(config_file=path)
+    path.write_text(json.dumps({'postgres': connection}))
+    for extra in ({'connect_timeout': 1.9}, {'connect_timeout': True}, {'statment_timeout_ms': 100}):
+        with pytest.raises(ValueError):
+            load_subscription_config({**connection, **extra}, config_file=path)
+    monkeypatch.setenv('BETALENS_DB_HOST', 'old')
+    with pytest.raises(ValueError, match='旧 BETALENS_DB'):
+        load_subscription_config(connection, config_file=path)
+
+
+def test_industry_selects_one_published_version_consistently_across_levels():
+    from datafeed_support import industry_scope
+    scopes = [industry_scope('SW2014', level, '2020-01-01', '2024-01-03', '2024-01-01') for level in (1, 2, 3)]
+    scopes += [industry_scope('SW2021', level) for level in (1, 2, 3)]
+    reader = reference_reader('industry', [('r', scopes, 'publish')])
+    for level in (1, 2, 3):
+        result = query_industry(reader, ['A'], ['2024-01-02', '2024-01-04'], level=level)
+        assert result.ind_name.tolist() == [f'SW2014-L{level}', f'SW2021-L{level}']
+        assert result.ind_code.tolist() == [f'{level:02}', f'{level:02}']
+
+
+def test_industry_overlapping_versions_missing_status_and_bad_year_do_not_fall_back():
+    from datafeed_support import industry_scope
+    old = industry_scope('SW2014', 1, '2020-01-01', available='2024-01-01')
+    new = industry_scope()
+    reader = reference_reader('industry', [('r', [old, new], 'publish')])
+    with pytest.raises(VersionConflictError, match='多个有效申万'):
+        query_industry(reader, ['A'], ['2024-01-04'])
+    new['rows'][0].pop('membership_status')
+    reader = reference_reader('industry', [('r', [new], 'publish')])
+    assert query_industry(reader, ['A'], ['2024-01-04'], 'SW2021').ind_code.isna().all()
+    with pytest.raises(PITUnavailableError):
+        query_industry(reader, ['A'], ['2024-01-04'])
+    new['rows'][0]['classification_version'] = 'SW2014'
+    reader = reference_reader('industry', [('r', [new], 'publish')])
+    with pytest.raises(VersionConflictError, match='年份版本'):
+        query_industry(reader, ['A'], ['2024-01-04'], 'SW2021')
+
+
+def test_industry_default_never_chooses_citic_and_unpublished_version_is_invisible():
+    from datafeed_support import industry_scope
+    reader = reference_reader('industry', [('ci', [industry_scope('CITICS')], 'publish'), ('sw', [industry_scope()], None)])
+    with pytest.raises(PITUnavailableError):
+        query_industry(reader, ['A'], ['2024-01-04'])
+    result = query_industry(reader, ['A'], ['2024-01-04'], 'CITICS', level=1)
+    assert result.ind_code.tolist() == ['01']
+
+
+def test_date_keyed_index_panels_reject_intraday_inputs():
+    from datafeed_support import MemoryReader
+    reader = MemoryReader()
+    with pytest.raises(ValueError, match='日期接口'):
+        get_index_universe_panel(reader, 'I', ['2024-01-02 10:00', '2024-01-02 15:00'])
+    assert not reader.calls
+
+
+def test_industry_one_company_has_at_most_one_membership_per_level():
+    from datafeed_support import industry_scope
+    scope = industry_scope()
+    scope['rows'].append(dict(scope['rows'][0], industry_code='99', industry_name='conflicting'))
+    reader = reference_reader('industry', [('r', [scope], 'publish')])
+    with pytest.raises(VersionConflictError, match='行业区间'):
+        query_industry(reader, ['A'], ['2024-01-04'], 'SW2021')
+    scope['rows'][1]['membership_status'] = None
+    reader = reference_reader('industry', [('r', [scope], 'publish')])
+    assert query_industry(reader, ['A'], ['2024-01-04'], 'SW2021').ind_code.isna().all()
+    assert query_industry(reader, [], ['2024-01-04']).empty
+
+
+def test_scalar_index_queries_keep_distinct_intraday_cutoffs():
+    from betalens.datafeed.universe import get_index_universe
+    fields = {'index_code': 'text', 'security_code': 'text', 'trade_date': 'date',
+              'snapshot_complete': 'integer', 'snapshot_member_count': 'integer', **query.PROVEN_COLUMNS}
+    rows = [dict(index_code='I', security_code='A', trade_date=date(2024, 1, 1),
+                 snapshot_complete=1, snapshot_member_count=1, **evidence('2024-01-01')),
+            dict(index_code='I', security_code='B', trade_date=date(2024, 1, 2),
+                 snapshot_complete=1, snapshot_member_count=1, **evidence('2024-01-02 12:00'))]
+    reader = MemoryReader({'index_membership': rows}, {'index_membership': fields})
+    assert get_index_universe(reader, 'I', '2024-01-02 10:00') == ['A']
+    assert get_index_universe(reader, 'I', '2024-01-02 15:00') == ['B']

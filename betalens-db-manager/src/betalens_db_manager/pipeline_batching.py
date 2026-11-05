@@ -2,23 +2,26 @@
 from concurrent.futures import Future
 from threading import Condition,Thread
 from time import monotonic
+from .resource_budget import BUDGET
 
 
 class WriteLane:
-    def __init__(self,work,*,max_wait,row_limit,max_cohorts=16,name='write'):
+    def __init__(self,work,*,max_wait,row_limit,max_cohorts=8,name='write',capacity=BUDGET.pending_writes):
         self.work=work;self.max_wait=max_wait;self.row_limit=row_limit;self.max_cohorts=max_cohorts
+        self.capacity=capacity
         self.condition=Condition();self.pending=[];self.closed=False
         self.thread=Thread(target=self._run,name=name);self.thread.start()
 
     def submit(self,child,snapshot):
         future=Future()
         with self.condition:
+            while len(self.pending)>=self.capacity and not self.closed:self.condition.wait()
             if self.closed:raise RuntimeError('写入队列已关闭')
             self.pending.append((child,snapshot,future,monotonic()));self.condition.notify()
         return future
 
     def close(self):
-        with self.condition:self.closed=True;self.condition.notify()
+        with self.condition:self.closed=True;self.condition.notify_all()
 
     def join(self):self.thread.join()
 
@@ -35,6 +38,7 @@ class WriteLane:
                     if rows>=self.row_limit or left<=0:break
                     self.condition.wait(left)
                 group=self.pending[:self.max_cohorts];del self.pending[:len(group)]
+                self.condition.notify_all()
             active=[entry for entry in group if entry[2].set_running_or_notify_cancel()]
             if not active:continue
             try:

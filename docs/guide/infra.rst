@@ -224,26 +224,24 @@ CH 默认 ``disabled``；``local_dedicated`` 用本机专用写账号，``local_
    betalens-db-manager --env /private/path/credentials.env schema plan
    betalens-db-manager --env /private/path/credentials.env schema apply --token <schema-token>
    betalens-db-manager --env /private/path/credentials.env plan request.yaml
-   betalens-db-manager --env /private/path/credentials.env download <job>
-   betalens-db-manager --env /private/path/credentials.env preview <job>
-   betalens-db-manager --env /private/path/credentials.env commit <job> --token <preview-token>
+   betalens-db-manager --env /private/path/credentials.env run <job>
+   betalens-db-manager --env /private/path/credentials.env commit <job>
    betalens-db-manager --env /private/path/credentials.env job <job>
    betalens-db-manager --env /private/path/credentials.env query market_daily_raw --target clickhouse
 
-CLI 的 ``download``、``commit``、``resume``、``rollback``、``load`` 进入持久化队列，仍能在网页找到。
-旧版前台任务等待页面在线，显式后台任务关页后继续；
+CLI 的 ``run``、``commit``、``validate``、``rollback`` 进入 v2 持久化队列；历史 v1 任务只读。
+显式后台任务关页后继续；
 显式 ``worker --once`` 可在终端执行一个排队操作。
 ``serve`` 持续监护所属 worker，异常退出后退避重启，关服时停止所属执行进程树。
 临时 SQLite 锁冲突重试控制操作，不自动重放业务提交；中断任务仍需显式恢复。
 可用 ``GET /api/worker-status`` 查看心跳与重启状态。
-``load --config`` 登记批次拉取，完成后仍需审计确认，不自动入库。
-普通任务 ``resume`` 可核验检查点续接；参考任务中断后要创建关联新任务，重新审计确认。
+旧 ``download/preview/resume/load`` 已删除。``auto_commit=false`` 先生成缓存，再显式 ``commit``；中断任务通过 ``run`` 协调检查点恢复。
 参考版本查询使用 :doc:`db-manager-reference` 的专用接口，不能直接传给普通 CLI ``query``。
 
-最后一个管理页面关闭前浏览器提示；关闭或断连后，旧版前台任务经过重连宽限停止，
+最后一个管理页面关闭前浏览器提示；关闭或断连后，选择前台运行的 v2 任务经过重连宽限停止，
 显式后台任务继续，管理服务保持可访问。任务和检查点保留，重新打开不自动恢复。
 自动更新已移除；升级禁用旧计划并取消尚未执行的调度操作，保留历史和正在执行的任务。
-完成任务源缓存七天后清理，未完成任务引用的归档、长期审计和回退证据保留。
+任务归档、长期审计和回退证据不再自动到期清理。
 
 ``rebuild`` 默认仅预览；``rebuild --confirm-drop`` 明确删除旧表，不是日常初始化或参考表升级命令。
 结构和覆盖清单不是数据备份。已有生产数据应纳入清单并预览兼容迁移，不恢复已暂停历史补全。
@@ -260,6 +258,4 @@ CLI 的 ``download``、``commit``、``resume``、``rollback``、``load`` 进入�
    BETALENS_INFRA_ENV=/private/path/credentials.env BETALENS_INFRA_INTEGRATION=1 \
      betalens-db-manager/.venv/bin/python -m pytest betalens-db-manager/tests/test_reference_storage.py -q
 
-``betalens-db-manager/scripts/production_reference_smoke.py`` 默认只保存建表预览；
-``--execute`` 会新增结构、真实提数、发布、读回并撤销，保留历史版本及审计，
-应作为明确授权的生产验收操作。脚本不自动恢复历史补全。
+旧版生产验收脚本已退役。新版验收使用 v2、文件和参考域测试的隔离数据库；生产任务使用显式计划和启动入口。

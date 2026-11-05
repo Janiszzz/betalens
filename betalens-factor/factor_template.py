@@ -14,7 +14,7 @@
 
     spec = FactorSpec(
         name="MYFACTOR",
-        inputs={"close_wide": "收盘价(元)"},
+        inputs={"close_wide": "close"},
         compute=compute_my_factor,
         direction="positive",          # 高分组做多
         compute_kwargs={"window": 20},
@@ -48,7 +48,7 @@ from typing import Callable, Any
 from betalens.factor.config import resolve_preprocessing_options
 
 
-DB_TABLE = "daily_market"
+DB_TABLE = "market_daily_post_adjusted"
 
 
 def _ensure_runtime():
@@ -141,11 +141,11 @@ def _ensure_profiling_runtime():
 # ============================================================
 
 def fetch_daily_wide(metric, universe=None, start_date=None, end_date=None,
-                     table_name=DB_TABLE):
+                     table_name=DB_TABLE, *, filters=None):
     data = Datafeed(table_name)
     try:
         df = data.query_time_range(codes=universe, start_date=start_date,
-                                   end_date=end_date, metric=metric)
+                                   end_date=end_date, metric=metric, filters=filters)
     finally:
         data.close()
     if df.empty:
@@ -203,7 +203,7 @@ def wide_to_prequery(wide_df, metric_name, signal_dates):
     return long
 
 
-def build_pit_universe(signal_dates, index_code, table_name="index_universe"):
+def build_pit_universe(signal_dates, index_code, table_name="index_membership"):
     """构建 {信号日: [成分股代码]} 的 point-in-time 成分股映射（防前视）。"""
     data = Datafeed(table_name)
     try:
@@ -234,12 +234,12 @@ def fetch_industry_wide(scheme, universe, dates, reference_index, chunk_size=30)
     if not universe or not dates or reference_index is None:
         return pd.DataFrame()
     pieces = []
-    data = Datafeed("industry")
+    data = Datafeed("stock_industry_membership_versions")
     try:
         day_list = list(dict.fromkeys(pd.Timestamp(day).date() for day in dates))
         for offset in range(0, len(day_list), int(chunk_size)):
             chunk = day_list[offset:offset + int(chunk_size)]
-            frame = data.query_industry(codes=list(universe), dates=chunk, scheme=scheme)
+            frame = data.query_industry(codes=list(universe), dates=chunk, **scheme)
             if frame is not None and not frame.empty:
                 pieces.append(frame[["query_date", "code", "ind_name"]])
     finally:
@@ -571,7 +571,7 @@ class FactorSpec:
     use_industry / use_mktcap:
                     是否使用行业 / 市值控制变量。True 时管线自动 point-in-time
                     查 industry 表 / 查"市值"宽表取 log。
-    industry_scheme: 行业中性化分类体系，如 '申万一级行业'。
+    industry_scheme: 行业中性化分类体系，使用 scheme_code/level 字典。
     index_code:     指数代码（如 '000906.SH'=中证800）。给定后逐期用 PIT 成分股
                     过滤面板（防前视）；None 则用传入的静态 universe。
     long_groups / short_groups: 显式覆盖 direction 给出的分组列表
@@ -581,26 +581,27 @@ class FactorSpec:
     name: str
     inputs: dict[str, str]
     compute: Callable[..., pd.DataFrame]
-    industry_inputs: dict[str, str] = field(default_factory=dict)
+    industry_inputs: dict[str, dict] = field(default_factory=dict)
     required_history_bars: int = 0
     mask_inputs_by_pit: bool = False
     direction: str = "positive"
     compute_kwargs: dict[str, Any] = field(default_factory=dict)
     table_name: str = DB_TABLE
+    query_filters: dict = field(default_factory=dict)
     use_industry: bool = False
     use_mktcap: bool = False
     winsorize_method: str | None = None
     winsorize_n: float = 3.0
     standardize_method: str | None = None
     neutralize: bool | None = None
-    industry_scheme: str = "申万一级行业"
+    industry_scheme: dict = field(default_factory=dict)
     index_code: str | None = None
     long_groups: list | None = None
     short_groups: list | None = None
     weight_mode: str = "freeplay"
     group_weights: dict[str, Any] = field(default_factory=dict)
     intra_group_allocation: dict[str, Any] = field(default_factory=dict)
-    backtest_metric: str = "收盘价(元)"
+    backtest_metric: str = "close"
     strategy_type: str = "cross_section"  # "cross_section" | "timing"
 
 
@@ -662,9 +663,9 @@ class FactorPipeline:
         data = fix_null_values(prequery, strategy=FillStrategy.DROP, columns=[metric])
 
         ind_panel = None
-        if preprocessing["neutralize"] and industry_scheme:
+        if preprocessing["neutralize"] and industry_scheme is not None:
             ind_panel = query_industry_panel(
-                data, scheme=industry_scheme, industry_table='industry',
+                data, scheme=industry_scheme, industry_table="stock_industry_membership_versions",
                 verbose=False)
 
         groups, neu_stats = [], []
@@ -892,7 +893,7 @@ class FactorPipeline:
                 print(f"  开始取数: {arg_name} ({metric}) {fetch_start} -> {end_date}, universe={len(universe or [])}", flush=True)
             w = fetch_daily_wide(metric, universe=universe,
                                  start_date=fetch_start, end_date=end_date,
-                                 table_name=sp.table_name)
+                                 table_name=sp.table_name, filters=sp.query_filters)
             if verbose:
                 print(f"  完成取数: {arg_name} ({metric}) {w.shape}", flush=True)
             wides[arg_name] = w
@@ -959,10 +960,10 @@ class FactorPipeline:
         if needs_preprocessing:
             mktcap_col = None
             if preprocessing["neutralize"] and sp.use_mktcap:
-                mktcap_wide = fetch_daily_wide("A股流通市值(元)", universe=universe,
+                mktcap_wide = fetch_daily_wide("circulating_market_value", universe=universe,
                                                start_date=fetch_start,
                                                end_date=end_date,
-                                               table_name=sp.table_name)
+                                               table_name=sp.table_name, filters=sp.query_filters)
                 if not mktcap_wide.empty:
                     log_mktcap = np.log(mktcap_wide.replace(0, np.nan))
                     lm_long = wide_to_prequery(log_mktcap, "log_mktcap", signal_dates)

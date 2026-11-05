@@ -542,7 +542,7 @@ def _worker_thread_limits():
             os.environ.pop(name, None)
 
 
-def _fetch_daily_wide(metric: str, universe: Sequence[str], start: str, end: str, table: str) -> pd.DataFrame:
+def _fetch_daily_wide(metric: str, universe: Sequence[str], start: str, end: str, table: str, *, filters=None) -> pd.DataFrame:
     from betalens.datafeed import Datafeed
 
     started = time.perf_counter()
@@ -557,7 +557,7 @@ def _fetch_daily_wide(metric: str, universe: Sequence[str], start: str, end: str
     data = Datafeed(table)
     try:
         with _heartbeat("data.query", table=table, metric=metric):
-            result = data.query_time_range(codes=list(universe), start_date=start, end_date=end, metric=metric)
+            result = data.query_time_range(codes=list(universe), start_date=start, end_date=end, metric=metric, filters=filters)
     finally:
         data.close()
     if result.empty:
@@ -605,12 +605,12 @@ def _align_daily_wides(wides: Mapping[str, pd.DataFrame]) -> dict[str, pd.DataFr
     return output
 
 
-def _fetch_industry_wide(scheme: str, universe: Sequence[str], dates: Sequence[Any], index: pd.DatetimeIndex) -> pd.DataFrame:
+def _fetch_industry_wide(scheme: dict, universe: Sequence[str], dates: Sequence[Any], index: pd.DatetimeIndex) -> pd.DataFrame:
     from betalens.datafeed import Datafeed
 
     started = time.perf_counter()
     pieces = []
-    data = Datafeed("industry")
+    data = Datafeed("stock_industry_membership_versions")
     try:
         days = list(dict.fromkeys(pd.Timestamp(day).date() for day in dates))
         blocks = max(1, math.ceil(len(days) / 30))
@@ -622,7 +622,7 @@ def _fetch_industry_wide(scheme: str, universe: Sequence[str], dates: Sequence[A
             blocks,
         )
         for offset in range(0, len(days), 30):
-            value = data.query_industry(codes=list(universe), dates=days[offset:offset + 30], scheme=scheme)
+            value = data.query_industry(codes=list(universe), dates=days[offset:offset + 30], **scheme)
             if value is not None and not value.empty:
                 pieces.append(value[["query_date", "code", "ind_name"]])
             completed = offset // 30 + 1
@@ -660,7 +660,7 @@ def _fetch_trade_status(universe: Sequence[str], dates: Sequence[Any]) -> pd.Dat
     started = time.perf_counter()
     index = pd.DatetimeIndex(sorted({pd.Timestamp(value).normalize() for value in dates}))
     result = pd.DataFrame(-1, index=index, columns=list(universe), dtype=np.int8)
-    data = Datafeed("trade_status")
+    data = Datafeed("stock_suspension_intervals_versions")
     try:
         blocks = max(1, math.ceil(len(index) / 120))
         _LOGGER.info(
@@ -703,7 +703,7 @@ def _build_pit(dates: Sequence[Any], index_code: str) -> dict[Any, set[str]]:
     from betalens.datafeed import Datafeed
 
     started = time.perf_counter()
-    data = Datafeed("index_universe")
+    data = Datafeed("index_membership")
     result = {}
     try:
         total = len(dates)
@@ -779,21 +779,22 @@ def _cache_signature(
         if value is not None and str(value).strip()
     })
     payload = {
-        "schema": 4,
+        "schema": 5,
         "dataset_version": cache_config.get("dataset_version", "default"),
         "start": start,
         "end": end,
-        "table": getattr(factor, "table_name", "daily_market"),
+        "table": getattr(factor, "table_name", "market_daily_post_adjusted"),
         "index_code": getattr(factor, "index_code", None),
         "inputs": dict(getattr(factor, "inputs", {}) or {}),
+        "query_filters": dict(getattr(factor, "query_filters", {}) or {}),
         "industry_inputs": dict(getattr(factor, "industry_inputs", {}) or {}),
         "industry_scheme": getattr(factor, "industry_scheme", None),
         "winsorize_method": getattr(factor, "winsorize_method", None),
         "winsorize_n": getattr(factor, "winsorize_n", 3.0),
         "standardize_method": getattr(factor, "standardize_method", None),
         "neutralize": getattr(factor, "neutralize", None),
-        "execution_price_field": getattr(factor, "backtest_metric", "收盘价(元)"),
-        "valuation_price_field": "收盘价(元)",
+        "execution_price_field": getattr(factor, "backtest_metric", "close"),
+        "valuation_price_field": "close",
         "universe": sorted(map(str, universe)),
         "pit_fingerprint": _pit_fingerprint(pit),
         "strategy_type": getattr(factor, "strategy_type", "cross_sectional"),
@@ -974,12 +975,12 @@ def _fetch_data(
                 universe,
                 fetch_start,
                 end,
-                getattr(factor, "table_name", "daily_market"),
-            )
+                getattr(factor, "table_name", "market_daily_post_adjusted"),
+             filters=getattr(factor, "query_filters", {}))
         raw = _align_daily_wides(raw)
         inputs = {name: _mask_pit(value, pit) if getattr(factor, "mask_inputs_by_pit", False) else value for name, value in raw.items()}
-        execution = _fetch_daily_wide(getattr(factor, "backtest_metric", "收盘价(元)"), universe, fetch_start, end, getattr(factor, "table_name", "daily_market"))
-        price = _fetch_daily_wide("收盘价(元)", universe, fetch_start, end, getattr(factor, "table_name", "daily_market"))
+        execution = _fetch_daily_wide(getattr(factor, "backtest_metric", "close"), universe, fetch_start, end, getattr(factor, "table_name", "market_daily_post_adjusted"), filters=getattr(factor, "query_filters", {}))
+        price = _fetch_daily_wide("close", universe, fetch_start, end, getattr(factor, "table_name", "market_daily_post_adjusted"), filters=getattr(factor, "query_filters", {}))
         reference = next(iter(inputs.values()), price).index
         industry = {}
         schemes = dict(getattr(factor, "industry_inputs", {}) or {})
@@ -987,11 +988,11 @@ def _fetch_data(
             getattr(factor, "neutralize", None) is not False
             and getattr(factor, "use_industry", False)
         ):
-            schemes.setdefault("__neutralize_industry", getattr(factor, "industry_scheme", "申万一级行业"))
+            schemes.setdefault("__neutralize_industry", getattr(factor, "industry_scheme", {}))
         for name, scheme in schemes.items():
             value = _fetch_industry_wide(scheme, universe, days, reference)
             if name == "__neutralize_industry":
-                industry[scheme] = value
+                industry["neutralize"] = value
             else:
                 inputs[name] = value
         payload = {
@@ -1047,10 +1048,13 @@ def _windows(span: tuple[str, str], lengths: Sequence[int], steps: Sequence[int]
 
 
 def _sample_days(days: Sequence[Any], frequency: str) -> list[Any]:
-    key = frequency.upper()
+    key = frequency
     if key == "D":
         return list(days)
-    mapping = {"W": "W", "M": "M", "Q": "Q", "S": "2Q", "Y": "Y"}
+    if key == "H":
+        values = pd.Series(pd.to_datetime(list(days)))
+        return [value.date() for value in values.groupby(values.dt.year * 2 + (values.dt.month - 1) // 6).last()]
+    mapping = {"W": "W", "M": "M", "Q": "Q", "Y": "Y"}
     if key not in mapping:
         raise ValueError(f"unsupported rebalance frequency: {frequency}")
     values = pd.Series(pd.to_datetime(list(days)))
@@ -1116,13 +1120,13 @@ def _preprocess(value: pd.DataFrame, factor: Any, signal_dates: Sequence[Any], d
     value = value.dropna(subset=[metric]).copy()
     industry_panel = None
     if preprocessing["neutralize"] and use_industry:
-        scheme = getattr(factor, "industry_scheme", "申万一级行业")
-        cached = data.industry_by_scheme.get(scheme)
+        scheme = getattr(factor, "industry_scheme", {})
+        cached = data.industry_by_scheme.get("neutralize")
         if cached is not None and not cached.empty:
             industry_panel = _wide_to_long(cached, "__industry", signal_dates).set_index(["input_ts", "code"])["__industry"]
     mktcap_panel = None
     if preprocessing["neutralize"] and use_mktcap:
-        market_cap = _fetch_daily_wide("A股流通市值(元)", data.universe, str(value.input_ts.min().date()), str(value.input_ts.max().date()), getattr(factor, "table_name", "daily_market"))
+        market_cap = _fetch_daily_wide("circulating_market_value", data.universe, str(value.input_ts.min().date()), str(value.input_ts.max().date()), getattr(factor, "table_name", "market_daily_post_adjusted"), filters=getattr(factor, "query_filters", {}))
         if not market_cap.empty:
             mktcap_panel = _wide_to_long(np.log(market_cap.replace(0, np.nan)), "__mktcap", signal_dates).set_index(["input_ts", "code"])["__mktcap"]
     groups = []
@@ -1461,7 +1465,7 @@ def _exact_nav(weights: pd.DataFrame, data: MiningData, spec: MiningSpec, amount
     close = data.price.loc[:, [name for name in codes if name in data.price]]
     execution = data.execution_price.loc[:, [name for name in codes if name in data.execution_price]]
     status = data.trade_status.loc[:, [name for name in codes if name in data.trade_status]] if data.trade_status is not None else None
-    engine = BacktestBase(weights, metric=getattr(spec.factor_spec, "backtest_metric", "收盘价(元)"), symbol=getattr(spec.factor_spec, "name", "mining"), amount=amount, time_tolerance=tolerance, table_name=getattr(spec.factor_spec, "table_name", "daily_market"), verbose=False, preloaded_cost_price=execution, preloaded_close_price=close, preloaded_trade_status=status)
+    engine = BacktestBase(weights, metric=getattr(spec.factor_spec, "backtest_metric", "close"), symbol=getattr(spec.factor_spec, "name", "mining"), amount=amount, time_tolerance=tolerance, table_name=getattr(spec.factor_spec, "table_name", "market_daily_post_adjusted"), verbose=False, preloaded_cost_price=execution, preloaded_close_price=close, preloaded_trade_status=status)
     return pd.Series(engine.nav)
 
 

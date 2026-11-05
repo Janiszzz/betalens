@@ -13,11 +13,11 @@ from .canonical import canonical_metadata, load_canonical_catalog
 from .catalog import load_catalog
 from .inspection import coverage, sample, tables
 from .mapping import all_source_mappings, source_capabilities
-from .service import TushareImportService
+from .manager import DatabaseManagerService
 from .util import dumps, digest
 
 
-def create_app(service: TushareImportService | None = None) -> FastAPI:
+def create_app(service: DatabaseManagerService | None = None) -> FastAPI:
     from .manager import DatabaseManagerService
     service = service or DatabaseManagerService()
     app = FastAPI(title="Betalens DB Manager", version="0.3.0")
@@ -29,12 +29,18 @@ def create_app(service: TushareImportService | None = None) -> FastAPI:
             origin = request.headers.get("origin")
             if origin and urlsplit(origin).netloc != request.headers.get("host"):
                 return JSONResponse({"detail": "写操作须来自当前管理网页"}, status_code=403)
+            import re
+            match=re.match(r'^/api/(?:tasks|jobs|reference/tasks)/([0-9a-f]{32})(?:/|$)',request.url.path)
+            if match:
+                try:service.state.ensure_execution(match[1])
+                except ValueError as exc:
+                    return JSONResponse({'detail':service.safe_error(exc),**({'code':exc.code} if hasattr(exc,'code') else {})},status_code=getattr(exc,'status_code',409))
         from .canonical import registry_context
         with registry_context(getattr(service,"registry",None)):
             return await call_next(request)
 
     @app.exception_handler(ValueError)
-    async def invalid(_, exc): return JSONResponse({"detail": service.safe_error(exc)}, status_code=409)
+    async def invalid(_, exc): return JSONResponse({"detail": service.safe_error(exc),**({'code':exc.code} if hasattr(exc,'code') else {})}, status_code=getattr(exc,'status_code',409))
 
     @app.exception_handler(Exception)
     async def failed(_, exc): return JSONResponse({"detail": service.safe_error(exc)}, status_code=500)
@@ -51,7 +57,7 @@ def create_app(service: TushareImportService | None = None) -> FastAPI:
     @app.post('/api/jobs/{job}/sync-audit')
     def sync_audit(job:str):
         service._job(job)
-        return response({'task':service.state.enqueue(job,'sync_audit')})
+        return response({'task':service.state.enqueue(job,'pipeline_sync')})
 
     @app.get("/api/config")
     def config(): return response(service.settings.public())
@@ -191,7 +197,7 @@ def create_app(service: TushareImportService | None = None) -> FastAPI:
     @app.get("/api/jobs/{job}/source-preview")
     def source_preview(job: str, dataset: str | None = None, limit: int = 100):
         from .source import read_archive
-        from .service import normalize_source
+        from .manager_kernel import normalize_source
         from .catalog import dataset as source_dataset
         from .mapping import all_source_mappings
         item=service._job(job); samples=[]; conversions=[];fields=[]
@@ -239,27 +245,13 @@ def create_app(service: TushareImportService | None = None) -> FastAPI:
     @app.post("/api/probe")
     def probe(payload: dict = Body(...)): return response(service.probe(payload['datasets']))
 
-    @app.post("/api/jobs/{job}/download")
-    def download(job: str):
-        service._job(job); return response(dict(task=service.state.enqueue(job, "download")))
 
-    @app.post("/api/jobs/{job}/preview")
-    def preview(job: str):
-        service._job(job); return response(dict(task=service.state.enqueue(job, "preview")))
 
-    @app.post("/api/jobs/{job}/commit")
-    def commit(job: str, payload: dict = Body(...)):
-        item = service._job(job)
-        if not item["preview"] or item["preview"]["token"] != payload.get("token"): raise ValueError("预览令牌无效")
-        return response(dict(task=service.state.enqueue(job, "commit", {"token": payload["token"], "accept_partial":bool(payload.get("accept_partial"))})))
 
     @app.post("/api/jobs/{job}/rollback")
     def rollback(job: str, payload: dict = Body(default={})):
-        service._job(job);return response({"task":service.state.enqueue(job,"rollback",{"targets":payload.get("targets")})})
+        service._job(job);return response({"task":service.state.enqueue(job,"pipeline_rollback",{"targets":payload.get("targets")})})
 
-    @app.post("/api/jobs/{job}/resume")
-    def resume(job: str):
-        service._job(job); service.state.update_job(job, cancel=0); return response(dict(task=service.state.enqueue(job, "resume")))
 
     @app.post("/api/jobs/{job}/cancel")
     def cancel(job: str):

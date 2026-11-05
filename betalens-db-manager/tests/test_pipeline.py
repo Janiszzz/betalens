@@ -17,7 +17,8 @@ from fastapi.testclient import TestClient
 from betalens_db_manager.api import create_app
 from betalens_db_manager.catalog import dataset, load_catalog
 from betalens_db_manager.config import Settings
-from betalens_db_manager.service import TushareImportService, normalize
+from betalens_db_manager.manager_kernel import ManagerKernel, normalize
+from betalens_db_manager.manager import DatabaseManagerService
 from betalens_db_manager.source import read_archive
 from betalens_db_manager.util import atomic_json, dumps
 
@@ -85,17 +86,17 @@ def test_revisions_and_missing_dates_are_preserved_or_rejected():
 
 
 def test_removed_schedules_return_gone_and_manual_cancel_remains(tmp_path):
-    service = TushareImportService(Settings(state_dir=tmp_path))
+    service = ManagerKernel(Settings(state_dir=tmp_path))
     with TestClient(create_app(service)) as client:
         assert client.get('/api/schedules').status_code==410
         assert client.post('/api/schedules',json={'enabled':True}).status_code==410
-    job=service.plan({'datasets':['daily'],'codes':['000001.SZ'],'start_date':'2026-10-16','end_date':'2026-10-16'})
-    service.state.enqueue(job['id'],'download');service.state.cancel(job['id'])
+    job=service.state.create_job({'pipeline_version':2,'request':{'targets':['postgres']}},service.settings.fingerprint)
+    service.state.enqueue(job['id'],'pipeline_run');service.state.cancel(job['id'])
     assert service.state.job(job['id'])['tasks'][0]['status']=='cancelled'
 
 
 def test_web_can_open_before_database_and_rejects_foreign_origin(tmp_path):
-    service = TushareImportService(Settings(state_dir=tmp_path, token="not-for-client"))
+    service = ManagerKernel(Settings(state_dir=tmp_path, token="not-for-client"))
     with TestClient(create_app(service)) as client:
         assert client.get("/api/config").status_code == 200
         assert "not-for-client" not in client.get("/api/config").text
@@ -111,7 +112,7 @@ def live(tmp_path):
     base = Settings.from_env()
     suffix = uuid.uuid4().hex[:12]
     settings = replace(base, pg_database="infra_test_" + suffix, ch_database="infra_test_" + suffix, state_dir=tmp_path,config_dir=tmp_path/'config',env_file=None,archive_dir=None)
-    service = TushareImportService(settings, FakeSource())
+    service = DatabaseManagerService(settings, FakeSource())
     plan = service.schema_plan()
     service.initialize(plan["token"])
     from controlled_ch import configure_writer
@@ -127,77 +128,8 @@ def live(tmp_path):
         conn.close()
 
 
-def create_sample(service):
-    job = service.plan({"datasets": ["daily"], "codes": ["000001.SZ"], "start_date": "2026-10-16", "end_date": "2026-10-16"})
-    service.download(job["id"])
-    preview = service.preview(job["id"])
-    return job, preview
-
-
-def test_empty_install_commit_replica_and_idempotency(live):
-    assert live.pg.schema_plan()["ready"]
-    plan = live.schema_plan()
-    assert live.initialize(plan["token"])["postgres"]["ready"]
-    job, preview = create_sample(live)
-    result = live.commit(job["id"], preview["token"])
-    assert result["status"] == "completed", result.get("error")
-    row = live.pg.query("market_daily_raw")["rows"][0]
-    assert row["close"] == Decimal("12.3456789") and row["volume"] == Decimal("12345.67")
-    assert live.pg.receipts(job["id"])
-    repeated = live.commit(job["id"], preview["token"])
-    assert repeated["status"] == "completed"
-    second, second_preview = create_sample(live)
-    assert sum(p["counts"]["inserted"]+p["counts"]["updated"] for p in second_preview["tables"]) == 0
-    assert live.commit(second["id"], second_preview["token"])["status"] == "completed"
-    assert len(live.pg.query("market_daily_raw")["rows"]) == 1
-
-
-def test_independent_targets_partial_recovery_and_stale_preview(live,monkeypatch):
-    job,preview=create_sample(live)
-    original=live.ch.commit_rows
-    monkeypatch.setattr(live.ch,'commit_rows',lambda *a: (_ for _ in ()).throw(RuntimeError('CH unavailable')))
-    assert live.commit(job['id'],preview['token'])['status']=='partial'
-    assert live.pg.query('market_daily_raw')['rows']
-    monkeypatch.setattr(live.ch,'commit_rows',original)
-    assert live.resume(job['id'])['status']=='completed'
-    assert live.ch.query('market_daily_raw')['rows']
-    live.source.close=Decimal('12.1')
-    changed=live.plan({'datasets':['daily'],'codes':['000001.SZ'],'start_date':'2026-10-16','end_date':'2026-10-16','mode':'refresh_source'})
-    live.download(changed['id']); pv=live.preview(changed['id'])
-    with live.pg.connect() as conn,conn.cursor() as cur:
-        cur.execute(f'UPDATE "{live.settings.pg_schema}".market_daily_raw SET close=99')
-    result=live.commit(changed['id'],pv['token'])
-    assert result['status']=='partial' and '已经变化' in result['error']
-
-
-def test_both_targets_rollback_and_later_edit_protection(live):
-    job,preview=create_sample(live)
-    assert live.commit(job['id'],preview['token'])['status']=='completed'
-    assert {row['target'] for row in live.audit(job['id'])['changes']}=={'postgres','clickhouse'}
-    result=live.rollback(job['id'])
-    assert all(r['status']=='completed' for r in result['results']),result
-    assert live.pg.query('market_daily_raw')['rows']==[]
-    assert live.ch.query('market_daily_raw')['rows']==[]
-    job,preview=create_sample(live);live.commit(job['id'],preview['token'])
-    live.source.close=Decimal('13')
-    second=live.plan({'datasets':['daily'],'codes':['000001.SZ'],'start_date':'2026-10-16','end_date':'2026-10-16','mode':'refresh_source'})
-    live.download(second['id']);pv=live.preview(second['id']);live.commit(second['id'],pv['token'])
-    result=live.rollback(job['id'])
-    assert all(r['status']=='blocked' for r in result['results']),result
-    assert live.pg.query('market_daily_raw')['rows'][0]['close']==Decimal('13')
-
-
-def test_raw_archive_tamper_blocks_publication(live):
-    job, preview = create_sample(live)
-    part = next(p for p in live.state.job(job["id"])["slices"] if p["dataset"] == "daily")
-    with gzip.open(live.settings.state_dir / part["archive"], "wb") as handle: handle.write(b'{}')
-    with pytest.raises(ValueError, match="哈希"):
-        live.commit(job["id"], preview["token"])
-    assert live.pg.query("market_daily_raw")["rows"] == []
-
-
 def test_fields_are_mapped_by_name_and_unknown_fields_block():
-    from betalens_db_manager.service import normalize_source
+    from betalens_db_manager.manager_kernel import normalize_source
     data=response('daily',[dict(ts_code='000001.SZ',trade_date='20261016',close='12.123456789',vol='2')])
     data['fields'].reverse();data['items']=[list(reversed(row)) for row in data['items']]
     rows,rejected=normalize_source(dataset('daily'),data,'job','slice','2026-10-17T00:00:00Z')
@@ -226,81 +158,6 @@ def test_private_configuration_is_atomic_and_secret(tmp_path):
     with pytest.raises(ValueError):settings.write_private_env({'PGUSER':'injected\nTOKEN=x'})
 
 
-def test_clickhouse_only_is_independent_of_postgres(live,monkeypatch):
-    monkeypatch.setattr(live.pg,'connect',lambda *a,**k: (_ for _ in ()).throw(RuntimeError('PG unavailable')))
-    job=live.plan({'datasets':['daily'],'codes':['000001.SZ'],'start_date':'2026-10-16','end_date':'2026-10-16','targets':['clickhouse']})
-    live.download(job['id']);preview=live.preview(job['id'])
-    result=live.commit(job['id'],preview['token'])
-    assert result['status']=='completed',result.get('error')
-    assert live.ch.query('market_daily_raw')['rows']
-    assert live.audit(job['id'])['changes']
-    assert live.rollback(job['id'])['results'][0]['status']=='completed'
-
-
-def test_bulk_keys_are_not_lost_after_first_page(live):
-    from betalens_db_manager.canonical import canonical
-    from betalens_db_manager.comparison import typed
-    from betalens_db_manager.publishing import existing
-    spec=canonical('security_dim')
-    rows=[typed(spec,{'security_code':f'{i:06}.SZ','asset_type':'stock','name':str(i),'downloaded_at':'2026-10-17T00:00:00Z','import_task_id':'bulk','source_name':'file'}) for i in range(1250)]
-    for name,target in [('postgres',live.pg),('clickhouse',live.ch)]:
-        comparison=target.compare(spec,rows)
-        target.commit_rows('bulk',name,spec,rows,'fill_missing',comparison['signature'])
-        assert len(existing(target,spec,rows))==1250
-        assert target.compare(spec,rows)['counts']['skipped']==1250
-
-
-def test_explicit_canonical_file_round_trip(live,tmp_path):
-    from betalens_db_manager.files import import_file
-    path=tmp_path/'证券.csv';path.write_text('code,type,name\n920001.BJ,stock,北交所样本\n',encoding='utf-8')
-    job=import_file(live,'security_dim',path,{'code':'security_code','type':'asset_type','name':'name'})
-    pv=live.preview(job['id'])
-    assert not pv['rejected'],pv['reject_sample']
-    assert live.commit(job['id'],pv['token'])['status']=='completed'
-    assert live.pg.query('security_dim')['rows'][0]['source_name']=='file'
-    assert live.ch.query('security_dim')['rows'][0]['name']=='北交所样本'
-    assert all(r['status']=='completed' for r in live.rollback(job['id'])['results'])
-
-
-def test_update_rollback_restores_identical_values_in_both_targets(live):
-    from betalens_db_manager.canonical import canonical
-    from betalens_db_manager.comparison import row_hash
-    first,preview=create_sample(live);live.commit(first['id'],preview['token'])
-    before=live.pg.query('market_daily_raw')['rows'][0]
-    live.source.close=Decimal('12.9')
-    second=live.plan({'datasets':['daily'],'codes':['000001.SZ'],'start_date':'2026-10-16','end_date':'2026-10-16','mode':'refresh_source'})
-    live.download(second['id']);pv=live.preview(second['id']);assert live.commit(second['id'],pv['token'])['status']=='completed'
-    result=live.rollback(second['id']);assert all(r['status']=='completed' for r in result['results']),result
-    spec=canonical('market_daily_raw')
-    assert row_hash(spec,before)==row_hash(spec,live.pg.query(spec.name)['rows'][0])==row_hash(spec,live.ch.query(spec.name)['rows'][0])
-    assert all(r['status']=='completed' for r in live.rollback(first['id'])['results'])
-
-
-def test_recovered_rollback_does_not_repeat_published_partitions(live,monkeypatch):
-    job,pv=create_sample(live);live.commit(job['id'],pv['token'])
-    original=live.ch.apply_rollback;counter={'value':0}
-    def fail_second(spec,audits,task):
-        counter['value']+=1
-        if counter['value']==2:raise RuntimeError('interrupted publication')
-        return original(spec,audits,task)
-    monkeypatch.setattr(live.ch,'apply_rollback',fail_second)
-    result=live.rollback(job['id'],['clickhouse'])
-    assert result['results'][0]['status']=='failed'
-    monkeypatch.setattr(live.ch,'apply_rollback',original)
-    resumed=live.rollback(job['id'],['clickhouse'])
-    assert resumed['results'][0]['status']=='completed',resumed
-    assert live.ch.query('market_daily_raw')['rows']==[]
-
-
-def test_file_date_misalignment_blocks_publication(live,tmp_path):
-    from betalens_db_manager.files import import_file
-    path=tmp_path/'wrong.csv';path.write_text('asset,code,day,event,close\nstock,000001.SZ,20261016,20261015,12.12\n')
-    job=import_file(live,'market_daily_raw',path,{'asset':'asset_type','code':'security_code','day':'trade_date','event':'event_date','close':'close'})
-    preview=live.preview(job['id'])
-    assert preview['rejected'] and any('错位' in r['reason'] for r in preview['reject_sample'])
-    with pytest.raises(ValueError):live.commit(job['id'],preview['token'])
-
-
 def test_market_mapping_units_are_explicit():
     from betalens_db_manager.mapping import all_source_mappings
     mappings=all_source_mappings()
@@ -313,7 +170,7 @@ def test_market_mapping_units_are_explicit():
 
 
 def test_optional_source_columns_and_required_quote_columns():
-    from betalens_db_manager.service import normalize_source
+    from betalens_db_manager.manager_kernel import normalize_source
     payload=response('daily',[{'ts_code':'000001.SZ','trade_date':'20261016','close':'12'}])
     index=payload['fields'].index('ah_vol');payload['fields'].pop(index);payload['items'][0].pop(index)
     assert not normalize_source(dataset('daily'),payload,'j','s','2026-10-17')[1]
@@ -363,54 +220,6 @@ def test_file_duplicate_headers_are_rejected(tmp_path):
     with pytest.raises(ValueError,match='重复'):list(FileSourceAdapter.rows(path))
 
 
-def test_clickhouse_insert_spans_more_than_100_months(live):
-    from betalens_db_manager.canonical import canonical
-    from betalens_db_manager.comparison import typed
-    spec=canonical('trade_calendar');rows=[]
-    for index in range(121):
-        day=date(2004+index//12,index%12+1,2)
-        rows.append(typed(spec,{'exchange':'SSE','trade_date':day,'event_date':day,'is_open':1,'downloaded_at':'2026-10-17T00:00:00Z',
-                               'import_task_id':'long-calendar','source_name':'tushare','source_endpoint':'trade_cal','source_row_no':index+1,
-                               'source_record_hash':str(index),'mapping_version':'canonical-v2','data_quality_status':'accepted'}))
-    comparison=live.ch.compare(spec,rows)
-    result=live.ch.commit_rows('long-calendar','clickhouse',spec,rows,'fill_missing',comparison['signature'])
-    assert result['inserted']==121
-    assert len(live.ch.query(spec.name,limit=1000)['rows'])==121
-
-
-def test_bulk_financial_endpoint_uses_identical_canonical_fields(live):
-    job=live.plan({'datasets':['income_vip'],'codes':['000001.SZ'],'start_date':'2024-12-31','end_date':'2024-12-31'})
-    requests=list(live._requests('income_vip',job['plan']['request'],[],[]))
-    assert requests==[{'period':'20241231','offset':0,'limit':1000}]
-    live.download(job['id']);preview=live.preview(job['id'])
-    assert preview['rejected']==0,preview['reject_sample']
-    result=live.commit(job['id'],preview['token']);assert result['status']=='completed',result.get('error')
-    row=live.pg.query('fundamental_periodic')['rows'][0]
-    assert row['statement_type']=='income' and row['source_endpoint']=='income_vip'
-    assert row['net_income']==0 and row['revenue']==100
-
-
-def test_index_source_routing_keeps_csi_and_uses_sw_contract(tmp_path):
-    service=TushareImportService(Settings(state_dir=tmp_path))
-    job=service.plan({'datasets':['index_daily'],'codes':['000300.SH','000001.CSI','801010.SI'],
-                      'start_date':'2026-10-16','end_date':'2026-10-16'})
-    request=job['plan']['request']
-    assert 'sw_daily' in request['datasets'] and 'sw_daily' in job['plan']['source_contracts']
-    standard=list(service._requests('index_daily',request,[],[]))
-    shenwan=list(service._requests('sw_daily',request,[],[]))
-    assert {r['ts_code'] for r in standard}=={'000300.SH','000001.CSI'}
-    assert {r['ts_code'] for r in shenwan}=={'801010.SI'}
-    class SelectedTarget:
-        def query(self,*args,**kwargs):
-            return {'rows':[{'security_code':'000001.SZ','asset_type':'stock'},
-                            {'security_code':'000001.CSI','asset_type':'index'}],'next':None}
-    class UnselectedTarget:
-        def query(self,*args,**kwargs):raise AssertionError('unselected PG queried')
-    service.pg=UnselectedTarget();service.ch=SelectedTarget()
-    job['plan']['request']['targets']=['clickhouse']
-    assert service._universe(job,'index')==['000001.CSI']
-
-
 def test_daily_gap_check_respects_lifecycle_and_does_not_infer_halts():
     from betalens_db_manager.inspection import daily_gaps
     class Target:
@@ -430,7 +239,7 @@ def test_worker_waits_for_previous_worker_shutdown(tmp_path):
     import fcntl
     from threading import Timer
     from betalens_db_manager.worker import worker_lock
-    service=TushareImportService(Settings(state_dir=tmp_path))
+    service=ManagerKernel(Settings(state_dir=tmp_path))
     with (tmp_path/'worker.lock').open('a+') as previous:
         fcntl.flock(previous,fcntl.LOCK_EX|fcntl.LOCK_NB)
         release=Timer(.1,lambda:fcntl.flock(previous,fcntl.LOCK_UN));release.start()

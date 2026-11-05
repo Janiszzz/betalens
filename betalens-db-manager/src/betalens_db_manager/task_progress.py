@@ -32,6 +32,14 @@ def summary(service,item,units):
         service.state.ledger_put('pipeline_work_plan',job,plan)
     if plan is None:return {'phase':'planning','requests':None,'batches':None,'physical_requests':len(item['slices'])}
     by={p['id']:p for p in item['slices']};memo={};visiting=set()
+    preparer=TaskDownloader(service,{**item,'slices':[]})  # Identity only; no response-cache scan.
+    def child_key(request):
+        try:return TaskDownloader.key(preparer.prepared(request)[0])
+        except (KeyError,TypeError,ValueError):
+            # Historical sources can have been removed. Progress is read-only;
+            # use an archived identity, and leave missing evidence incomplete.
+            try:return TaskDownloader.key(request)
+            except (KeyError,TypeError,ValueError):return None
     def done(key):
         if key in memo:return memo[key]
         part=by.get(key)
@@ -39,7 +47,7 @@ def summary(service,item,units):
         if key in visiting:return True,True
         if part['status'] in {'failed','unavailable','contract_blocked'}:return True,True
         visiting.add(key);children=(part.get('result') or {}).get('children',[])
-        states=[done(TaskDownloader.key(c)) for c in children]
+        states=[done(child_key(c)) for c in children]
         visiting.discard(key)
         value=(all(s[0] for s in states),any(s[1] for s in states))
         if part['status'] in {'paged','split'} and not children:value=(False,False)

@@ -41,16 +41,18 @@ def test_external_key_upload_is_bounded_typed_and_readonly(monkeypatch):
         calls.append(kw);query=kw['params']['query']
         data=kw['files']['_betalens_keys'][1]
         keys=pa.ipc.open_stream(data).read_all().to_pylist()
-        assert len(keys)==50000 and keys[0]['code']=="quoted'!code"
+        assert len(keys)==10000
+        if len(calls)==1:assert keys[0]['code']=="quoted'!code"
         assert keys[0]['trade_date']==date(2026,10,20)
         assert 'data' not in kw and ' OR ' not in query
         output='{"partition":"202610"}' if 'SELECT DISTINCT _partition_id' in query else ''
         return type('Response',(),{'status_code':200,'text':output})()
-    monkeypatch.setattr('requests.post',post)
+    monkeypatch.setattr('requests.Session.post',lambda self,*args,**kwargs:post(*args,**kwargs))
     rows=[{'code':str(i),'trade_date':date(2026,10,20),'event_date':date(2026,10,20)} for i in range(50000)]
     rows[0]['code']="quoted'!code";rows.append(rows[0])
     assert db._find_existing(spec,rows)=={}
-    assert len(calls)==2 and all(c['params'].get('query_id') is None for c in calls)
+    assert len(calls)==10 and all(c['params'].get('query_id') is None for c in calls)
+    assert all(c['params']['max_threads']==3 and c['params']['max_memory_usage']==2*1024**3 for c in calls)
     query=calls[-1]['params']['query']
     assert 'INNER JOIN _betalens_keys' in query and "_partition_id IN ('202610')" in query
     assert "quoted'!code" not in query

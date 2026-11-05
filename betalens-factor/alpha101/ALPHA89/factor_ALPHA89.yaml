@@ -6,11 +6,11 @@ meta:
   logic: 严格按论文公式计算，高值作为正向截面因子。
 factor_spec:
   inputs:
-    low_wide: 最低价(元)
-    vwap_wide: 均价(元)
-    amount_wide: 成交金额(元)
+    low_wide: low
+    vwap_wide: average_price
+    amount_wide: amount
   industry_inputs:
-    industry_wide: 申万二级行业
+    industry_wide: {scheme_code: null, level: 2}
   compute_kwargs:
     amount_average_window: 10
     low_adv_correlation_window: 6.94279
@@ -20,12 +20,13 @@ factor_spec:
     delta_indneutralize_vwap_decay_window: 10.1466
     decay_linear_delta_indneutralize_rank_window: 15.3012
   direction: positive
-  table_name: daily_market
+  table_name: market_daily_post_adjusted
+  query_filters: {asset_type: stock}
   index_code: 000906.SH
   use_industry: true
   use_mktcap: false
-  industry_scheme: 申万一级行业
-  backtest_metric: 收盘价(元)
+  industry_scheme: {scheme_code: null, level: 1}
+  backtest_metric: close
   required_history_bars: 27
   mask_inputs_by_pit: true
 weight:

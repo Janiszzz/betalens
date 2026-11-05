@@ -43,7 +43,7 @@ _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-DB_TABLE = "daily_market"
+DB_TABLE = "market_daily_post_adjusted"
 
 
 @dataclass
@@ -54,20 +54,21 @@ class FactorSpec:
     direction: str = "positive"
     compute_kwargs: dict[str, Any] = field(default_factory=dict)
     table_name: str = DB_TABLE
+    query_filters: dict = field(default_factory=dict)
     use_industry: bool = False
     use_mktcap: bool = False
     winsorize_method: str | None = None
     winsorize_n: float = 3.0
     standardize_method: str | None = None
     neutralize: bool | None = None
-    industry_scheme: str = "申万一级行业"
+    industry_scheme: dict = field(default_factory=dict)
     index_code: str | None = None
     long_groups: list | None = None
     short_groups: list | None = None
     weight_mode: str = "freeplay"
     group_weights: dict[str, Any] = field(default_factory=dict)
     intra_group_allocation: dict[str, Any] = field(default_factory=dict)
-    backtest_metric: str = "收盘价(元)"
+    backtest_metric: str = "close"
 
 
 class FactorPipeline:

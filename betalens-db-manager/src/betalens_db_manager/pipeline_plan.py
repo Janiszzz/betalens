@@ -17,9 +17,14 @@ def windows(start,end,days):
 def params_for(endpoint,request,custom):
     a,b=parse_date(request['start_date']),parse_date(request['end_date'])
     codes=request.get('codes',[])
+    security_parameter='index_code' if endpoint=='index_weight' else 'ts_code'
+    if codes and custom.get(security_parameter) and set(str(custom[security_parameter]).split(','))!=set(codes):
+        raise ValueError('接口证券参数与任务证券范围不一致：'+endpoint)
     period=lambda x:x.strftime('%Y%m%d')
     if endpoint=='stock_basic':
-        for status in ([custom['list_status']] if custom.get('list_status') else ['L','D','P','G','UN']):yield {'list_status':status,**custom}
+        for status in ([custom['list_status']] if custom.get('list_status') else ['L','D','P','G','UN']):
+            for code in ([custom['ts_code']] if custom.get('ts_code') else codes or [None]):
+                yield {'list_status':status,**custom,**({'ts_code':code} if code else {})}
     elif endpoint=='trade_cal':
         for exchange in ([custom['exchange']] if custom.get('exchange') else ['SSE','SZSE']):
             if exchange=='BSE':exchange='SSE'
@@ -54,7 +59,8 @@ def params_for(endpoint,request,custom):
         lo=a
         while lo<=b:
             hi=min(b,(lo.replace(day=28)+timedelta(days=4)).replace(day=1)-timedelta(days=1))
-            yield {**custom,'start_date':period(lo),'end_date':period(hi)}
+            for code in ([custom['ts_code']] if custom.get('ts_code') else codes or [None]):
+                yield {**custom,'start_date':period(lo),'end_date':period(hi),**({'ts_code':code} if code else {})}
             lo=hi+timedelta(days=1)
     elif endpoint.endswith('_vip'):
         for year in range(a.year,b.year+1):
@@ -62,8 +68,13 @@ def params_for(endpoint,request,custom):
                 d=date(year,month,day)
                 if a<=d<=b:yield {'period':period(d),'offset':0,'limit':6000,**custom}
     elif endpoint in FINANCIAL:
-        for code in codes or [None]:
-            yield {**custom,**({'ts_code':code} if code else {}),'start_date':period(a),'end_date':period(b)}
+        # These API date bounds filter announcements, while the local task
+        # range filters report periods. Query exact periods to retain late
+        # disclosures and later revisions of the requested quarter.
+        periods=[custom['period']] if custom.get('period') else [period(d) for year in range(a.year,b.year+1)
+            for month,day in ((3,31),(6,30),(9,30),(12,31)) if a<=(d:=date(year,month,day))<=b]
+        for selected in periods:
+            for code in codes or [None]:yield {**custom,**({'ts_code':code} if code else {}),'period':selected}
     elif endpoint in {'index_daily','sw_daily','index_weight','fund_nav','namechange','dividend'}:
         for code in codes or [None]:
             if endpoint in {'index_daily','sw_daily'} and code and (code.endswith('.SI')!=(endpoint=='sw_daily')):continue
@@ -80,7 +91,7 @@ def compile_plan(service,request):
     seed['end_date']=seed.get('start_date') or seed.get('end_date')
     original_end=request.get('end_date')
     if not original_end:
-        from .service import SHANGHAI
+        from .manager_kernel import SHANGHAI
         from datetime import datetime
         original_end=str(datetime.now(SHANGHAI).date()-timedelta(days=1))
     from .pipeline_options import PLANNING_SEED
@@ -109,7 +120,7 @@ def compile_plan(service,request):
     for root in templates:
         sid,endpoint=root['source_id'],root['endpoint']
         if sid=='tushare' and not root.get('strategy')=='dependency' and endpoint not in endpoints:continue
-        if endpoint=='daily_basic' and endpoint not in endpoints:continue
+        if endpoint=='daily_basic' and endpoint not in endpoints and request.get('endpoints'):continue
         if sid=='tushare':
             contract=plan['source_contracts'][sid+':'+endpoint]
             binding=next((b for m in plan['mapping_snapshots'].values() for b in m['bindings'] if b['source_id']==sid and b['endpoint']==endpoint),{})

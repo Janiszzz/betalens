@@ -1,3 +1,4 @@
+from test_manager import archive_requests
 """Auditing replay, mapping execution, request parameters, and credential leaks."""
 from copy import deepcopy
 import json
@@ -27,7 +28,7 @@ def test_wrong_security_remains_blocked_after_replay_without_new_fetch(tmp_path)
     source=ArchivedSource(lambda endpoint,params:[{'ts_code':'WRONG.SZ','trade_date':'20261013','close':'12.5'}] if endpoint=='daily' else [])
     s.source=source
     job=s.plan({'tables':['sample_prices'],'start_date':'2026-10-13','end_date':'2026-10-13','codes':['EXPECTED.SZ'],'targets':['postgres']})
-    s.download(job['id']);calls=len(source.calls)
+    archive_requests(s,job['id']);calls=len(source.calls)
     replay=s.replay_archive(job['id'])
     assert len(source.calls)==calls and replay['status']=='blocked'
     rows,rejects=s._build_canonical(replay)

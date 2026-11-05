@@ -58,7 +58,7 @@
 证券名称映射
 ------------
 
-``betalens.analyst.naming`` 会从 ``daily_market``、``daily_index``、``daily_fund``、``daily_bond`` 表读取代码对应的最新 ``name``。查库失败或缺失名称时会降级为原代码，不阻断评价。
+``betalens.analyst.naming`` 使用 ``security_dim`` 的当前展示名称；历史研究名称由 Datafeed 的 as_of 接口另行查询。缺失名称时展示代码。
 
 兼容旧接口
 ----------

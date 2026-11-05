@@ -7,12 +7,12 @@ meta:
   strategy_type: timing
 factor_spec:
   inputs:
-    open_wide: 开盘价(元)
-    close_wide: 收盘价(元)
-    vwap_wide: 均价(元)
-    amount_wide: 成交金额(元)
+    open_wide: open
+    close_wide: close
+    vwap_wide: average_price
+    amount_wide: amount
   industry_inputs:
-    industry_wide: 申万二级行业
+    industry_wide: {scheme_code: null, level: 2}
   compute_kwargs:
     indneutralize_close_industry_delta_lag: 2.25164
     delta_indneutralize_close_decay_window: 8.22237
@@ -32,12 +32,13 @@ factor_spec:
       side: short
       max_weight: 1.0
   direction: positive
-  table_name: daily_market
+  table_name: market_daily_post_adjusted
+  query_filters: {asset_type: stock}
   index_code: 000906.SH
   use_industry: false
   use_mktcap: false
-  industry_scheme: 申万一级行业
-  backtest_metric: 收盘价(元)
+  industry_scheme: {scheme_code: null, level: 1}
+  backtest_metric: close
   required_history_bars: 240
   mask_inputs_by_pit: true
 weight:

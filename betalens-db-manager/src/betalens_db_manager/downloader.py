@@ -5,6 +5,7 @@ import gzip
 import hashlib
 import json
 from pathlib import Path
+from collections import deque,OrderedDict
 from concurrent.futures import ThreadPoolExecutor,wait,FIRST_COMPLETED
 import threading
 import time
@@ -16,8 +17,21 @@ from .util import atomic_json, digest, dumps, now
 from .util import parse_date
 
 
+class DownloadState:
+    """Adapter-visible state with the producer's local stop boundary."""
+    def __init__(self,downloader):self.downloader=downloader
+    def __getattr__(self,name):return getattr(self.downloader.s.state,name)
+    def check_cancel(self,job):
+        if self.downloader._stop_event.is_set():raise InterruptedError('下载派发已停止')
+        return self.downloader.s.state.check_cancel(job)
+
+
 class TaskDownloader:
     RETRY_DELAYS=(5,30)
+
+    def __enter__(self):return self
+
+    def __exit__(self,*_):self.close()
 
     def __init__(self, service, item):
         self.s, self.item, self.job = service, item, item['id']
@@ -28,6 +42,8 @@ class TaskDownloader:
         for part in item.get('slices',[]):
             if part.get('archive') and part['status'] in {'downloaded','paged','split'}:self.response_cache[self.wire_key(part['request'])]=part
         self.blocked_endpoints={}
+        self._page_index=None;self._page_seeded=set();self._page_guard=threading.RLock();self._page_checkpoints={}
+        self._executor=None;self._stop_event=threading.Event();self._inside_fetch=threading.local()
         for row in service.state.ledger_rows('pipeline_source_block',self.job):self.blocked_endpoints[(row['source_id'],row['endpoint'])]=row
 
     @staticmethod
@@ -58,10 +74,21 @@ class TaskDownloader:
         self.s.state.log(self.job,'response_reused',source_id=request['source_id'],endpoint=request['endpoint'],rows=part['rows'],original_slice_id=part['id'])
         return result['children']
 
+    def check_cancel(self):
+        if self._stop_event.is_set():raise InterruptedError('下载派发已停止')
+        self.s.state.check_cancel(self.job)
+
+    def stop(self):
+        event=getattr(self,'_stop_event',None)
+        if event is not None:event.set()
+
+    def _bind_source_stop(self):
+        if hasattr(self.s.source,'_check_cancel'):self.s.source._download_stop=self._stop_event
+
     def retry_wait(self,seconds):
         deadline=time.monotonic()+seconds
         while True:
-            self.s.state.check_cancel(self.job)
+            self.check_cancel()
             remaining=deadline-time.monotonic()
             if remaining<=0:return
             time.sleep(min(.2,remaining))
@@ -69,7 +96,7 @@ class TaskDownloader:
     def fetch_with_retry(self,request,contract,policy,page):
         """Retry exhausted transient fetches; preserve the same request identity."""
         for attempt in range(len(self.RETRY_DELAYS)+1):
-            self.s.state.check_cancel(self.job)
+            self.check_cancel()
             self.s.state.slice(self.job,self.key(request),request['endpoint'],request,status='pending',result={'retry_rounds':attempt+1,'complete':False})
             try:return self.fetch(request,contract,policy,page)
             except InterruptedError:raise
@@ -104,11 +131,14 @@ class TaskDownloader:
         provider = self.s.sources.values[sid]['provider']
         policy = self.plan.get('retrieval_policies', {}).get(sid+':'+endpoint)
         if sid == 'tushare': policy = policy or tushare_policy(endpoint)
+        params = dict(request['parameters'])
+        if sid=='tushare' and endpoint=='index_weight' and policy.get('single_day_offset_probe'):
+            single_day=bool(params.get('trade_date')) or bool(params.get('start_date') and params.get('start_date')==params.get('end_date'))
+            if single_day:policy={**policy,'mode':'offset_probe'}
         page = dict(contract.get('pagination', {}))
         if policy and policy['mode'] in {'offset', 'offset_probe'}:
             page = {'offset_param': 'offset', 'limit_param': 'limit', 'size': policy['row_limit']}
         if provider == 'file': page = {'offset_param': 'offset', 'limit_param': 'limit', 'size': 5000}
-        params = dict(request['parameters'])
         if sid=='tushare' and endpoint=='index_daily' and params.get('ts_code'):
             policy={**(policy or {}),'mode':'partition'};page={}
         if page:
@@ -121,6 +151,7 @@ class TaskDownloader:
         return {**request, 'parameters': params}, contract, policy, page
 
     def run(self, roots=None, workers=1):
+        self._bind_source_stop()
         if workers>1:return self.run_concurrent(roots,workers)
         queue = list(roots if roots is not None else self.plan['requests'])
         visited = set()
@@ -130,7 +161,7 @@ class TaskDownloader:
             key = self.key(request)
             if key in visited: continue
             visited.add(key)
-            self.s.state.check_cancel(self.job)
+            self.check_cancel()
             old = self.s.state.get_slice(self.job, key)
             children=self.cached_children(old,page,request)
             if children is not None:
@@ -146,41 +177,90 @@ class TaskDownloader:
             return record_archive_validation(self.s,self.s.state.job(self.job))
 
     def run_concurrent(self,roots,workers):
-        queue=list(roots if roots is not None else self.plan['requests']);seen=set();active={};errors=[]
-        def retrieve(root):
+        return next(self.run_groups({'all':list(roots if roots is not None else self.plan['requests'])},workers))[2]
+
+    def _retrieve(self,root):
+        self._inside_fetch.active=True
+        try:
             request,contract,policy,page=self.prepared(root);key=self.key(request)
-            self.s.state.check_cancel(self.job)
-            old=self.s.state.get_slice(self.job,key)
-            children=self.cached_children(old,page,request)
-            if children is not None:return children
-            if old and old['status']=='unavailable':return []
-            reused=self.reuse_response(request,contract)
-            if reused is not None:return reused
-            return self.fetch_with_retry(request,contract,policy,page)
-        def operation(root):
-            wire=self.wire_key(self.prepared(root)[0])
+            wire=self.wire_key(request)
             with self.cache_lock:lock=self.wire_locks.setdefault(wire,threading.RLock())
-            with lock:return retrieve(root)
-        with ThreadPoolExecutor(max_workers=workers,thread_name_prefix='source') as pool:
-            while queue or active:
-                self.s.state.check_cancel(self.job)
-                while queue and len(active)<workers:
-                    root=queue.pop(0);key=self.key(self.prepared(root)[0])
-                    if key in seen:continue
-                    seen.add(key);active[pool.submit(operation,root)]=root
-                if not active:continue
-                done,_=wait(active,return_when=FIRST_COMPLETED)
+            with lock:
+                self.check_cancel()
+                old=self.s.state.get_slice(self.job,key)
+                children=self.cached_children(old,page,request)
+                if children is not None:return children
+                if old and old['status']=='unavailable':return []
+                reused=self.reuse_response(request,contract)
+                if reused is not None:return reused
+                return self.fetch_with_retry(request,contract,policy,page)
+        finally:self._inside_fetch.active=False
+
+    def run_groups(self,groups,workers,lookahead=3,flow=None):
+        """Fair HTTP admission, with ordered delivery independent of consumers.
+
+        A flow owns byte backpressure. Completed groups may then wait on disk
+        while new independent groups keep the HTTP slots occupied.
+        """
+        self._bind_source_stop()
+        if self._executor is None:self._executor=ThreadPoolExecutor(max_workers=workers,thread_name_prefix='source')
+        from .resource_budget import DownloadPressure
+        if not hasattr(self,'_pressure'):self._pressure=DownloadPressure(self.s,self.job,workers)
+        iterator=iter(groups.items());batches=OrderedDict();queues=OrderedDict();active={};exhausted=False;unfinished=0
+        def append(group,root):
+            key=self.key(self.prepared(root)[0]);batch=batches[group]
+            if key in batch['seen']:return
+            batch['seen'].add(key);batch['remaining']+=1
+            endpoint=(root['source_id'],root['endpoint'])
+            queues.setdefault(endpoint,deque()).append((group,root))
+        try:
+            while batches or not exhausted:
+                self.check_cancel()
+                while (unfinished if flow is not None else len(batches))<lookahead and not exhausted:
+                    try:group,roots=next(iterator)
+                    except StopIteration:exhausted=True;break
+                    batches[group]={'roots':roots,'remaining':0,'seen':set(),'errors':[]}
+                    for root in roots:append(group,root)
+                    if batches[group]['remaining']:unfinished+=1
+                limit=min(workers,self._pressure.admission());attempts=len(queues);denied=set()
+                while queues and len(active)<limit and attempts:
+                    endpoint,queue=queues.popitem(last=False);selected=None
+                    for _ in range(len(queue)):
+                        group,root=queue[0]
+                        allowed=group not in denied and (flow is None or flow.admit(group,next(iter(batches))))
+                        if allowed:selected=queue.popleft();break
+                        denied.add(group);queue.rotate(-1)
+                    if queue:queues[endpoint]=queue
+                    if selected is None:attempts-=1;continue
+                    group,root=selected
+                    active[self._executor.submit(self._retrieve,root)]=(group,root)
+                    attempts=len(queues)
+                while batches and next(iter(batches.values()))['remaining']==0:
+                    group,batch=batches.popitem(last=False)
+                    yield group,batch['roots'],batch['errors']
+                if not active:
+                    if queues:time.sleep(.05)
+                    continue
+                done,_=wait(active,return_when=FIRST_COMPLETED,timeout=.2)
                 for future in done:
-                    root=active.pop(future)
-                    try:queue.extend(future.result() or [])
+                    group,root=active.pop(future);batch=batches[group];batch['remaining']-=1
+                    try:
+                        for child in future.result() or []:append(group,child)
                     except InterruptedError:raise
                     except Exception as exc:
                         message=self.s.safe_error(exc);request=self.prepared(root)[0]
                         previous=self.s.state.get_slice(self.job,self.key(request))
                         result=json.loads(previous['result']) if previous and previous.get('result') else {}
                         self.s.state.slice(self.job,self.key(request),root['endpoint'],request,status='failed',result={**result,'reason':message,'kind':getattr(exc,'kind',None),'complete':False})
-                        errors.append({'endpoint':root['endpoint'],'error':message})
-        return errors
+                        batch['errors'].append({'endpoint':root['endpoint'],'error':message})
+                    if flow is not None:flow.archived(group,root)
+                    if batch['remaining']==0:unfinished-=1
+        except Exception:
+            self.stop()
+            raise
+        finally:
+            for future in active:future.cancel()
+            if active:wait(active)
 
     @staticmethod
     def following(request, page, count):
@@ -196,7 +276,9 @@ class TaskDownloader:
         if 'tushare:'+endpoint not in self.plan['source_contracts']:
             raise ValueError('缺少完整证券清单合同；请创建新任务以安全拆分查询')
         roots = [{'source_id': 'tushare', 'endpoint': endpoint, 'parameters': p, 'strategy': 'retrieval_dependency', 'dependency_only': True} for p in filters]
-        if fetch:self.run(roots)
+        if fetch:
+            workers=1 if getattr(self._inside_fetch,'active',False) else self.plan['request'].get('download_workers',1)
+            self.run(roots,workers=workers)
         parts={p['id']:p for p in self.s.state.job(self.job)['slices']};pending=[self.key(self.prepared(r)[0]) for r in roots];visited=set();codes=set()
         while pending:
             key=pending.pop()
@@ -228,19 +310,39 @@ class TaskDownloader:
 
     def repeated(self, request, page, data):
         if not data['items']: return False
-        offset, limit = page.get('offset_param', 'offset'), page.get('limit_param', 'limit')
-        scope = {k: v for k, v in request['parameters'].items() if k not in {offset, limit}}
-        hashes = {digest(dict(zip(data['fields'], values))) for values in data['items']}
-        if len(hashes) != len(data['items']): return True
-        for part in self.s.state.job(self.job)['slices']:
-            r = part['request']
-            if part['status'] not in {'downloaded', 'paged'} or not part['archive'] or r['source_id'] != request['source_id'] or r['endpoint'] != request['endpoint']: continue
-            if r.get('dependency_only', False) != request.get('dependency_only', False): continue
-            if {k: v for k, v in r['parameters'].items() if k not in {offset, limit}} != scope: continue
-            if int(r['parameters'].get(offset, 0)) >= int(request['parameters'].get(offset, 0)): continue
-            previous = read_archive(Path(part['archive']), part['sha'])
-            if hashes.intersection(digest(dict(zip(previous['fields'], values))) for values in previous['items']): return True
-        return False
+        from .paging_index import PageIndex
+        offset=page.get('offset_param','offset');position=int(request['parameters'].get(offset,0))
+        chain=PageIndex.chain(request,page)
+        with self._page_guard:
+            if self._page_index is None:self._page_index=PageIndex()
+            if chain not in self._page_seeded:
+                # Only checkpoints present at the beginning of this attempt
+                # need replay. Fresh pages enter the index directly below.
+                shape=(offset,page.get('limit_param','limit'))
+                if not hasattr(self,'_page_checkpoints'):self._page_checkpoints={}
+                if shape not in self._page_checkpoints:
+                    grouped={}
+                    for part in self.item.get('slices',[]):
+                        if part['status'] not in {'downloaded','paged'} or not part.get('archive'):continue
+                        grouped.setdefault(PageIndex.chain(part['request'],page),[]).append(part)
+                    self._page_checkpoints[shape]=grouped
+                for part in self._page_checkpoints[shape].get(chain,[]):
+                    r=part['request']
+                    prior=int(r['parameters'].get(offset,0))
+                    try:previous=read_archive(Path(part['archive']),part['sha'])
+                    except FileNotFoundError:continue  # The downloader will re-fetch missing checkpoints.
+                    self._page_index.add(chain,prior,previous)
+                self._page_seeded.add(chain)
+            return self._page_index.add(chain,position,data,check=True)
+
+    def close(self):
+        self.stop()
+        executor=getattr(self,'_executor',None)
+        if executor is not None:
+            executor.shutdown(wait=True,cancel_futures=True);self._executor=None
+        if self._page_index is not None:
+            self._page_index.close();self._page_index=None;self._page_seeded.clear()
+        self._page_checkpoints={}
 
     @staticmethod
     def scope_error(params, data, contract):
@@ -293,7 +395,7 @@ class TaskDownloader:
             source_request = {'source_id': sid, 'endpoint': endpoint, 'parameters': params}
             adapter.plan(source_request)
             try:
-                data = adapter.normalize(adapter.fetch(source_request, FetchContext(s.settings, s.state, job)), contract)
+                data = adapter.normalize(adapter.fetch(source_request, FetchContext(s.settings, DownloadState(self), job)), contract)
             except ValueError as exc:
                 error = s.safe_error(exc); data = {'fields': ['response_error'], 'items': [[error]]}
             if getattr(adapter, 'last_wire', None) is not None:

@@ -260,7 +260,7 @@ class RunManager:
                     result.backtest,
                     name=run.name,
                     benchmark_code=run.parameters.get("benchmark_code"),
-                    benchmark_metric=run.parameters.get("backtest_metric", "收盘价(元)"),
+                    benchmark_metric=run.parameters.get("backtest_metric", "close"),
                     factor_values=factor_values,
                 )
             run.append_log("[dashboard] analyst ready\n")

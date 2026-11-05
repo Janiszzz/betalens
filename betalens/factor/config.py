@@ -192,6 +192,14 @@ def run_parameters(config: Mapping[str, Any], config_path: str | Path) -> dict[s
     return params
 
 
+def _industry_selection(value, context):
+    if value is None:
+        return {}
+    if not isinstance(value, dict) or value.keys() - {"scheme_code", "level"}:
+        raise ConfigError(f"{context}: 行业查询使用 scheme_code/level 字典，不接受旧名称")
+    return dict(value)
+
+
 def factor_spec_options(config: Mapping[str, Any], config_path: str | Path) -> dict[str, Any]:
     factor_spec = section(config, "factor_spec", context=str(config_path))
     weight = section(config, "weight", context=str(config_path))
@@ -215,6 +223,12 @@ def factor_spec_options(config: Mapping[str, Any], config_path: str | Path) -> d
         ("mode", "long_groups", "short_groups"),
         context=f"{config_path}: weight",
     )
+    from betalens.datafeed.readers import identifier
+    try:
+        for field in (factor_spec["table_name"], factor_spec["backtest_metric"], *factor_spec["inputs"].values()):
+            identifier(field)
+    except ValueError as exc:
+        raise ConfigError(f"{config_path}: table_name/inputs/backtest_metric 必须使用物理表字段") from exc
     legacy_preprocessing = bool(factor_spec["use_industry"] or factor_spec["use_mktcap"])
     preprocessing = resolve_preprocessing_options(
         factor_spec,
@@ -226,11 +240,12 @@ def factor_spec_options(config: Mapping[str, Any], config_path: str | Path) -> d
         "compute_kwargs": dict(factor_spec["compute_kwargs"] or {}),
         "direction": str(factor_spec["direction"]),
         "table_name": str(factor_spec["table_name"]),
+        "query_filters": dict(factor_spec.get("query_filters") or {}),
         "index_code": factor_spec.get("index_code"),
         "use_industry": bool(factor_spec["use_industry"]),
         "use_mktcap": bool(factor_spec["use_mktcap"]),
         **preprocessing,
-        "industry_scheme": str(factor_spec["industry_scheme"]),
+        "industry_scheme": _industry_selection(factor_spec["industry_scheme"], str(config_path)),
         "backtest_metric": str(factor_spec["backtest_metric"]),
         "long_groups": weight.get("long_groups"),
         "short_groups": weight.get("short_groups"),
@@ -239,7 +254,8 @@ def factor_spec_options(config: Mapping[str, Any], config_path: str | Path) -> d
         "intra_group_allocation": dict(weight.get("intra_group_allocation") or {}),
     }
     if "industry_inputs" in factor_spec:
-        options["industry_inputs"] = dict(factor_spec.get("industry_inputs") or {})
+        options["industry_inputs"] = {key: _industry_selection(value, str(config_path))
+                                     for key, value in (factor_spec.get("industry_inputs") or {}).items()}
     if "required_history_bars" in factor_spec:
         options["required_history_bars"] = int(factor_spec.get("required_history_bars") or 0)
     if "mask_inputs_by_pit" in factor_spec:

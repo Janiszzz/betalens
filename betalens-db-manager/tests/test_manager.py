@@ -8,6 +8,7 @@ import json,threading,uuid,os
 import pytest,yaml
 from fastapi.testclient import TestClient
 from betalens_db_manager.manager import DatabaseManagerService
+from betalens_db_manager.pipeline import Pipeline
 from betalens_db_manager.config import Settings
 from betalens_db_manager.api import create_app
 from betalens_db_manager.canonical import registry_context
@@ -18,6 +19,26 @@ def manager(tmp_path,**kwargs):return DatabaseManagerService(Settings(config_dir
 
 def table_definition(name='sample_prices'):
     return {'name':name,'zh_name':'示例行情','description':'按证券和日期记录精确价格','grain':'证券和日期一行','keys':['code','business_date'],'time_field':'business_date','temporal_rule':'calendar_day','fields':[{'name':'code','type':'text'},{'name':'business_date','type':'date'},{'name':'price','type':'numeric','precision':28,'scale':8,'unit':'元'}]}
+
+
+
+def archive_requests(service,job):
+    """Source-contract fixture: use the live v2 acquisition/validation kernel."""
+    from betalens_db_manager.downloader import TaskDownloader
+    item=service.state.job(job)
+    service.source.active_job=job
+    service.source.requests_per_minute=item['plan']['request']['requests_per_minute']
+    service.source.retrieval_policies=item['plan']['retrieval_policies']
+    with TaskDownloader(service,item) as downloader:report=downloader.run()
+    service.state.update_job(job,status='blocked' if report['blocking'] else 'downloaded')
+    return service.state.job(job)
+
+
+def cached_rows(service,result,name):
+    from betalens_db_manager.pipeline_cache import read_rows
+    return [row for unit in result['pipeline']['units'] if unit['kind']=='normalize'
+            for record in (unit['result'] or {}).get('tables',{}).get(name,[])
+            for row in read_rows(record,service.registry.spec(name))]
 
 
 def test_definitions_persist_and_generated_columns_are_protected(tmp_path):
@@ -142,19 +163,20 @@ def test_real_http_two_targets_audit_idempotency_rollback(live_manager,mock_api)
     s.sources.save(source)
     mapping={'format_version':1,'table':'sample_prices','bindings':[{'source_id':'mock_vendor','endpoint':'prices','fields':[{'source_field':'ticker','column':'code'},{'source_field':'day','column':'business_date','date_format':'%Y/%m/%d'},{'source_field':'price_milli','column':'price','multiplier':'0.001'}]}]}
     s.mappings.save(mapping,None)
-    job=s.plan({'tables':['sample_prices'],'start_date':'2026-10-13','end_date':'2026-10-13'})
-    s.download(job['id']);preview=s.preview(job['id']);assert not preview['rejected'],preview
+    job=s.plan({'auto_commit':False,'tables':['sample_prices'],'start_date':'2026-10-13','end_date':'2026-10-13'})
+    result=Pipeline(s).run(job['id']);assert result['status']=='ready_to_commit',result.get('error')
     with registry_context(s.registry):assert s.pg.query('sample_prices')['rows']==[]
-    result=s.commit(job['id'],preview['token']);assert result['status']=='completed',result['error']
+    result=Pipeline(s).commit(job['id']);assert result['status']=='completed',result['error']
     with registry_context(s.registry):
         pg=s.pg.query('sample_prices')['rows'][0];ch=s.ch.query('sample_prices')['rows'][0]
     assert pg['price']==ch['price']==Decimal('12.34567890')
-    assert pg['ingested_at'] and ch['ingested_at'] and pg['import_task_id']==job['id']
+    assert pg['ingested_at'] and ch['ingested_at'] and s.state.plan(pg['import_task_id'])['pipeline_parent']==job['id']
     assert any(r['event']=='http_response' for r in s.state.logs(job['id']))
-    j2=s.plan({'tables':['sample_prices'],'start_date':'2026-10-13','end_date':'2026-10-13'})
-    s.download(j2['id']);p2=s.preview(j2['id']);assert all(r['counts']['skipped']==1 for r in p2['tables'])
-    assert s.commit(j2['id'],p2['token'])['status']=='completed'
-    assert all(r['status']=='completed' for r in s.rollback(job['id'])['results'])
+    j2=s.plan({'auto_commit':False,'tables':['sample_prices'],'start_date':'2026-10-13','end_date':'2026-10-13'})
+    assert Pipeline(s).run(j2['id'])['status']=='ready_to_commit'
+    repeated=Pipeline(s).commit(j2['id']);assert repeated['status']=='completed'
+    assert all(r['result']['counts']['skipped']==1 for r in repeated['pipeline']['receipts'])
+    assert Pipeline(s).rollback(job['id'])['status']=='rolled_back'
     with registry_context(s.registry):assert not s.pg.query('sample_prices')['rows'] and not s.ch.query('sample_prices')['rows']
 
 
@@ -202,8 +224,8 @@ def test_partial_acceptance_and_target_snapshot_staleness(live_manager,mock_api)
     s.sources.save(source)
     m={'format_version':1,'table':'sample_prices','bindings':[{'source_id':'vendor','endpoint':'prices','fields':[{'source_field':'ticker','column':'code'},{'source_field':'day','column':'business_date','date_format':'%Y/%m/%d'},{'source_field':'price_milli','column':'price'}]}]}
     s.mappings.save(m,None)
-    j=s.plan({'tables':['sample_prices'],'start_date':'2026-10-13','end_date':'2026-10-13','targets':['postgres']})
-    s.download(j['id'])
+    j=s.plan({'auto_commit':False,'tables':['sample_prices'],'start_date':'2026-10-13','end_date':'2026-10-13','targets':['postgres']})
+    archive_requests(s,j['id'])
     part=s.state.job(j['id'])['slices'][0]
     from betalens_db_manager.source import read_archive
     from betalens_db_manager.util import dumps
@@ -214,10 +236,11 @@ def test_partial_acceptance_and_target_snapshot_staleness(live_manager,mock_api)
     raw=dumps({'code':0,'data':data}).encode()
     with gzip.open(part['archive'],'wb') as f:f.write(raw)
     s.state.slice(j['id'],part['id'],'prices',part['request'],sha=hashlib.sha256(raw).hexdigest())
-    preview=s.preview(j['id']);assert preview['rejected']==1
-    with pytest.raises(ValueError):s.commit(j['id'],preview['token'])
-    result=s.commit(j['id'],preview['token'],accept_partial=True);assert result['status']=='partial'
-    with registry_context(s.registry):assert len(s.pg.query('sample_prices')['rows'])==1 and not s.ch.query('sample_prices')['rows']
+    result=Pipeline(s).run(j['id']);assert result['status']=='partial'
+    assert sum((u['result'] or {}).get('rejected',0) for u in result['pipeline']['units'])==1
+    assert Pipeline(s).commit(j['id'])['status']=='partial'
+    # Whole invalid batches await the explicit v2 review workflow.
+    with registry_context(s.registry):assert not s.pg.query('sample_prices')['rows'] and not s.ch.query('sample_prices')['rows']
 
 
 def test_cleanup_keeps_archives_referenced_by_pending_migration(tmp_path):
@@ -231,8 +254,8 @@ def test_cleanup_keeps_archives_referenced_by_pending_migration(tmp_path):
     with s.state.connect() as conn:conn.execute("UPDATE jobs SET status='completed',updated='2000-01-01T00:00:00+00:00' WHERE id=?",(original['id'],))
     clean_cache(s);assert path.exists()
     with s.state.connect() as conn:conn.execute("UPDATE jobs SET status='completed',updated='2000-01-01T00:00:00+00:00' WHERE id=?",(consumer['id'],))
-    clean_cache(s);assert not path.exists()
-    assert s.state.job(original['id'])['plan']['cache_purged']
+    clean_cache(s);assert path.exists()
+    assert not s.state.job(original['id'])['plan'].get('cache_purged')
 
 
 def test_http_paging_and_repeated_page_block(live_manager,mock_api):
@@ -246,13 +269,13 @@ def test_http_paging_and_repeated_page_block(live_manager,mock_api):
         s.mappings.save(value,doc['file_hash'])
     register('paged','paged',2)
     request={'tables':['sample_prices'],'source_id':'paged','start_date':'2026-10-13','end_date':'2026-10-13','targets':['postgres']}
-    job=s.plan(request);s.download(job['id']);parts=s.state.job(job['id'])['slices']
+    job=s.plan({**request,'auto_commit':False});result=Pipeline(s).run(job['id']);parts=s.state.job(job['id'])['slices']
     assert sorted(p['rows'] for p in parts)==[0,1,2]
-    preview=s.preview(job['id']);assert not preview['blocking'] and preview['tables'][0]['counts']['inserted']==3
+    assert result['status']=='ready_to_commit' and len(cached_rows(s,result,'sample_prices'))==3
     register('repeating','repeat',1)
-    j=s.plan({**request,'source_id':'repeating'});s.download(j['id']);p=s.preview(j['id']);assert p['blocking']
+    j=s.plan({'auto_commit':False,**request,'source_id':'repeating'});p=Pipeline(s).run(j['id']);assert p['status']=='partial'
     assert len(s.state.job(j['id'])['slices'])==2
-    with pytest.raises(ValueError):s.commit(j['id'],p['token'],accept_partial=True)
+    assert not p['pipeline']['receipts']
 
 
 def test_peer_content_hash_is_independent_of_import_history(tmp_path):
@@ -268,9 +291,9 @@ def test_peer_content_hash_is_independent_of_import_history(tmp_path):
 
 def test_financial_publication_dates_remain_distinct(tmp_path):
     from betalens_db_manager.catalog import dataset
-    from betalens_db_manager.service import normalize_source
+    from betalens_db_manager.manager_kernel import normalize_source
     s=manager(tmp_path)
-    job=s.plan({'datasets':['income'],'codes':['000001.SZ'],'start_date':'2025-12-31','end_date':'2025-12-31'})
+    job=s.plan({'tables':['fundamental_periodic'],'endpoints':['income'],'codes':['000001.SZ'],'start_date':'2025-12-31','end_date':'2025-12-31'})
     fields=[f['name'] for f in dataset('income').fields]
     raw={'ts_code':'000001.SZ','end_date':'20251231','ann_date':'20260301','f_ann_date':'20260305','report_type':'1','comp_type':'1','end_type':'4','revenue':'100'}
     rows,rejected=normalize_source(dataset('income'),{'fields':fields,'items':[[raw.get(f) for f in fields]]},job['id'],'p','2026-10-20T00:00:00Z')
@@ -349,14 +372,14 @@ def test_register_new_field_then_replay_keeps_cached_response(live_manager,mock_
     s.sources.save(source)
     mapping={'format_version':1,'table':'sample_prices','bindings':[{'source_id':'cached_vendor','endpoint':'prices','fields':[{'source_field':'ticker','column':'code'},{'source_field':'day','column':'business_date','date_format':'%Y/%m/%d'},{'source_field':'price_milli','column':'price'}]}]}
     s.mappings.save(mapping,None)
-    job=s.plan({'tables':['sample_prices'],'source_id':'cached_vendor','start_date':'2026-10-13','end_date':'2026-10-13'});s.download(job['id'])
+    job=s.plan({'auto_commit':False,'tables':['sample_prices'],'source_id':'cached_vendor','start_date':'2026-10-13','end_date':'2026-10-13'});archive_requests(s,job['id'])
     part=s.state.job(job['id'])['slices'][0];data=read_archive(Path(part['archive']),part['sha']);data['fields'].append('extra_value')
     for row in data['items']:row.append('17')
     raw=dumps({'code':0,'data':data}).encode()
     with gzip.open(part['archive'],'wb') as handle:handle.write(raw)
     s.state.slice(job['id'],part['id'],'prices',part['request'],sha=hashlib.sha256(raw).hexdigest())
-    preview=s.preview(job['id']);assert preview['blocking']
-    assert any(r['source_field']=='extra_value' and r['status']=='unregistered_blocked' for r in preview['field_validation'])
+    _,rejects=s._build_canonical(s.state.job(job['id']));assert rejects
+    assert any(r['source_field']=='extra_value' and r['status']=='unregistered_blocked' for r in s.field_audit(job['id']))
     contract['fields'].append({'name':'extra_value','type':'numeric'});s.sources.save(source)
     mapping['bindings'][0]['fields'].append({'source_field':'extra_value','column':'extra_metric'})
     s.mappings.save(mapping,s.mappings.document('sample_prices')['file_hash'])
@@ -364,8 +387,8 @@ def test_register_new_field_then_replay_keeps_cached_response(live_manager,mock_
         response=client.post('/api/tasks/'+job['id']+'/replay',json={});assert response.status_code==200,response.text
         linked=response.json()
     monkeypatch.setattr(HTTPAdapter,'_fetch',lambda *a,**kw:(_ for _ in ()).throw(AssertionError('缓存重审不得再次联网')))
-    s.download(linked['id']);preview=s.preview(linked['id']);assert not preview['blocking'] and not preview['rejected']
-    assert preview['tables'][0]['normalized_sample'][0]['extra_metric']==Decimal('17')
+    result=Pipeline(s).run(linked['id']);assert result['status']=='ready_to_commit',result.get('error')
+    assert cached_rows(s,result,'sample_prices')[0]['extra_metric']==Decimal('17')
     assert s.state.ledger_rows('import_source_archive',linked['id'])
 
 
@@ -428,19 +451,22 @@ def test_mapping_graph_drafts_report_omissions_and_explicit_overlap(tmp_path):
 def test_composite_key_merge_checks_required_fields_after_join(live_manager,mock_api):
     s=live_manager;register_join_source(s,mock_api);m=join_mapping(s);s.mappings.save(m,None)
     with registry_context(s.registry):assert s.schema.apply(s.schema.plan('joined_quotes')['token'])['status']=='completed'
-    job=s.plan({'tables':['joined_quotes'],'start_date':'2026-10-13','end_date':'2026-10-13'})
-    s.download(job['id']);p=s.preview(job['id']);assert p['rejected']==0,p
-    assert all(t['normalized_sample'][0]['price']==Decimal('12.34567890') and t['normalized_sample'][0]['volume']==Decimal(200) for t in p['tables'])
+    job=s.plan({'auto_commit':False,'tables':['joined_quotes'],'start_date':'2026-10-13','end_date':'2026-10-13'})
+    p=Pipeline(s).run(job['id']);assert p['status']=='ready_to_commit',p.get('error')
+    assert all(r['price']==Decimal('12.34567890') and r['volume']==Decimal(200) for r in cached_rows(s,p,'joined_quotes'))
     with registry_context(s.registry):assert s.pg.query('joined_quotes')['rows']==s.ch.query('joined_quotes')['rows']==[]
-    assert s.commit(job['id'],p['token'])['status']=='completed'
+    assert Pipeline(s).commit(job['id'])['status']=='completed'
     with registry_context(s.registry):
         for db in (s.pg,s.ch):
             row=db.query('joined_quotes')['rows'][0]
             assert row['code']=='a' and row['business_date']==date(2026,10,13) and row['volume']==200
             assert row['data_quality_status']=='mixed_sources'
-    evidence=s.state.ledger_get('task_field_evidence',job['id'])['rows']
+    # L3 explicitly reconstructs field evidence for the normalized child.
+    child=next(u['result']['child_id'] for u in p['pipeline']['units'] if u['kind']=='normalize')
+    s._build_canonical(s.state.job(child))
+    evidence=s.state.ledger_get('task_field_evidence',child)['rows']
     assert any(e.get('column')=='volume' and e.get('endpoint')=='volumes' for e in evidence)
-    assert all(r['status']=='completed' for r in s.rollback(job['id'])['results'])
+    assert Pipeline(s).rollback(job['id'])['status']=='rolled_back'
 
 
 def test_same_source_nonunique_join_key_blocks_instead_of_choosing_first(live_manager,mock_api):
@@ -448,32 +474,28 @@ def test_same_source_nonunique_join_key_blocks_instead_of_choosing_first(live_ma
     source=s.sources.values['join_vendor'];source['endpoints']['prices']['path']='duplicate';s.sources.save(source)
     s.mappings.save(m,None)
     with registry_context(s.registry):assert s.schema.apply(s.schema.plan('joined_quotes')['token'])['status']=='completed'
-    job=s.plan({'tables':['joined_quotes'],'start_date':'2026-10-13','end_date':'2026-10-13'})
-    s.download(job['id']);p=s.preview(job['id']);assert p['blocking'] and p['rejected']>0
-    assert any('共同键不唯一' in r['reason'] for r in p['reject_sample'])
-    assert all(not t['normalized_sample'] for t in p['tables'])
+    job=s.plan({'auto_commit':False,'tables':['joined_quotes'],'start_date':'2026-10-13','end_date':'2026-10-13'})
+    p=Pipeline(s).run(job['id']);assert p['status']=='partial'
+    assert any('共同键不唯一' in r['reason'] for u in p['pipeline']['units'] for r in (u['result'] or {}).get('reject_sample',[]))
+    assert not cached_rows(s,p,'joined_quotes') and not p['pipeline']['receipts']
 
 
 def cached_part(s,job,endpoint,data):
     import gzip,hashlib
     from betalens_db_manager.util import dumps,digest,atomic_json,now
-    request=next(r for r in job['plan']['requests'] if r['endpoint']==endpoint)
-    key=digest([request['source_id'],endpoint,request['parameters']])[:24]
-    path=s.settings.state_dir/'archive'/job['id']/(key+'.json.gz');path.parent.mkdir(parents=True,exist_ok=True)
-    raw=dumps({'code':0,'data':data}).encode()
-    with gzip.open(path,'wb') as f:f.write(raw)
-    sha=hashlib.sha256(raw).hexdigest();atomic_json(path.with_suffix('.meta.json'),{'fetched_at':now()})
-    s.state.slice(job['id'],key,endpoint,request,status='downloaded',archive=str(path),sha=sha,rows=len(data['items']))
-    # The real downloader also archives all planned calendar dependencies.
-    for dependency in job['plan']['requests']:
-        if dependency.get('strategy')!='dependency':continue
-        dependency_key=digest([dependency['source_id'],dependency['endpoint'],dependency['parameters']])[:24]
-        if s.state.get_slice(job['id'],dependency_key):continue
-        empty={'fields':[f['name'] for f in job['plan']['source_contracts'][dependency['source_id']+':'+dependency['endpoint']]['fields']],'items':[]}
-        payload=dumps({'code':0,'data':empty}).encode();target=path.parent/(dependency_key+'.json.gz')
-        with gzip.open(target,'wb') as f:f.write(payload)
-        atomic_json(target.with_suffix('.meta.json'),{'fetched_at':now()})
-        s.state.slice(job['id'],dependency_key,dependency['endpoint'],dependency,status='downloaded',archive=str(target),sha=hashlib.sha256(payload).hexdigest(),rows=0)
+    from betalens_db_manager.downloader import TaskDownloader
+    with TaskDownloader(s,job) as downloader:
+        selected=next(r for r in job['plan']['requests'] if r['endpoint']==endpoint)
+        queue=[(selected,data)]+[(r,{'fields':[f['name'] for f in job['plan']['source_contracts'][r['source_id']+':'+r['endpoint']]['fields']],'items':[]}) for r in job['plan']['requests'] if r.get('strategy')=='dependency' and r is not selected]
+        for root,payload in queue:
+            request,_,_,page=downloader.prepared(root);key=downloader.key(request)
+            path=s.settings.state_dir/'archive'/job['id']/(key+'.json.gz');path.parent.mkdir(parents=True,exist_ok=True)
+            raw=dumps({'code':0,'data':payload}).encode()
+            with gzip.open(path,'wb') as f:f.write(raw)
+            sha=hashlib.sha256(raw).hexdigest();atomic_json(path.with_suffix('.meta.json'),{'fetched_at':now()})
+            children=[downloader.following(request,page,len(payload['items']))] if page and payload['items'] else []
+            s.state.slice(job['id'],key,request['endpoint'],request,status='paged' if children else 'downloaded',archive=str(path),sha=sha,rows=len(payload['items']),result={'children':children,'complete':not children})
+            queue.extend((child,{'fields':payload['fields'],'items':[]}) for child in children)
 
 
 def test_joint_key_does_not_join_different_dates_by_code_only(tmp_path):
@@ -511,7 +533,10 @@ def test_serving_sigterm_stops_owned_worker(tmp_path):
     child=subprocess.Popen([sys.executable,'-m','betalens_db_manager','--env',str(s.env_file),'serve','--port',str(port)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
     workers=[]
     try:
-        for _ in range(60):
+        # The web process and its worker each initialize the full catalog.
+        # Allow startup under concurrent conversion/integration load.
+        for _ in range(300):
+            if child.poll() is not None:raise AssertionError('server exited during startup')
             try:
                 health=requests.get(f'http://127.0.0.1:{port}/api/worker-status',timeout=.2).json()
                 if health.get('available'):break
@@ -523,7 +548,10 @@ def test_serving_sigterm_stops_owned_worker(tmp_path):
         child.terminate();assert child.wait(timeout=12)==0
         assert all(not Path(f'/proc/{pid}').exists() for pid in workers)
     finally:
-        if child.poll() is None:child.kill();child.wait()
+        if child.poll() is None:
+            child.terminate()
+            try:child.wait(timeout=15)
+            except subprocess.TimeoutExpired:child.kill();child.wait()
         for pid in workers:
             if Path(f'/proc/{pid}').exists():os.kill(pid,signal.SIGKILL)
 

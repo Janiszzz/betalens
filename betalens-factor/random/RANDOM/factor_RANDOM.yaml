@@ -6,7 +6,7 @@ meta:
   logic: 收盘价仅用于确定当日可用股票；因子得分由 seed 和指定分布生成，equal_count 按随机得分排序分组，无经济方向含义。泊松模式加入极小的种子扰动来随机打破同值。
 factor_spec:
   inputs:
-    close_wide: 收盘价(元)
+    close_wide: close
   compute_kwargs:
     seed: 42
     # 可选分布模式：
@@ -32,7 +32,8 @@ factor_spec:
       beta: 5.0
       df: 5.0
   direction: positive
-  table_name: daily_market
+  table_name: market_daily_post_adjusted
+  query_filters: {asset_type: stock}
   index_code: 000906.SH
   use_industry: false
   use_mktcap: false
@@ -40,8 +41,8 @@ factor_spec:
   winsorize_n: 3.0
   standardize_method: none
   neutralize: false
-  industry_scheme: 申万一级行业
-  backtest_metric: 收盘价(元)
+  industry_scheme: {scheme_code: null, level: 1}
+  backtest_metric: close
   required_history_bars: 0
   mask_inputs_by_pit: true
 weight:

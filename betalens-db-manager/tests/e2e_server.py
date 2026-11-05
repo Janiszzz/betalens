@@ -7,6 +7,7 @@ import json,threading,tempfile,uuid
 import uvicorn
 from betalens_db_manager.config import Settings
 from betalens_db_manager.manager import DatabaseManagerService
+from betalens_db_manager.pipeline import Pipeline
 from betalens_db_manager.api import create_app
 from betalens_db_manager.canonical import registry_context
 from controlled_ch import configure_writer
@@ -26,7 +27,7 @@ def main():
             if path.path=='/seed':
                 try:
                     for day in ('2026-10-12','2026-10-14'):
-                        task=s.plan({'tables':['browser_prices'],'start_date':day,'end_date':day});s.download(task['id']);preview=s.preview(task['id']);result=s.commit(task['id'],preview['token'])
+                        task=s.plan({'tables':['browser_prices'],'start_date':day,'end_date':day});result=Pipeline(s).run(task['id'])
                         assert result['status']=='completed',result.get('error')
                     value={'seeded':True}
                 except Exception as exc:value={'error':str(exc)}

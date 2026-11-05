@@ -20,6 +20,10 @@ from betalens_db_manager.comparison import typed
 from betalens_db_manager.config import Settings
 from betalens_db_manager.storage import relation
 from test_manager import live_manager, mock_api, table_definition
+from betalens_db_manager.pipeline import Pipeline
+from betalens_db_manager.pipeline_store import PipelineStore
+from betalens_db_manager.pipeline_cache import load_journal
+from betalens_db_manager.pipeline_writer import ch_apply
 
 
 def prepare_job(service, mock_api, target):
@@ -39,8 +43,8 @@ def prepare_job(service, mock_api, target):
             {'source_field':'price_milli','column':'price','multiplier':'0.001'}]}]},None)
     job=service.plan({'tables':['sample_prices'],'start_date':'2026-10-13',
                       'end_date':'2026-10-13','targets':[target],
-                      'mode':'refresh_source'})
-    service.download(job['id'])
+                      'mode':'refresh_source','auto_commit':False})
+    assert Pipeline(service).run(job['id'])['status']=='ready_to_commit'
     return job['id']
 
 
@@ -50,9 +54,7 @@ def test_pg_stage_race_preserves_external_write(live_manager,mock_api,monkeypatc
     with service.pg.connect() as conn,conn.cursor() as cur:
         cur.execute(sql.SQL('INSERT INTO {} (code,business_date,price) VALUES (%s,%s,%s)').format(
             relation(service.settings,'sample_prices')),('a','2026-10-13',Decimal('10')))
-    preview=service.preview(job)
-    assert not preview['blocking'] and not preview['rejected'],preview
-    original=service.state.stage_commit
+    original=PipelineStore.prepare_many
     staged=[]
     def race(*args,**kwargs):
         result=original(*args,**kwargs)
@@ -61,15 +63,16 @@ def test_pg_stage_race_preserves_external_write(live_manager,mock_api,monkeypatc
             cur.execute(sql.SQL('UPDATE {} SET price=%s WHERE code=%s').format(
                 relation(service.settings,'sample_prices')),(Decimal('77'),'a'))
         return result
-    monkeypatch.setattr(service.state,'stage_commit',race)
-    result=service.commit(job,preview['token'])
+    monkeypatch.setattr(PipelineStore,'prepare_many',race)
+    result=Pipeline(service).commit(job)
     assert staged and result['status']=='partial',result
     with service.pg.connect(readonly=True) as conn,conn.cursor() as cur:
         cur.execute(sql.SQL('SELECT price FROM {} WHERE code=%s').format(
             relation(service.settings,'sample_prices')),('a',))
         assert cur.fetchone()[0]==Decimal('77')
-    intent=service.state.table_commit(job,'postgres','sample_prices')
-    assert Decimal(str(intent['comparison']['changes'][0]['before']['price']))==Decimal('10')
+    intent=PipelineStore(service.state).receipts(job)[0]
+    manifest=load_journal(intent['manifest'],service.registry.spec('sample_prices'))
+    assert manifest['changes'][0]['before']['price']==Decimal('10')
     assert not service.state.audits(job,'postgres')
 
 
@@ -100,16 +103,14 @@ def test_two_ch_adapters_share_lock_and_unknown_query_blocks(live_manager,tmp_pa
 def test_ch_read_only_account_and_rollback_preserve_other_writer(live_manager,mock_api,tmp_path):
     service=live_manager
     job=prepare_job(service,mock_api,'clickhouse')
-    preview=service.preview(job)
-    assert not preview['blocking'] and not preview['rejected'],preview
-    result=service.commit(job,preview['token'])
+    result=Pipeline(service).commit(job)
     assert result['status']=='completed',result
     second=ClickHouse(replace(service.settings,state_dir=tmp_path/'other_state'))
     spec=service.registry.spec('sample_prices')
     other=typed(spec,{'code':'b','business_date':'2026-10-13','price':'55'})
     manifest=second.compare(spec,[other],'refresh_source')
     assert manifest['counts']['inserted']==1
-    second.commit_rows('independent_writer','clickhouse',spec,[other],'refresh_source',manifest)
+    ch_apply(second,service.state,'independent_writer','external',spec,manifest)
     with registry_context(service.registry):
         before={row['code']:row for row in service.ch.query('sample_prices')['rows']}
     assert set(before)=={'a','b'} and before['b']['price']==Decimal('55')
@@ -129,8 +130,8 @@ def test_ch_read_only_account_and_rollback_preserve_other_writer(live_manager,mo
     finally:
         admin.execute(f'DROP USER IF EXISTS `{reader_name}`')
 
-    rollback=service.rollback(job,['clickhouse'])
-    assert rollback['results'][0]['status']=='completed',rollback
+    rollback=Pipeline(service).rollback(job,['clickhouse'])
+    assert rollback['status']=='rolled_back',rollback
     with registry_context(service.registry):
         after={row['code']:row for row in service.ch.query('sample_prices')['rows']}
     assert set(after)=={'b'} and after['b']['price']==before['b']['price']

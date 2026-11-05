@@ -597,7 +597,7 @@ def test_exact_engine_uses_preloaded_frames():
     factor = SimpleNamespace(
         name="EXACT_SMOKE",
         backtest_metric="close",
-        table_name="daily_market",
+        table_name="market_daily_post_adjusted",
     )
     nav = mining._exact_nav(weights, data, mining.MiningSpec(factor), 1_000_000, 24)
     assert not nav.empty
@@ -893,7 +893,9 @@ def test_legacy_performance_options_are_rejected(tmp_path):
         mining.run_mining(parameter_path, performance_path)
 
 
-def test_failed_run_updates_manifest_and_audit_log(tmp_path):
+def test_failed_run_updates_manifest_and_audit_log(tmp_path, monkeypatch):
+    from unittest.mock import Mock
+    monkeypatch.setattr("betalens.datafeed.get_absolute_trade_days", Mock(return_value=list(pd.bdate_range("2024-01-01", "2024-01-15").date)))
     parameter_path = tmp_path / "parameter_space.yaml"
     performance_path = tmp_path / "performance.yaml"
     output_dir = tmp_path / "output"
@@ -945,3 +947,10 @@ def test_failed_run_updates_manifest_and_audit_log(tmp_path):
         getattr(handler, "_betalens_mining_handler", False)
         for handler in mining._LOGGER.handlers
     )
+
+
+def test_half_year_sampling_uses_h_and_natural_half_years():
+    days = pd.to_datetime(['2024-03-29', '2024-06-28', '2024-09-30', '2024-12-31'])
+    assert mining._sample_days(days, 'H') == [pd.Timestamp('2024-06-28').date(), pd.Timestamp('2024-12-31').date()]
+    with pytest.raises(ValueError):
+        mining._sample_days(days, 'S')

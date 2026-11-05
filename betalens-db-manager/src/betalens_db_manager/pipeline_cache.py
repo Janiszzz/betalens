@@ -20,18 +20,24 @@ def file_sha(path):
 
 def write_rows(path,spec,rows):
     path=Path(path);path.parent.mkdir(parents=True,exist_ok=True)
-    table=pa.Table.from_pylist([{f['name']:r.get(f['name']) for f in spec.fields} for r in rows],schema=schema(spec))
+    table=rows if isinstance(rows,pa.Table) else pa.Table.from_pylist(rows,schema=schema(spec))
     tmp=path.with_suffix('.tmp')
     pq.write_table(table,tmp,compression='zstd',row_group_size=50000)
     with tmp.open('rb') as h:os.fsync(h.fileno())
     tmp.replace(path)
-    return {'path':str(path),'sha256':file_sha(path),'rows':len(rows),'bytes':path.stat().st_size,'schema_hash':spec.hash}
+    ranges={}
+    import pyarrow.compute as pc
+    for field in table.schema:
+        if pa.types.is_date(field.type):
+            limits=pc.min_max(table[field.name]).as_py()
+            ranges[field.name]={**{k:str(v) if v is not None else None for k,v in limits.items()},'null_count':table[field.name].null_count}
+    return {'path':str(path),'sha256':file_sha(path),'rows':len(table),'bytes':path.stat().st_size,'schema_hash':spec.hash,'ranges':ranges}
 
 
-def read_rows(record,spec):
+def read_rows(record,spec,columns=None,filters=None):
     path=Path(record['path'])
     if spec.hash!=record['schema_hash'] or file_sha(path)!=record['sha256']:raise ValueError('标准化缓存或镜像校验失败')
-    return pq.read_table(path,schema=schema(spec)).to_pylist()
+    return pq.read_table(path,schema=schema(spec),columns=columns,filters=filters).to_pylist()
 
 
 def save_journal(root,spec,comparison,expected=None):

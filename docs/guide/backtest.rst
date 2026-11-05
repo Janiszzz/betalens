@@ -25,9 +25,9 @@
        ftc=0.0,
        ptc=0.0,
        verbose=True,
-       metric="收盘价(元)",
+       metric="close",
        time_tolerance=24,
-       table_name="daily_market",
+       table_name="market_daily_post_adjusted",
        check_trade_status=True,
        trade_status_mode="to_cash",
        trade_status_table="trade_status",
@@ -50,13 +50,13 @@
      - 默认值
    * - ``metric``
      - 成交价格指标
-     - ``收盘价(元)``
+     - ``close``
    * - ``time_tolerance``
      - 价格查询时间容差，单位小时
      - ``24``
    * - ``table_name``
      - 价格所在数据表
-     - ``daily_market``
+     - ``market_daily_post_adjusted``
    * - ``lot_size``
      - 一手股数，按整数手成交
      - ``100``

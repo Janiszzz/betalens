@@ -12,6 +12,8 @@ from betalens_db_manager.api import create_app
 from betalens_db_manager.manager import DatabaseManagerService
 from betalens_db_manager.config import Settings
 from betalens_db_manager.reference_service import ReferenceWorkflow, normalize_request
+from betalens_db_manager.pipeline_reference import acquire_reference
+from betalens_db_manager.pipeline import Pipeline
 from betalens_db_manager.reference_api import schema_preview
 from betalens_db_manager.reference_contracts import TABLES
 from betalens_db_manager.util import dumps, now, atomic_json
@@ -58,7 +60,7 @@ class SampleSource:
 
 def prepared(service,**params):
     workflow=ReferenceWorkflow(service);item=workflow.plan(request(**params))
-    service.download(item['id']);preview=service.preview(item['id'])
+    acquire_reference(service,service.state.job(item['id']));preview=workflow.build_cache(item['id'])
     assert not preview['blocking'],preview
     return item['id'],preview
 
@@ -80,12 +82,12 @@ def test_persistent_plan_uses_all_calendar_dates_and_explicit_bse_reference(tmp_
     assert all('is_open' not in r['parameters'] for r in roots if r['endpoint']=='trade_cal')
     assert not any(r['parameters'].get('exchange')=='BSE' for r in roots)
     assert {r['parameters']['is_new'] for r in roots if r['endpoint']=='index_member_all'}=={'Y','N'}
-    assert len([r for r in roots if r['endpoint']=='suspend_d'])==3
+    assert [r['parameters'] for r in roots if r['endpoint']=='suspend_d']==[{'ts_code':'000001.SZ','start_date':'20261012','end_date':'20261014'}]
     workflow.s.state.update_job(job['id'],status='interrupted')
     new=workflow.retry(job['id'])
     assert new['plan']['parent_task_id']==job['id'] and new['status']=='planned'
     assert new['id']!=job['id']
-    with pytest.raises(ValueError,match='中断'):workflow.download(job['id'])
+    with pytest.raises(ValueError,match='中断'):acquire_reference(service,workflow.job(job['id']))
 
 
 def test_worker_hard_exit_records_reference_attempt_without_granting_trust(tmp_path):
@@ -105,7 +107,7 @@ def test_archived_baseline_requires_matching_query_evidence_and_fresh_confirmati
     service=DatabaseManagerService(Settings(config_dir=tmp_path/'config',state_dir=tmp_path/'state'))
     service.source=SampleSource();workflow=ReferenceWorkflow(service)
     source=workflow.plan(request(targets=['postgres']))
-    service.download(source['id'])
+    acquire_reference(service,service.state.job(source['id']))
     assert all('value' not in row for row in workflow.detail(source['id'])['logs'])
     # A completed old task is still not a publication credential.
     service.state.update_job(source['id'],status='completed')
@@ -128,7 +130,7 @@ def test_reference_routes_preserve_preview_confirm_boundary(tmp_path,monkeypatch
     service=DatabaseManagerService(Settings(config_dir=tmp_path/'config',state_dir=tmp_path/'state'))
     calls=[]
     class Store:
-        def snapshot(self,audit=False):return {'rows':[],'scopes':[],'revisions':[],'events':[],'heads':{}}
+        def snapshot(self,audit=False,scope_ids=None):return {'rows':[],'scopes':[],'revisions':[],'events':[],'heads':{}}
         def install(self):calls.append('install');return {'status':'installed'}
     monkeypatch.setattr(ReferenceWorkflow,'store',lambda *args:Store())
     with TestClient(create_app(service)) as client:
@@ -142,7 +144,8 @@ def test_reference_routes_preserve_preview_confirm_boundary(tmp_path,monkeypatch
         assert applied.status_code==200 and len(calls)==2
         job=client.post('/api/reference/tasks',json=request()).json()
         assert client.get('/api/reference/tasks/'+job['id']).status_code==200
-        assert client.post('/api/reference/tasks/'+job['id']+'/commit',json={'token':'fake'}).status_code==409
+        assert client.post('/api/reference/tasks/'+job['id']+'/commit',json={'token':'fake'}).status_code in {404,405}
+        assert client.post('/api/tasks/'+job['id']+'/pipeline/commit',json={}).status_code==409
         assert client.get('/integrity').status_code==200
 
 
@@ -151,15 +154,15 @@ def test_failed_source_and_corrupt_archive_are_isolated_to_their_scopes(tmp_path
     source=SampleSource();source.fail={'ci_index_member'};service.source=source
     workflow=ReferenceWorkflow(service)
     item=workflow.plan(request(modules=['calendar','industry'],schemes=['CITICS'],security_codes=['000001.SZ']))
-    service.download(item['id'])
+    acquire_reference(service,service.state.job(item['id']))
     bundles=workflow.bundles(workflow.job(item['id']))
     assert all(b['complete'] for b in bundles if b['endpoint']=='trade_cal')
     assert all(not b['complete'] for b in bundles if b['endpoint']=='ci_index_member')
     class Store:
         def heads(self,ids):return {i:None for i in ids}
-        def snapshot(self,audit=False):return {'rows':[],'scopes':[],'revisions':[],'events':[]}
+        def snapshot(self,audit=False,scope_ids=None):return {'rows':[],'scopes':[],'revisions':[],'events':[],'heads':{}}
     monkeypatch.setattr(ReferenceWorkflow,'store',lambda *args:Store())
-    preview=workflow.preview(item['id'])
+    preview=workflow.build_cache(item['id'])
     assert not preview['blocking'] and preview['rejected']==3
     report=workflow.check(request(modules=['calendar','industry'],schemes=['CITICS'],security_codes=['000001.SZ']))
     assert all(r['reason']=='request_failed' for r in report['results']['postgres']['rows'] if r['module']=='industry')
@@ -175,22 +178,22 @@ def test_isolated_two_target_gap_append_audit_readback_and_revoke(live_manager):
     for target in ('postgres','clickhouse'):workflow.store(target).install()
     for day in ('2026-10-12','2026-10-14'):
         job,preview=prepared(service,start_date=day,end_date=day)
-        service.commit(job,preview['token'])
+        ReferenceWorkflow(service).publish_cache(job,preview['token'])
     checked=workflow.check(request())
     for target in ('postgres','clickhouse'):
         assert [r['trade_date'] for r in checked['results'][target]['rows'] if r['status']!='complete']==['2026-10-13']
     job,preview=prepared(service,start_date='2026-10-13',end_date='2026-10-13')
     for target in ('postgres','clickhouse'):
         assert len(workflow.store(target).snapshot()['rows'])==2 # not written by audit
-    result=service.commit(job,preview['token'])
+    result=ReferenceWorkflow(service).publish_cache(job,preview['token'])
     assert result['status']=='completed',result
     assert all(r['complete'] for r in workflow.check(request())['results'].values())
     # Exact repeat never creates a second publication or extra row.
-    service.commit(job,preview['token'])
+    ReferenceWorkflow(service).publish_cache(job,preview['token'])
     for target in ('postgres','clickhouse'):
         snapshot=workflow.store(target).snapshot(audit=True)
         assert len(snapshot['rows'])==3 and len(snapshot['events'])==3
-    rolled=service.rollback(job)
+    rolled=Pipeline(service).rollback(job)
     assert rolled['status']=='rolled_back'
     for target,value in workflow.check(request())['results'].items():
         assert not value['complete']
@@ -214,7 +217,7 @@ def test_isolated_modules_partial_fail_stale_confirmation_and_interrupted_stage(
             if module=='industry':raise RuntimeError('injected publication failure')
             return self.store.publish(revision_id,heads)
     monkeypatch.setattr(ReferenceWorkflow,'store',lambda self,target:FailOne(original(self,target)) if target=='clickhouse' else original(self,target))
-    result=service.commit(job,preview['token'])
+    result=ReferenceWorkflow(service).publish_cache(job,preview['token'])
     assert result['status']=='partial'
     rows=result['result']['results']
     assert any(r['target']=='clickhouse' and r['module']=='industry' and r['status']=='failed' for r in rows)
@@ -223,8 +226,8 @@ def test_isolated_modules_partial_fail_stale_confirmation_and_interrupted_stage(
     monkeypatch.setattr(ReferenceWorkflow,'store',original)
     stale,old=prepared(service,targets=['postgres'],start_date='2026-10-13',end_date='2026-10-13')
     newer,new=prepared(service,targets=['postgres'],start_date='2026-10-13',end_date='2026-10-13')
-    service.commit(newer,new['token'])
-    stale_result=service.commit(stale,old['token'])
+    ReferenceWorkflow(service).publish_cache(newer,new['token'])
+    stale_result=ReferenceWorkflow(service).publish_cache(stale,old['token'])
     assert stale_result['status']=='partial'
     assert '重新审计' in stale_result['result']['results'][0]['reason']
     # A real persisted stage plus simulated hard exit still cannot become a
@@ -233,7 +236,7 @@ def test_isolated_modules_partial_fail_stale_confirmation_and_interrupted_stage(
     class ExitAfterStage(FailOne):
         def publish(self,*args):raise KeyboardInterrupt('forced exit before publish')
     monkeypatch.setattr(ReferenceWorkflow,'store',lambda self,target:ExitAfterStage(original(self,target)))
-    with pytest.raises(KeyboardInterrupt):service.commit(crashed,cached['token'])
+    with pytest.raises(KeyboardInterrupt):ReferenceWorkflow(service).publish_cache(crashed,cached['token'])
     monkeypatch.setattr(ReferenceWorkflow,'store',original)
     service.state.update_job(crashed,status='interrupted')
     snapshot=workflow.store('postgres').snapshot(audit=True)

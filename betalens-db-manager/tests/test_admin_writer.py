@@ -179,28 +179,29 @@ def test_isolated_admin_mode_commit_lock_readback_and_table_exchange_rollback(tm
         with ch.write_window('commit:hold'):
             with pytest.raises(NeedsReconciliation,match='已有写操作'):
                 with second.write_window('commit:overlap'):pass
+        from betalens_db_manager.pipeline_writer import ch_apply
         first=typed(spec,{'code':'a','event_date':'2026-01-01','price':'12.34567890','import_task_id':'first'})
         original=ch.compare(spec,[first],'refresh_source')
-        assert ch.commit_rows('first','clickhouse',spec,[first],'refresh_source',original)['inserted']==1
+        assert ch_apply(ch,ch.state,'first','forward',spec,original)['applied']==1
         actual=ch._find_existing(spec,[first])[('a',)]
         assert actual['price']==Decimal('12.34567890')
         other=typed(spec,{'code':'b','event_date':'2026-02-01','price':'5','import_task_id':'second'})
-        second.commit_rows('second','clickhouse',spec,[other],'refresh_source',second.compare(spec,[other],'refresh_source'))
+        ch_apply(second,ch.state,'second','forward',spec,second.compare(spec,[other],'refresh_source'))
         history=[]
         if monthly_history:
             history=[typed(spec,{'code':f'history_{i}','event_date':f'{1990+i//12}-{i%12+1:02d}-01','price':'3','import_task_id':'history'}) for i in range(101)]
-            ch.commit_rows('history','clickhouse',spec,history,'refresh_source',ch.compare(spec,history,'refresh_source'))
+            ch_apply(ch,ch.state,'history','forward',spec,ch.compare(spec,history,'refresh_source'))
         # An earlier ALTER can leave physical column order unlike the contract.
         ch.execute(f'ALTER TABLE {ch.table(spec.name)} MODIFY COLUMN price Nullable(Decimal(28,8)) AFTER import_task_id')
         audit={'after_value':actual,'before_value':None,'after_hash':row_hash(spec,actual),'row_key':row_key(spec,actual)}
-        inverse=ch.apply_rollback(spec,[audit],'inverse_admin_probe')
-        assert len(inverse)==1
+        inverse=ch_apply(ch,ch.state,'inverse_admin_probe','inverse',spec,{'changes':[{'before':actual,'after':None,'before_hash':audit['after_hash'],'after_hash':None,'row_key':audit['row_key']}]},inverse=True)
+        assert inverse['applied']==1
         assert ch.execute(f"SELECT code FROM {ch.table(spec.name)} FINAL WHERE code IN ('a','b') ORDER BY code FORMAT TSVRaw")=='b'
         assert int(ch.execute(f'SELECT count() FROM {ch.table(spec.name)} FINAL'))==1+len(history)
-        checkpoint=ch.state.ledger_rows('ch_operation')[0]
-        assert checkpoint['status']=='exchanged_backup_retained'
+        checkpoint=ch.state.ledger_rows('pipeline_ch_inverse')[0]
+        assert checkpoint['expected']==ch.table_digest(spec,partitions=checkpoint['partitions'])
         journal=json.loads(ch.write_coordinator.journal.read_text())
-        assert journal['operation']=='rollback:inverse_admin_probe' and not journal['inflight']
+        assert journal['operation']=='pipeline:inverse_admin_probe' and not journal['inflight']
         assert ch.write_capability()['administrator']
     finally:
         cleanup.execute(f'DROP DATABASE IF EXISTS `{name}`')

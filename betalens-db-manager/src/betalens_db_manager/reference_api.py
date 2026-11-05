@@ -96,23 +96,9 @@ def install_routes(app,service,response):
     @app.get('/api/reference/tasks/{job}')
     def task(job:str):return response(workflow().detail(job))
 
-    @app.post('/api/reference/tasks/{job}/download')
-    def download(job:str):
-        workflow().job(job);return response({'task':service.state.enqueue(job,'reference_download')})
 
-    @app.post('/api/reference/tasks/{job}/preview')
-    def preview(job:str):
-        workflow().job(job);return response({'task':service.state.enqueue(job,'reference_preview')})
 
-    @app.post('/api/reference/tasks/{job}/commit')
-    def commit(job:str,payload:dict=Body(...)):
-        item=workflow().job(job)
-        if not item['preview'] or item['preview']['token']!=payload.get('token'):raise ValueError('确认令牌无效')
-        return response({'task':service.state.enqueue(job,'reference_commit',{'token':payload['token'],'accept_partial':bool(payload.get('accept_partial'))})})
 
-    @app.post('/api/reference/tasks/{job}/rollback')
-    def rollback(job:str,payload:dict=Body(default={})):
-        workflow().job(job);return response({'task':service.state.enqueue(job,'reference_rollback',{'targets':payload.get('targets')})})
 
     @app.post('/api/reference/tasks/{job}/retry')
     def retry(job:str):return response(workflow().retry(job))

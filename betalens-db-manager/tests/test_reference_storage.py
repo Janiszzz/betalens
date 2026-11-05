@@ -30,9 +30,10 @@ class MemoryStore(ReferenceStore):
         with self.lock:
             yield None
 
-    def _rows(self, spec, conn=None, revision_id=None):
+    def _rows(self, spec, conn=None, revision_id=None, selection=None):
         return deepcopy([row for row in self.tables.get(spec.name, [])
-                         if revision_id is None or row.get('revision_id') == revision_id])
+                         if (revision_id is None or row.get('revision_id') == revision_id)
+                         and (selection is None or row.get(selection[0]) in selection[1])])
 
     def _insert(self, spec, rows, conn=None):
         if spec.name in TABLES and self.fail_data_once:

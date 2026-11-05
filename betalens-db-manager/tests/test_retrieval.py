@@ -41,7 +41,7 @@ def test_shared_rate_task_override_fixed_endpoint_cap_and_cancellation(tmp_path,
     a.requests_per_minute = 20
     a._rate('daily'); before = clock.value
     b._rate('daily'); assert clock.value-before == pytest.approx(3.)
-    task = state.create_job({}, settings.fingerprint)
+    task = state.create_job({'pipeline_version':2}, settings.fingerprint)
     a.active_job = task['id']; state.cancel(task['id'])
     with pytest.raises(InterruptedError): a._rate('daily')
 
@@ -50,7 +50,7 @@ def test_http_429_and_minute_quota_waits_count_retries(tmp_path, clock, monkeypa
     import betalens_db_manager.source as module
     settings = Settings(state_dir=tmp_path, token='secret-never-log', requests_per_minute=500)
     source = TushareSource(settings, State(tmp_path))
-    task = source.state.create_job({}, settings.fingerprint); source.active_job = task['id']
+    task = source.state.create_job({'pipeline_version':2}, settings.fingerprint); source.active_job = task['id']
     class Reply:
         status_code = 200
         headers = {}
@@ -99,7 +99,7 @@ def task(tmp_path, endpoint, params, response, cap=2, mode='partition'):
     s = DatabaseManagerService(Settings(state_dir=tmp_path/'state', config_dir=tmp_path/'config'), source)
     request = {'source_id': 'tushare', 'endpoint': endpoint, 'parameters': params, 'table': 'test'}
     policy = {**tushare_policy(endpoint), 'row_limit': cap, 'mode': mode}
-    plan = {'requests': [request], 'request': {'targets': ['postgres'], 'tables': []}, 'source_contracts': {'tushare:'+n: d.as_dict() for n, d in load_catalog().items()}, 'retrieval_policies': {'tushare:'+endpoint: policy}}
+    plan = {'pipeline_version':2, 'requests': [request], 'request': {'targets': ['postgres'], 'tables': []}, 'source_contracts': {'tushare:'+n: d.as_dict() for n, d in load_catalog().items()}, 'retrieval_policies': {'tushare:'+endpoint: policy}}
     item = s.state.create_job(plan, s.settings.fingerprint)
     return s, source, item
 

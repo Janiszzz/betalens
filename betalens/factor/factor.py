@@ -70,7 +70,7 @@ def get_tradable_pool(date_list, include_abnormal=False):
     # 基于 trade_status 表查询，稀疏存储由 query_trade_status 解析为完整状态
     from betalens.datafeed import Datafeed
 
-    data = Datafeed("trade_status")
+    data = Datafeed("stock_suspension_intervals_versions")
     df = pd.DataFrame()
 
     try:
@@ -99,7 +99,7 @@ def get_tradable_pool(date_list, include_abnormal=False):
         data.close()
 
 
-def pre_query_characteristic_data(date_list, metric, time_tolerance=24*2*365, table_name="fundamentals", date_ranges=None, code_ranges=None, include_abnormal=False):
+def pre_query_characteristic_data(date_list, metric, time_tolerance=24*2*365, table_name="fundamental_periodic", date_ranges=None, code_ranges=None, include_abnormal=False, *, filters=None):
     """
     批量预查询公司特征数据，生成符合特征排序函数要求的DataFrame
 
@@ -111,7 +111,7 @@ def pre_query_characteristic_data(date_list, metric, time_tolerance=24*2*365, ta
         date_list: 调仓日期列表，每个元素为 date 或 datetime 对象
         metric: 公司特征指标名称（字符串），如 "股息率(报告期)"、"市值"、"账面市值比"
         time_tolerance: 时间容差（小时），默认 2年（24*2*365）
-        table_name: 数据库表名，默认 "fundamentals"
+        table_name: 数据库表名，默认 "fundamental_periodic"
         date_ranges: 可选，日期范围列表（如果提供，将跳过 get_tradable_pool 调用）
         code_ranges: 可选，每个日期对应的股票代码列表（如果提供，必须与 date_ranges 同时提供且长度相等）
         include_abnormal: 是否将异常交易状态（停牌等）的股票纳入计算，默认 False（仅正常交易）。
@@ -177,7 +177,8 @@ def pre_query_characteristic_data(date_list, metric, time_tolerance=24*2*365, ta
                 'codes': codes,
                 'datetimes': [datetime_str],
                 'metric': metric,
-                'time_tolerance': time_tolerance
+                'time_tolerance': time_tolerance,
+                'filters': filters
             }
             
             # 查询数据

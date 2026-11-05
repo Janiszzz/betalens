@@ -1,3 +1,8 @@
+"""Shared normalization, connection setup and historical audit readers.
+
+Task execution belongs exclusively to Pipeline; this module cannot start,
+commit, resume or roll back an import.
+"""
 from __future__ import annotations
 
 import hashlib
@@ -23,10 +28,7 @@ from .business_semantics import corporate_action_partial, daily_average_price, f
 from .time_scope import row_in_scope
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
-DEFAULT_DATASETS = [
-    "stock_basic", "fund_basic", "index_basic", "trade_cal", "daily", "daily_basic", "adj_factor",
-    "fund_daily", "fund_adj", "index_daily", "suspend_d", "index_classify", "index_member_all", "ci_index_member",
-]
+
 
 
 def high_precision(function):
@@ -88,7 +90,7 @@ def normalize_source(spec: Dataset, data: dict, job: str, slice_id: str, downloa
                 else: value = str(value)
                 row[key] = value
             if any(row.get(key) is None for key in set(spec.keys)-{'out_date','f_ann_date','suspend_timing'}-optional_source_fields(spec.name)): raise ValueError("源数据业务主键为空")
-            key = digest([row.get(k) for k in spec.keys])
+            key = tuple(row.get(k) for k in spec.keys)
             payload_hash = digest(row)
             identity = (key, payload_hash)
             if identity in seen: continue
@@ -121,7 +123,7 @@ def normalize(spec: Dataset, data: dict, job: str, slice_id: str, observed: str,
     return rows, rejected
 
 
-class TushareImportService:
+class ManagerKernel:
     def __init__(self, settings: Settings | None = None, source=None):
         self.settings = settings or Settings.from_env()
         self.state = State(self.settings.state_dir)
@@ -173,53 +175,7 @@ class TushareImportService:
         atomic_json(self.settings.state_dir/'installation.json',result)
         return result
 
-    def _make_plan(self, request: dict) -> dict:
-        allowed = {"datasets", "start_date", "end_date", "codes", "mode", "parameters", "targets", "sources", "strict_capabilities"}
-        unknown = set(request) - allowed
-        if unknown: raise ValueError("未知请求字段：" + ",".join(sorted(unknown)))
-        selected = list(request.get("datasets") or DEFAULT_DATASETS)
-        for name in selected: dataset(name)
-        start = parse_date(request.get("start_date", "2004-01-01"))
-        today = datetime.now(SHANGHAI).date()
-        end = parse_date(request.get("end_date", (today - timedelta(days=1)).isoformat()))
-        if start > end or start.year < 1900 or end > today: raise ValueError("日期范围无效")
-        codes = sorted(set(request.get("codes", [])))
-        import re
-        if any(not re.fullmatch(r"[A-Z0-9_]+\.(SH|SZ|BJ|SI|CI|CSI|CNI|OF|WI|IB)", code) for code in codes): raise ValueError("证券代码格式无效")
-        mode = request.get("mode", "fill_missing")
-        if mode not in {"fill_missing", "refresh_source"}: raise ValueError("不支持的冲突模式")
-        targets = request.get("targets", ["postgres", "clickhouse"])
-        if set(targets) - {"postgres", "clickhouse"} or not targets: raise ValueError("targets 只能选择 postgres/clickhouse")
-        sources = request.get("sources", ["tushare"])
-        if sources != ["tushare"]: raise ValueError("当前可执行来源为 tushare；Wind 和文件接入使用同一合同接口")
-        parameters = request.get("parameters", {})
-        for name, values in parameters.items():
-            if name not in selected or not isinstance(values, dict) or set(values) - set(dataset(name).input_fields):
-                raise ValueError(f"{name} 的接口参数不在合同中")
-        for quote,factor in (("daily","adj_factor"),("fund_daily","fund_adj")):
-            if quote in selected and factor not in selected: selected.append(factor)
-        if 'index_daily' in selected and (not codes or any(code.endswith('.SI') for code in codes)) and 'sw_daily' not in selected:
-            selected.append('sw_daily')
-        if "index_member_all" in selected and "index_classify" not in selected: selected.insert(0,"index_classify")
-        if "ci_index_member" in selected and not codes and "stock_basic" not in selected: selected.insert(0,"stock_basic")
-        if (any(dataset(n).strategy == "daily" for n in selected) or any(n in {'index_daily','sw_daily'} for n in selected)) and "trade_cal" not in selected:
-            selected.insert(0, "trade_cal")
-        if any(n in {"daily", "daily_basic", "adj_factor", "suspend_d"} for n in selected) and "stock_basic" not in selected and not codes:
-            selected.insert(0, "stock_basic")
-        selected = list(dict.fromkeys(selected))
-        plan = dict(request={"datasets": selected, "start_date": start.isoformat(), "end_date": end.isoformat(), "codes": codes,
-                             "mode": mode, "parameters": parameters, "targets": list(dict.fromkeys(targets)), "sources": sources,
-                             "strict_capabilities": bool(request.get("strict_capabilities", False))},
-                    contracts={n: dataset(n).hash for n in selected}, source_contracts={n:dataset(n).as_dict() for n in selected}, target=self.settings.fingerprint,
-                    mapping_version=VERSION, canonical_contracts={name:spec.hash for name,spec in load_canonical_catalog().items()}, warnings=["空响应保留审计，不证明证券无数据", "基金/指数交易状态可能为派生状态"],
-                    estimated_daily_requests=sum(1 for n in selected if dataset(n).strategy == "daily") * ((end-start).days+1), revision="2")
-        return plan
 
-    def plan(self,request:dict)->dict:
-        plan=self._make_plan(request)
-        item=self.state.create_job(plan,self.settings.fingerprint)
-        self._task_status(item['id'],'planned')
-        return item
 
     def _job(self, job: str, validate: bool = False) -> dict:
         item = self.state.job(job)
@@ -236,29 +192,6 @@ class TushareImportService:
                 return [row[0] for row in cur.fetchall()]
         except Exception: return []
 
-    def _universe(self, job: dict, asset_type: str | None = None) -> list[str]:
-        codes = set()
-        endpoints={'stock':'stock_basic','fund':'fund_basic','index':'index_basic'}
-        for part in job["slices"]:
-            if part["dataset"] in {"stock_basic", "fund_basic", "index_basic"} and part["status"] in {"downloaded","paged"}:
-                if asset_type and part['dataset']!=endpoints[asset_type]:continue
-                data = read_archive(self.settings.state_dir / part["archive"], part["sha"])
-                if "ts_code" in data["fields"]:
-                    pos = data["fields"].index("ts_code"); codes.update(row[pos] for row in data["items"] if row[pos])
-        if not codes:
-            for name in job['plan']['request']['targets']:
-                target=self.pg if name=='postgres' else self.ch
-                try:
-                    after=None
-                    while True:
-                        page=target.query('security_dim',limit=1000,after=after)
-                        codes.update(row['security_code'] for row in page['rows'] if not asset_type or row['asset_type']==asset_type)
-                        after=page['next']
-                        if not after:break
-                except Exception:continue
-                if codes:break
-        if not codes: raise ValueError("没有证券清单，请先下载基础信息或显式指定 codes")
-        return sorted(codes)
 
     def _job_calendar(self, item: dict) -> list[date]:
         result = set(self._calendar())
@@ -270,213 +203,10 @@ class TushareImportService:
                 if row.get("exchange") == "SSE" and str(row.get("is_open")) == "1": result.add(parse_date(row["cal_date"]))
         return sorted(result)
 
-    def _requests(self, name: str, request: dict, universe: list[str], calendar: list[date]):
-        spec = dataset(name); start, end = parse_date(request["start_date"]), parse_date(request["end_date"])
-        custom = request.get("parameters", {}).get(name, {})
-        if request.get('codes'):
-            parameter='index_code' if spec.strategy=='index' else 'ts_code'
-            if custom.get(parameter) and set(str(custom[parameter]).split(','))!=set(request['codes']):raise ValueError('接口证券参数与任务证券范围不一致：'+name)
-        if spec.strategy == "stock_basic":
-            if request["codes"]:
-                for code in request["codes"]:
-                    for status in ([custom['list_status']] if 'list_status' in custom else ('L','D','P')):yield {**custom,'ts_code':code,'list_status':status}
-            else:
-                for status in ([custom["list_status"]] if "list_status" in custom else ("L","D","P")):
-                    yield {"list_status":status,**custom}
-        elif spec.strategy == "calendar":
-            for exchange in ["SSE", "SZSE", "BSE"]:
-                for year in range(start.year, end.year + 1): yield {"exchange": exchange, "start_date": max(start,date(year,1,1)).strftime("%Y%m%d"), "end_date": min(end,date(year,12,31)).strftime("%Y%m%d"), **custom}
-        elif spec.strategy == "snapshot":
-            if name=='etf_basic':
-                if request['codes']:
-                    for code in request['codes']:yield {'ts_code':code,**custom}
-                else:yield dict(custom)
-            elif name in {"fund_basic","index_basic"}:
-                if request["codes"]:
-                    for code in request["codes"]: yield {"ts_code":code,**custom}
-                elif name=="fund_basic":
-                    for status in ([custom['status']] if 'status' in custom else ['L','D','I']): yield {"market":"E","status":status,**custom}
-                else:
-                    for market in ([custom['market']] if 'market' in custom else ['SSE','SZSE','CSI','SW','CICC','OTH']): yield {"market":market,**custom}
-            elif name in {"index_member_all","ci_index_member"}:
-                for current in ([str(custom['is_new'])] if 'is_new' in custom else ['Y','N']):
-                    if request['codes']:
-                        for code in request['codes']: yield {"ts_code":code,"is_new":current,**custom}
-                    else: yield {"is_new":current,**custom}
-            else: yield {**({"src":"SW2021"} if name=="index_classify" else {}),**custom}
-        elif spec.strategy=='periodic':
-            periods=[custom['period']] if custom.get('period') else [date(year,month,day).strftime('%Y%m%d') for year in range(start.year,end.year+1) for month,day in ((3,31),(6,30),(9,30),(12,31)) if start<=date(year,month,day)<=end]
-            for period in periods:yield {'period':period,'offset':0,'limit':spec.limit,**custom}
-        elif spec.strategy == "daily":
-            days = [d for d in calendar if start <= d <= end] if calendar else list(dates(start, end))
-            for day in days:
-                if request["codes"]:
-                    for code in request["codes"]: yield {"trade_date": day.strftime("%Y%m%d"), "ts_code": code, **custom}
-                else: yield {"trade_date": day.strftime("%Y%m%d"), **custom}
-        else:
-            codes = request["codes"]
-            if name in {'index_daily','sw_daily'}:
-                codes=[code for code in (codes or universe) if code.endswith('.SI') == (name=='sw_daily')]
-                if not codes:return
-            if not codes and name in {"income", "balancesheet", "cashflow", "fina_indicator", "dividend", "namechange"}: codes = universe
-            if not codes and "ts_code" in custom: codes = [custom["ts_code"]]
-            if not codes and name == "index_weight" and "index_code" in custom: codes = [custom["index_code"]]
-            if not codes and name == "ci_index_member": yield {**custom}; return
-            if not codes: raise ValueError(f"{name} 需要显式证券代码；不会自动下载全部基金或指数")
-            if name=='namechange':
-                # API dates filter announcements, while local rows describe
-                # effective name intervals. Full single-security history is
-                # bounded and avoids missing earlier announcements.
-                for code in codes:yield {'ts_code':code,**custom}
-                return
-            for code in codes:
-                if name in {'income','balancesheet','cashflow','fina_indicator'}:
-                    if custom.get('period'):
-                        yield {'ts_code':code,**custom}
-                    else:
-                        for year in range(start.year,end.year+1):
-                            for month,day in ((3,31),(6,30),(9,30),(12,31)):
-                                period=date(year,month,day)
-                                if start<=period<=end:yield {'ts_code':code,'period':period.strftime('%Y%m%d'),**custom}
-                    continue
-                for year in range(start.year, end.year + 1):
-                    params = {"index_code" if spec.strategy == "index" else "ts_code": code}
-                    if "start_date" in spec.input_fields:
-                        params.update(start_date=max(start, date(year,1,1)).strftime("%Y%m%d"), end_date=min(end,date(year,12,31)).strftime("%Y%m%d"))
-                    elif "period" in spec.input_fields:
-                        for month, day in [(3,31),(6,30),(9,30),(12,31)]:
-                            period = date(year, month, day)
-                            if start <= period <= end: yield {**params, "period": period.strftime("%Y%m%d"), **custom}
-                        continue
-                    else:
-                        if year != start.year: continue
-                    yield {**params, **custom}
 
-    def _download_one(self, job: str, name: str, params: dict, universe: list[str]):
-        self.state.check_cancel(job); spec = dataset(name); slice_id = digest([name, params])[:24]
-        existing = self.state.get_slice(job, slice_id)
-        if existing and existing['status']=='paged':
-            read_archive(self.settings.state_dir/existing['archive'],existing['sha'])
-            self._download_one(job,name,{**params,'offset':int(params.get('offset',0))+existing['rows']},universe)
-            return
-        if existing and existing["status"] in {"downloaded", "committed"}:
-            read_archive(self.settings.state_dir / existing["archive"], existing["sha"]); return
-        self.state.slice(job, slice_id, name, params)
-        archive = (self.settings.archive_dir or self.settings.state_dir/"archive") / job / name / (slice_id + ".json.gz")
-        fields = [field["name"] for field in spec.fields]
-        data, sha = self.source.fetch(name, params, fields, self.settings.state_dir / archive)
-        metadata=json.loads((self.settings.state_dir/archive).with_suffix('.meta.json').read_text())
-        try:
-            normalize_source(spec, {'fields': data['fields'], 'items': []}, job, slice_id, metadata['fetched_at'])
-            capability_status, capability_error = 'available', None
-        except ValueError as exc:
-            capability_status, capability_error = 'contract_mismatch', str(exc)
-        self.state.ledger_put('meta_source_capability', name, {
-            'task_id': job, 'source_name': 'tushare', 'endpoint': name, 'capability': name,
-            'status': capability_status, 'permission_note': '返回字段已实测；空响应不证明历史覆盖',
-            'last_probe_at': metadata['fetched_at'], 'sample_rows': len(data['items']),
-            'response_fields': ','.join(data['fields']), 'error': capability_error,
-        })
-        self.state.ledger_put('import_source_archive',dumps([job,name,digest(params)]),
-                             {'task_id':job,'dataset':name,'endpoint':name,'request_hash':digest(params),'archive_path':str(archive),
-                              'response_sha256':sha,'response_fields':','.join(data.get('fields',[])),
-                              'fetched_at':metadata['fetched_at'],'rows':len(data.get('items',[]))})
-        if (name in {'index_basic','fund_basic'} or name.endswith('_vip')) and len(data['items'])>=spec.limit and 'ts_code' not in params:
-            # Test common API pagination rather than assuming it is honored.
-            # Every page remains a distinct, auditable archive.
-            if 'offset' not in params:
-                self.state.slice(job,slice_id,name,params,status='split',archive=str(archive),sha=sha,rows=len(data['items']))
-                self._download_one(job,name,{**params,'offset':0,'limit':spec.limit},universe)
-                return
-            self.state.slice(job,slice_id,name,params,status='paged',archive=str(archive),sha=sha,rows=len(data['items']))
-            previous=set()
-            current={tuple(str(v) for v in values) for values in data['items']}
-            for part in self.state.job(job)['slices']:
-                if part['dataset']!=name or part['id']==slice_id or part['status'] not in {'downloaded','paged'}:continue
-                if part['request'].get('market')!=params.get('market') or part['request'].get('status')!=params.get('status') or part['request'].get('period')!=params.get('period'):continue
-                payload=read_archive(self.settings.state_dir/part['archive'],part['sha'])
-                previous.update(tuple(str(v) for v in values) for values in payload['items'])
-            if current and current<=previous:raise ValueError(name+' 未按 offset 分页，已阻止将截断快照标为完整')
-            self._download_one(job,name,{**params,'offset':int(params['offset'])+len(data['items'])},universe)
-            return
-        if len(data["items"]) >= spec.limit:
-            self.state.slice(job, slice_id, name, params, status="split", archive=str(archive), sha=sha, rows=len(data["items"]))
-            if name in {"index_member_all","ci_index_member"} and "ts_code" not in params:
-                if name=='ci_index_member' and not any(key in params for key in ('l1_code','l2_code','l3_code')):
-                    source_rows=[dict(zip(data['fields'],values)) for values in data['items']]
-                    groups=sorted({r['l1_code'] for r in source_rows if r.get('l1_code')})
-                    if groups:
-                        for group in groups:self._download_one(job,name,{**params,'l1_code':group},universe)
-                        # A truncated discovery response may omit entire groups.
-                        # Explicitly query every security not covered by a child
-                        # partition before declaring the snapshot downloaded.
-                        covered=set()
-                        for part in self.state.job(job)['slices']:
-                            if part['dataset']!=name or part['status']!='downloaded' or part['request'].get('is_new')!=params.get('is_new'):continue
-                            payload=read_archive(self.settings.state_dir/part['archive'],part['sha'])
-                            if 'ts_code' in payload['fields']:
-                                pos=payload['fields'].index('ts_code');covered.update(values[pos] for values in payload['items'])
-                        if not universe:universe=self._universe(self.state.job(job))
-                        for code in sorted(set(universe)-covered):self._download_one(job,name,{**params,'ts_code':code},universe)
-                        return
-                if name=="index_member_all" and not any(key in params for key in ('l1_code','l2_code','l3_code')):
-                    classes=[]
-                    for part in self.state.job(job)['slices']:
-                        if part['dataset']=='index_classify' and part['status']=='downloaded':
-                            payload=read_archive(self.settings.state_dir/part['archive'],part['sha'])
-                            classes += [dict(zip(payload['fields'],values)) for values in payload['items']]
-                    groups=sorted({r['index_code'] for r in classes if r.get('level')=='L1'})
-                    if groups:
-                        for group in groups: self._download_one(job,name,{**params,'l1_code':group},universe)
-                        return
-                if not universe:
-                    try: universe=self._universe(self.state.job(job))
-                    except ValueError: pass
-                if universe:
-                    for code in universe: self._download_one(job,name,{**params,'ts_code':code},universe)
-                    return
-            if name=='stock_basic' and 'exchange' not in params and 'ts_code' not in params:
-                for exchange in ('SSE','SZSE','BSE'): self._download_one(job,name,{**params,'exchange':exchange},universe)
-                return
-            if "trade_date" in params and "ts_code" not in params and universe:
-                for code in universe: self._download_one(job, name, {**params, "ts_code": code}, universe)
-                return
-            if "start_date" in params and params["start_date"] < params["end_date"]:
-                start, end = parse_date(params["start_date"]), parse_date(params["end_date"]); mid = start + (end-start)//2
-                self._download_one(job,name,{**params,"end_date":mid.strftime("%Y%m%d")},universe); self._download_one(job,name,{**params,"start_date":(mid+timedelta(days=1)).strftime("%Y%m%d")},universe); return
-            raise ValueError(f"{name} 达到返回上限，须缩小参数范围")
-        self.state.slice(job, slice_id, name, params, status="downloaded", archive=str(archive), sha=sha, rows=len(data["items"]))
 
-    def download(self, job: str) -> dict:
-        item = self._job(job,True)
-        if item["status"] in {"committed", "completed", "rolled_back"}: return item
-        self.state.update_job(job, status="downloading", error=None)
-        self._task_status(job, "downloading")
-        request = item["plan"]["request"]; calendar, universe = self._calendar(), request["codes"]
-        try:
-            for name in request["datasets"]:
-                if name in {'index_daily','sw_daily'} and not request['codes']:
-                    universe=self._universe(self.state.job(job),'index')
-                if name not in {"stock_basic", "fund_basic", "index_basic", "trade_cal", "index_classify", "index_member_all", "ci_index_member"} and not universe:
-                    try: universe = self._universe(self.state.job(job))
-                    except ValueError:
-                        if dataset(name).strategy not in {"daily", "snapshot","periodic"}: raise
-                for params in self._requests(name, request, universe, calendar):
-                    try: self._download_one(job,name,params,universe)
-                    except Exception as exc:
-                        if name.removesuffix('_vip') not in {"ci_index_member","income","balancesheet","cashflow","fina_indicator"} or not any(word in str(exc) for word in ("权限","积分","permission")): raise
-                        self.state.slice(job,digest([name,params])[:24],name,params,status="unavailable",result={"reason":self.safe_error(exc)})
-                        break
-                if name == "trade_cal": calendar = self._job_calendar(self.state.job(job))
-                if name in {"stock_basic", "fund_basic", "index_basic"}:
-                    try: universe = self._universe(self.state.job(job))
-                    except ValueError: pass
-            self.state.update_job(job, status="downloaded"); self._task_status(job, "downloaded"); return self.state.job(job)
-        except Exception as exc:
-            status = "cancelled" if isinstance(exc, InterruptedError) else "failed"
-            self.state.update_job(job, status=status, error=self.safe_error(exc)); self._task_status(job, status, self.safe_error(exc)); raise
 
-    def _canonical_record(self, spec: CanonicalTable, partial: dict, endpoint: str, job: str, downloaded: str, row_no: int, raw: dict, event_date: date | None, available_at=None, availability_basis="unknown", source_name="tushare"):
+    def _canonical_record(self, spec: CanonicalTable, partial: dict, endpoint: str, job: str, downloaded: str, row_no: int, raw: dict, event_date: date | None, available_at=None, availability_basis="unknown", source_name="tushare", *, source_hash=None):
         row = {field["name"]: None for field in spec.fields}; row.update(partial)
         if "event_date" in row: row["event_date"] = event_date
         if "available_at" in row: row["available_at"] = available_at
@@ -486,7 +216,7 @@ class TushareImportService:
         if "source_name" in row: row["source_name"] = source_name
         if "source_endpoint" in row: row["source_endpoint"] = endpoint
         if "source_row_no" in row: row["source_row_no"] = row_no
-        if "source_record_hash" in row: row["source_record_hash"] = digest(raw)
+        if "source_record_hash" in row: row["source_record_hash"] = source_hash if source_hash is not None else digest(raw)
         if "mapping_version" in row: row["mapping_version"] = VERSION
         if "data_quality_status" in row: row["data_quality_status"] = "accepted"
         return row
@@ -496,7 +226,7 @@ class TushareImportService:
             # Dispatch only the base projection here.  Calling self._map_part
             # would re-enter DatabaseManagerService and apply the YAML overlay
             # and version derivation twice for VIP rows.
-            output,factors=TushareImportService._map_part(self,endpoint.removesuffix('_vip'),source_rows,job,downloaded,calendar,source_name)
+            output,factors=ManagerKernel._map_part(self,endpoint.removesuffix('_vip'),source_rows,job,downloaded,calendar,source_name)
             for rows in output.values():
                 for row in rows:row['source_endpoint']=endpoint
             return output,factors
@@ -508,6 +238,7 @@ class TushareImportService:
                 code=str(source.get('ts_code',''))
                 if (code.startswith('900') and code.endswith('.SH')) or (code.startswith('200') and code.endswith('.SZ')):continue
             raw = source.get('_raw') or {key: value for key, value in source.items() if not key.startswith("_")}; row_no = source["_row"]
+            source_hash=digest(raw)
             event_date = next((source.get(key) for key in ("trade_date", "cal_date", "end_date", "in_date", "start_date", "nav_date") if source.get(key)), None)
             if not isinstance(event_date, date): event_date = parse_date(event_date) if event_date else None
             available, basis = _event_available(event_date)
@@ -525,60 +256,60 @@ class TushareImportService:
                     target_column = mapping[field][1]
                     if target_column in target.keys and target_column not in {"trade_date", "security_code"}: continue
                     partial[target_column] = value
-                output[target.name].append(self._canonical_record(target, partial, endpoint, job, downloaded, row_no, raw, event_date, available, basis, source_name)); continue
+                output[target.name].append(self._canonical_record(target, partial, endpoint, job, downloaded, row_no, raw, event_date, available, basis, source_name,source_hash=source_hash)); continue
             if endpoint in {"adj_factor", "fund_adj"}:
                 code, trade = source.get("ts_code"), source.get("trade_date"); factors[(asset, code, trade)] = source.get("adj_factor")
                 target = canonical("corporate_action"); partial = {"security_code": code, "event_type": "adjustment_factor", "event_date": trade, "effective_date": trade, "adjustment_factor": source.get("adj_factor")}
-                output[target.name].append(self._canonical_record(target, partial, endpoint, job, downloaded, row_no, raw, trade, available, basis, source_name)); continue
+                output[target.name].append(self._canonical_record(target, partial, endpoint, job, downloaded, row_no, raw, trade, available, basis, source_name,source_hash=source_hash)); continue
             if endpoint in {"stock_basic", "fund_basic", "index_basic"}:
                 target = canonical("security_dim"); partial = {"security_code": source.get("ts_code"), "asset_type": "stock" if endpoint == "stock_basic" else "fund" if endpoint == "fund_basic" else "index", "name": source.get("name"), "exchange": source.get("exchange") or {"SH":"SSE","SZ":"SZSE","BJ":"BSE"}.get(str(source.get("ts_code","")).split(".")[-1],source.get("market")), "list_date": source.get("list_date"), "delist_date": source.get("delist_date") or source.get("exp_date"), "status": source.get("list_status") or source.get("status")}
-                output[target.name].append(self._canonical_record(target, partial, endpoint, job, downloaded, row_no, raw, None, None, "source_snapshot", source_name)); continue
+                output[target.name].append(self._canonical_record(target, partial, endpoint, job, downloaded, row_no, raw, None, None, "source_snapshot", source_name,source_hash=source_hash)); continue
             if endpoint == "trade_cal":
                 target = canonical("trade_calendar"); partial = {"exchange": source.get("exchange"), "trade_date": source.get("cal_date"), "is_open": int(source.get("is_open")) if source.get("is_open") is not None else None, "previous_trade_date": source.get("pretrade_date")}
-                output[target.name].append(self._canonical_record(target, partial, endpoint, job, downloaded, row_no, raw, source.get("cal_date"), available, basis, source_name)); continue
+                output[target.name].append(self._canonical_record(target, partial, endpoint, job, downloaded, row_no, raw, source.get("cal_date"), available, basis, source_name,source_hash=source_hash)); continue
             if endpoint == "suspend_d":
                 target = canonical("trade_status_daily"); is_tradable = None if source.get("suspend_timing") else 0 if source.get("suspend_type") == "S" else 1; partial = {"asset_type": "stock", "security_code": source.get("ts_code"), "trade_date": source.get("trade_date"), "is_tradable": is_tradable, "status_code": source.get("suspend_type"), "status_name": "盘中停复牌，日频状态待核验" if is_tradable is None else "停牌" if is_tradable == 0 else "复牌", "status_source": "tushare.suspend_d", "confidence": "authoritative_partial_day" if source.get("suspend_timing") else "authoritative"}
-                output[target.name].append(self._canonical_record(target, partial, endpoint, job, downloaded, row_no, raw, event_date, available, basis, source_name)); continue
+                output[target.name].append(self._canonical_record(target, partial, endpoint, job, downloaded, row_no, raw, event_date, available, basis, source_name,source_hash=source_hash)); continue
             if endpoint == "index_weight":
                 target = canonical("index_membership"); partial = {"index_code": source.get("index_code"), "security_code": source.get("con_code"), "trade_date": source.get("trade_date"), "weight": source.get("weight")}
-                output[target.name].append(self._canonical_record(target, partial, endpoint, job, downloaded, row_no, raw, event_date, available, basis, source_name)); continue
+                output[target.name].append(self._canonical_record(target, partial, endpoint, job, downloaded, row_no, raw, event_date, available, basis, source_name,source_hash=source_hash)); continue
             if endpoint == "index_classify":
                 scheme=source.get('src') or 'SW2021'
                 scheme_spec=canonical('industry_scheme_dim')
-                output[scheme_spec.name].append(self._canonical_record(scheme_spec,{'scheme_code':scheme,'scheme_name':'申万'+str(scheme).removeprefix('SW'),'description':'申万行业分类体系'},endpoint,job,downloaded,row_no,raw,None,None,'source_snapshot',source_name))
+                output[scheme_spec.name].append(self._canonical_record(scheme_spec,{'scheme_code':scheme,'scheme_name':'申万'+str(scheme).removeprefix('SW'),'description':'申万行业分类体系'},endpoint,job,downloaded,row_no,raw,None,None,'source_snapshot',source_name,source_hash=source_hash))
                 target = canonical("industry_dim"); partial = {"scheme_code": scheme, "industry_code": source.get("index_code"), "industry_name": source.get("industry_name"), "parent_code": source.get("parent_code"), "level": source.get("level")}
-                output[target.name].append(self._canonical_record(target, partial, endpoint, job, downloaded, row_no, raw, None, None, "source_snapshot", source_name)); continue
+                output[target.name].append(self._canonical_record(target, partial, endpoint, job, downloaded, row_no, raw, None, None, "source_snapshot", source_name,source_hash=source_hash)); continue
             if endpoint in {"index_member_all", "ci_index_member"}:
                 scheme = "SW2021" if endpoint == "index_member_all" else "CITIC"
                 scheme_spec = canonical("industry_scheme_dim")
-                output[scheme_spec.name].append(self._canonical_record(scheme_spec, {"scheme_code":scheme,"scheme_name":"申万2021" if scheme=="SW2021" else "中信","description":"申万行业分类体系" if scheme=='SW2021' else "中信行业分类体系"}, endpoint,job,downloaded,row_no,raw,None,None,"source_snapshot",source_name))
+                output[scheme_spec.name].append(self._canonical_record(scheme_spec, {"scheme_code":scheme,"scheme_name":"申万2021" if scheme=="SW2021" else "中信","description":"申万行业分类体系" if scheme=='SW2021' else "中信行业分类体系"}, endpoint,job,downloaded,row_no,raw,None,None,"source_snapshot",source_name,source_hash=source_hash))
                 for level in (1,2,3):
                     code, name = source.get(f"l{level}_code"), source.get(f"l{level}_name")
                     if not code: continue
                     dim = canonical("industry_dim")
                     dim_values = {"scheme_code":scheme,"industry_code":code,"industry_name":name or code,"parent_code":source.get(f"l{level-1}_code") if level>1 else None,"level":f"L{level}"}
-                    output[dim.name].append(self._canonical_record(dim,dim_values,endpoint,job,downloaded,row_no,raw,None,None,"source_snapshot",source_name))
+                    output[dim.name].append(self._canonical_record(dim,dim_values,endpoint,job,downloaded,row_no,raw,None,None,"source_snapshot",source_name,source_hash=source_hash))
                     target = canonical("security_industry_membership")
                     partial = {"scheme_code":scheme,"security_code":source.get("ts_code"),"industry_code":code,
                                "valid_from":source.get("in_date"),"valid_to":source.get("out_date"),
                                "membership_status":"current" if source.get("is_new") in {"Y","1"} else "historical"}
-                    output[target.name].append(self._canonical_record(target,partial,endpoint,job,downloaded,row_no,raw,event_date,available,basis,source_name))
+                    output[target.name].append(self._canonical_record(target,partial,endpoint,job,downloaded,row_no,raw,event_date,available,basis,source_name,source_hash=source_hash))
                 continue
             if endpoint in {"income", "balancesheet", "cashflow", "fina_indicator"}:
                 target = canonical("fundamental_periodic")
                 partial = financial_record(endpoint, source, FIELD_MAP[endpoint])
-                output[target.name].append(self._canonical_record(target, partial, endpoint, job, downloaded, row_no, raw, event_date, available, basis, source_name)); continue
+                output[target.name].append(self._canonical_record(target, partial, endpoint, job, downloaded, row_no, raw, event_date, available, basis, source_name,source_hash=source_hash)); continue
             if endpoint in {"namechange", "dividend"}:
                 partial = corporate_action_partial(endpoint, source)
                 if partial is None: continue
                 target = canonical("corporate_action")
                 if endpoint == 'dividend' and source.get('imp_ann_date'):
                     available,basis = _event_available(parse_date(source['imp_ann_date']), 'implementation_announcement_next_calendar_day_assumed;historical_revision_not_proven')
-                output[target.name].append(self._canonical_record(target, partial, endpoint, job, downloaded, row_no, raw, partial['event_date'], available, basis, source_name)); continue
+                output[target.name].append(self._canonical_record(target, partial, endpoint, job, downloaded, row_no, raw, partial['event_date'], available, basis, source_name,source_hash=source_hash)); continue
             if endpoint in {'fund_nav','fund_share','bse_mapping'}:
                 mapping=FIELD_MAP[endpoint];target=canonical(next(iter(mapping.values()))[0])
                 partial={dest[1]:source.get(field) for field,dest in mapping.items()}
-                output[target.name].append(self._canonical_record(target,partial,endpoint,job,downloaded,row_no,raw,event_date,available,basis,source_name));continue
+                output[target.name].append(self._canonical_record(target,partial,endpoint,job,downloaded,row_no,raw,event_date,available,basis,source_name,source_hash=source_hash));continue
             if endpoint not in FIELD_MAP: raise ValueError(f'{endpoint} 尚无可入库字段映射；原始数据已归档')
         return output, factors
 
@@ -636,6 +367,12 @@ class TushareImportService:
             mapped, found_factors = self._map_part(part["dataset"], source_rows, item["id"], metadata["fetched_at"], calendar, source_name)
             for name, rows in mapped.items(): tables[name].extend(rows)
             factors.update(found_factors)
+        return self._assemble_canonical(item,tables,factors,rejects,calendar,download_stamp)
+
+    @high_precision
+    def _assemble_canonical(self,item,tables,factors,rejects,calendar,download_stamp):
+        from .pipeline_options import LIGHT,DOMAIN_CHECKS
+        light=LIGHT.get() or not DOMAIN_CHECKS.get()
         # Merge daily and daily_basic into a single raw wide row.
         if tables.get('fund_nav_daily'):
             from .nav_semantics import resolve_nav_rows
@@ -736,54 +473,16 @@ class TushareImportService:
                     if not light and row.get('valid_to') and row.get('valid_from') and row['valid_to']<row['valid_from']:raise ValueError('剔除日期早于纳入日期')
                     valid.append(row)
                     from .comparison import row_key
-                    lineage[row_key(spec,row)]={c:p for c,p in origins.items() if p.get('source_null') or p.get('value_hash')==digest(row.get(c))}
+                    if not LIGHT.get():
+                        lineage[row_key(spec,row)]={c:p for c,p in origins.items() if p.get('source_null') or p.get('value_hash')==digest(row.get(c))}
                 except (ValueError,TypeError) as exc: rejects.append({"dataset":name,"reason":str(exc),"source_row":row.get("source_row_no")})
             if valid:
                 validated[name] = valid
-                self.state.ledger_put('task_column_lineage',item['id']+':'+name,{'task_id':item['id'],'table':name,'rows':lineage})
+                if not LIGHT.get():self.state.ledger_put('task_column_lineage',item['id']+':'+name,{'task_id':item['id'],'table':name,'rows':lineage})
         return validated, rejects
 
-    def preview(self, job: str) -> dict:
-        item = self._job(job)
-        if item['status'] in {'completed','rolled_back','partially_rolled_back'}:
-            if item.get('preview'):return item['preview']
-            raise ValueError('已完成任务不能再次预览写入，请创建新任务')
-        self._job(job,True)
-        if item['plan'].get('mapping_version',VERSION)!=VERSION:raise ValueError('映射版本已变化，请使用归档建立新任务')
-        for name,value in item['plan'].get('canonical_contracts',{}).items():
-            if canonical(name).hash!=value:raise ValueError('本地字段合同已变化，请建立新任务')
-        if any(part["status"] == "pending" for part in item["slices"]) or not item["slices"]: raise ValueError("下载尚未完整结束")
-        if item["status"] in {"failed", "downloading", "planned", "cancelled"}: raise ValueError("请完成或恢复下载后再预览")
-        tables, rejects = self._build_canonical(item); target_results = []; table_results = []
-        source_report=[{'dataset':part['dataset'],'status':part['status'],'rows':part['rows'] or 0,'reason':(part.get('result') or {}).get('reason') or ('空响应不证明历史覆盖完整' if not part['rows'] else None),'parameters':part['request'],'archive':part.get('archive')}
-                       for part in item['slices'] if part['status']!='split']
-        if item['plan']['request'].get('strict_capabilities'):
-            rejects.extend({'dataset':part['dataset'],'reason':'源接口不可用'} for part in source_report if part['status']=='unavailable')
-        for table_name, rows in tables.items():
-            spec = canonical(table_name)
-            for target in item["plan"]["request"]["targets"]:
-                comparator = self.pg if target == "postgres" else self.ch
-                comparison = comparator.compare(spec, rows, item["plan"]["request"]["mode"])
-                table_results.append({"target": target, "table": table_name, "signature": comparison["signature"], "counts": comparison["counts"], "change_sample": comparison["changes"][:20], "conflict_sample":comparison.get('conflicts',[])[:20], "normalized_sample": rows[:10]})
-        field_validation=[]
-        for part in item['slices']:
-            if not part['archive'] or part['status']=='split':continue
-            data=read_archive(self.settings.state_dir/part['archive'],part['sha'])
-            if item['plan']['request'].get('sources')==['file']:continue
-            expected={field['name'] for field in dataset(part['dataset']).fields};actual=set(data['fields'])
-            for field in sorted(expected|actual):field_validation.append({'dataset':part['dataset'],'field':field,'present':field in actual,'registered':field in expected,
-                                                                 'status':'unregistered_blocked' if field not in expected else 'missing_optional' if field not in actual else 'matched'})
-        preview = {"field_validation":field_validation, "job": job, "targets": item["plan"]["request"]["targets"], "mapping_version": VERSION, "rejected": len(rejects), "reject_sample": rejects[:100], "tables": table_results, "source_report":source_report}
-        preview["token"] = digest(preview); self.state.update_job(job, status="blocked" if rejects else "previewed", preview=preview)
-        return preview
 
-    def commit(self, job: str, preview_token: str) -> dict:
-        from .publishing import publish
-        return publish(self,job,preview_token)
 
-    def rollback(self, job: str, targets: list[str] | None = None) -> dict:
-        from .publishing import rollback
-        return rollback(self,job,targets)
 
     def audit(self,job,after=0,limit=100):
         rows=self.state.audits(job,after=after,limit=limit)
@@ -804,15 +503,6 @@ class TushareImportService:
                 'verification':self.state.ledger_rows('verification',job),
                 'field_verification':self.state.ledger_rows('field_verification',job)}
 
-    def resume(self, job: str) -> dict:
-        item = self._job(job)
-        if item['status'] in {'completed','audit_pending','rolled_back','partially_rolled_back'}:
-            from .publishing import retry_audit_sync
-            retry_audit_sync(self,job);return self.state.job(job)
-        self.state.update_job(job,cancel=0)
-        if item["status"] in {"partial", "committing"} and item.get("preview"):
-            return self.commit(job, item["preview"]["token"])
-        self.download(job); self.preview(job); return self.state.job(job)
 
     def probe(self, names: list[str]) -> dict:
         import uuid

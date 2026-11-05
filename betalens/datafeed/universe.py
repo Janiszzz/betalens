@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from .contracts import PITUnavailableError, VersionConflictError, local_time, proven, timestamp
+from .contracts import PITUnavailableError, VersionConflictError, local_time, proven, timestamp, calendar_date
 from .readers import get_reader, require_columns
 from .query import PROVEN_COLUMNS
 
@@ -43,32 +43,36 @@ def _snapshot_at(groups, at):
     return selected, sorted(codes)
 
 
-def get_index_universe_panel(cursor, index_code, dates, table_name=DEFAULT_TABLE,
-                             metric=DEFAULT_METRIC, logger=None):
+def get_index_universe_panel(source, index_code, dates, table_name=DEFAULT_TABLE,
+                             metric=DEFAULT_METRIC):
     if table_name != DEFAULT_TABLE or metric != DEFAULT_METRIC:
         raise NotImplementedError("指数成分查询仅支持 index_membership/universe")
     if isinstance(dates, str):
         raise ValueError("dates 必须是列表")
-    dates = list(dates)
+    dates = [calendar_date(value) for value in dates]
     if not dates:
         return {}
-    reader = get_reader(cursor)
+    reader = get_reader(source)
     with reader.snapshot():
         groups = _snapshots(reader, index_code)
     return {local_time(timestamp(d)).date(): set(_snapshot_at(groups, timestamp(d))[1]) for d in dates}
 
 
-def get_index_universe_date(cursor, index_code, date, table_name=DEFAULT_TABLE,
-                            metric=DEFAULT_METRIC, logger=None):
+def get_index_universe_date(source, index_code, date, table_name=DEFAULT_TABLE,
+                            metric=DEFAULT_METRIC):
     if table_name != DEFAULT_TABLE or metric != DEFAULT_METRIC:
         raise NotImplementedError("指数成分查询仅支持 index_membership/universe")
-    reader = get_reader(cursor)
+    reader = get_reader(source)
     with reader.snapshot():
         groups = _snapshots(reader, index_code)
     return timestamp(_snapshot_at(groups, timestamp(date))[0]).tz_convert("Asia/Shanghai").tz_localize(None).to_pydatetime()
 
 
-def get_index_universe(cursor, index_code, date, table_name=DEFAULT_TABLE,
-                        metric=DEFAULT_METRIC, logger=None):
-    panel = get_index_universe_panel(cursor, index_code, [date], table_name, metric, logger)
-    return sorted(panel[local_time(timestamp(date)).date()])
+def get_index_universe(source, index_code, date, table_name=DEFAULT_TABLE,
+                        metric=DEFAULT_METRIC):
+    if table_name != DEFAULT_TABLE or metric != DEFAULT_METRIC:
+        raise NotImplementedError("指数成分查询仅支持 index_membership/universe")
+    reader = get_reader(source)
+    with reader.snapshot():
+        groups = _snapshots(reader, index_code)
+    return _snapshot_at(groups, timestamp(date))[1]

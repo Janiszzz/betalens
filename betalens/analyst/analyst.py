@@ -41,7 +41,7 @@ def _load_benchmark_nav_from_code(
     code = str(benchmark_code or '').strip()
     if not code:
         return None
-    tables = tuple(table_names or ('daily_index', 'daily_market', 'daily_fund', 'daily_bond'))
+    tables = tuple(table_names or ('market_daily_raw', 'market_daily_post_adjusted'))
     from betalens.datafeed import Datafeed
 
     for table_name in tables:
@@ -387,7 +387,7 @@ class Analyst:
     @classmethod
     def from_backtest(cls, bt, benchmark=None, risk_free_rate=0.0,
                       annualizer=252, window=30, name='组合',
-                      benchmark_code=None, benchmark_metric='收盘价(元)',
+                      benchmark_code=None, benchmark_metric='close',
                       benchmark_table_names=None, factor_values=None):
         """
         从回测实例构建。自动抽取 nav / actual_weight / daily_position_value /

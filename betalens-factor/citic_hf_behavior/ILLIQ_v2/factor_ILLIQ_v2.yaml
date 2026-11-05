@@ -6,17 +6,18 @@ meta:
   logic: Amihud illiquidity，流动性冲击越大因子值越高，方向 positive。
 factor_spec:
   inputs:
-    close_wide: 收盘价(元)
-    amount_wide: 成交金额(元)
+    close_wide: close
+    amount_wide: amount
   compute_kwargs:
     window: 20
   direction: positive
-  table_name: daily_market
+  table_name: market_daily_post_adjusted
+  query_filters: {asset_type: stock}
   index_code: 000906.SH
   use_industry: false
   use_mktcap: false
-  industry_scheme: 申万一级行业
-  backtest_metric: 收盘价(元)
+  industry_scheme: {scheme_code: null, level: 1}
+  backtest_metric: close
 weight:
   mode: freeplay
   long_groups: null

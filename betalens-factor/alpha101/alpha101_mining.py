@@ -64,12 +64,12 @@ def make_mining_spec(params: Mapping[str, Any]) -> MiningSpec:
         required_history_bars=required_history_bars_for_alpha(alpha_id, formula_kwargs),
         mask_inputs_by_pit=True,
         direction="positive",
-        table_name="daily_market",
+        table_name="market_daily_post_adjusted",
         index_code="000906.SH",
         use_industry=True,
         use_mktcap=False,
-        industry_scheme="申万一级行业",
-        backtest_metric="开盘价(元)",
+        industry_scheme={"scheme_code": None, "level": 1},
+        backtest_metric="open",
         weight_mode="classic-long-short",
     )
     return MiningSpec(

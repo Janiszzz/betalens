@@ -8,7 +8,7 @@ from betalens_db_manager.business_semantics import (
 )
 from betalens_db_manager.catalog import dataset
 from betalens_db_manager.mapping import FIELD_MAP
-from betalens_db_manager.service import TushareImportService, normalize_source
+from betalens_db_manager.manager_kernel import ManagerKernel, normalize_source
 
 
 def financial(endpoint="income", **updates):
@@ -54,7 +54,7 @@ def map_rows(endpoint, raw_rows):
     rows, bad = normalize_source(spec, {"fields": fields, "items": [[row.get(f) for f in fields] for row in raw_rows]},
                                  "task", "slice", "2026-10-24T00:00:00Z")
     assert not bad
-    service = object.__new__(TushareImportService)
+    service = object.__new__(ManagerKernel)
     return service._map_part(endpoint, rows, "task", "2026-10-24T00:00:00Z", [])[0]
 
 
@@ -75,7 +75,7 @@ def test_manager_vip_overlay_runs_once_and_preserves_version_identity(tmp_path):
     from betalens_db_manager.config import Settings
     from betalens_db_manager.manager import DatabaseManagerService
     manager = DatabaseManagerService(Settings(config_dir=tmp_path / 'config', state_dir=tmp_path / 'state'))
-    task = manager.plan({'datasets': ['income', 'income_vip'], 'codes': ['000001.SZ'],
+    task = manager.plan({'tables':['fundamental_periodic'],'endpoints': ['income', 'income_vip'], 'codes': ['000001.SZ'],
                          'start_date': '2025-12-31', 'end_date': '2025-12-31', 'targets': ['postgres']})
     raw = dict(ts_code='000001.SZ', end_date='20251231', ann_date='20260301', f_ann_date='20260305',
                end_type='4', report_type='1', comp_type='1', update_flag='0', rd_exp='23.5')

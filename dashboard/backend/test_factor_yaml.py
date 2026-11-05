@@ -65,7 +65,7 @@ class FactorYamlDashboardTests(unittest.TestCase):
         self.assertEqual(sum(item.strategy_type == "timing" for item in alpha101), 101)
 
         alpha48 = next(item for item in alpha101 if item.name == "ALPHA48")
-        self.assertEqual(alpha48.inputs["subindustry_wide"], "industry:申万三级行业")
+        self.assertEqual(alpha48.inputs["subindustry_wide"], "industry:SW:L3")
 
         for name in ("ALPHA12_MOMENTUM", "ALPHA12_REVERSAL"):
             script, _class_cfg, factor_cfg = get_factor_config("alpha101", name)

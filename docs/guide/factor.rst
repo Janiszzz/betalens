@@ -16,7 +16,7 @@
 
 要点：
 
-* 基于 ``trade_status`` 表，按调仓日还原 ``1`` 正常、``0`` 停牌、``-1`` 未上市。
+* 基于 ``stock_suspension_intervals_versions`` 及其完整范围证据，按调仓日还原 ``1`` 正常、``0`` 停牌、``-1`` 未上市。
 * 默认 ``include_abnormal=False``，只保留正常交易证券。
 * ``include_abnormal=True`` 会把异常状态也纳入候选，适合做停牌处理或审计实验。
 * 返回的 ``date_ranges`` 和 ``code_ranges`` 可复用于多个因子的预查询，减少重复查库。
@@ -30,14 +30,17 @@
 
    raw = pre_query_characteristic_data(
        date_list=days,
-       metric="股息率(报告期)",
+       metric="revenue",
        time_tolerance=24 * 2 * 365,
-       table_name="fundamentals",
+       table_name="fundamental_periodic",
+       filters={"statement_type": "income", "report_type": "1"},
        date_ranges=date_ranges,
        code_ranges=code_ranges,
    )
 
-``pre_query_characteristic_data`` 默认 ``table_name="fundamentals"``。``time_tolerance`` 单位是小时，默认 ``24*2*365``。返回列通常包含 ``input_ts``、``code``、``{metric}``、``datetime``、``diff_hours`` 和 ``name``。
+示例使用收入报表字段，不将原报告期股息率替换为其他口径；后者仍需明确来源。
+
+``pre_query_characteristic_data`` 默认 ``table_name="fundamental_periodic"``。``time_tolerance`` 单位是小时，默认 ``24*2*365``。返回列通常包含 ``input_ts``、``code``、``{metric}``、``datetime``、``diff_hours`` 和 ``name``。
 
 预处理与中性化
 --------------
@@ -48,14 +51,14 @@
 
    cleaned = preprocess_factor(
        raw,
-       metric="股息率(报告期)",
+       metric="revenue",
        winsorize_method="mad",
        standardize_method="zscore",
-       industry_scheme="申万一级行业",
+       industry_scheme={"scheme_code": None, "level": 1},
        neutralize=True,
    )
 
-``preprocess_factor`` 逐截面执行去空值、可选截尾、可选标准化和可选中性化。截尾或标准化方法设为 ``none`` 可分别关闭；``neutralize=False`` 关闭 OLS 中性化。行业标签可由 ``industry_scheme`` 自动按 PIT 口径查询 ``industry`` 表；市值中性化需调用方准备 log 市值列。
+``preprocess_factor`` 逐截面执行去空值、可选截尾、可选标准化和可选中性化。截尾或标准化方法设为 ``none`` 可分别关闭；``neutralize=False`` 关闭 OLS 中性化。行业标签可由 ``industry_scheme`` 自动按 PIT 口径查询 ``stock_industry_membership_versions``；市值中性化需调用方准备 log 市值列。
 
 常用低层函数：
 
@@ -76,7 +79,7 @@
        multi_characteristic,
    )
 
-   labeled = single_characteristic(cleaned, "股息率(报告期)", {"股息率(报告期)": 10})
+   labeled = single_characteristic(cleaned, "revenue", {"revenue": 10})
 
    double_labeled = double_characteristic(
        size_data,
@@ -111,7 +114,7 @@
    )
 
    weights = get_single_factor_weight(labeled, {
-       "factor_key": "股息率(报告期)",
+       "factor_key": "revenue",
        "mode": "freeplay",
        "long": [9],
        "short": [0],
@@ -142,9 +145,9 @@
        factor_profile_payload,
    )
 
-   distribution = describe_distribution(raw, metric="股息率(报告期)")
-   coverage = coverage_stats(raw, metric="股息率(报告期)")
-   payload = factor_profile_payload(raw, metric="股息率(报告期)")
+   distribution = describe_distribution(raw, metric="revenue")
+   coverage = coverage_stats(raw, metric="revenue")
+   payload = factor_profile_payload(raw, metric="revenue")
 
 常见检查包括分布稳定性、覆盖率、异常值、因子自相关、选股重合度、因子间相关与聚类。
 

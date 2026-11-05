@@ -33,10 +33,9 @@ def main(argv=None):
     schema.add_argument("--token", help="schema plan 输出的结构计划令牌")
     plan = commands.add_parser("plan", help="创建数据导入计划，不自动下载")
     plan.add_argument("request", type=Path, help="JSON/YAML 请求文件")
-    for name in ["download", "preview", "commit", "resume", "cancel", "job", "sync-audit", "run"]:
+    for name in ["commit", "cancel", "job", "sync-audit", "run"]:
         command = commands.add_parser(name)
         command.add_argument("job")
-        if name == "commit": command.add_argument("--token", required=True)
     validator=commands.add_parser('validate');validator.add_argument('job');validator.add_argument('--rules',nargs='+',choices=['values','relations','readback'],default=['values','relations'])
     commands.add_parser("jobs")
     probe = commands.add_parser("probe"); probe.add_argument("datasets", nargs="+")
@@ -53,8 +52,6 @@ def main(argv=None):
     rebuild = commands.add_parser("rebuild", help="预览或确认删除旧表并重建统一 canonical 结构")
     rebuild.add_argument("--dry-run", action="store_true", help="只输出盘点，不执行删除（默认行为）")
     rebuild.add_argument("--confirm-drop", action="store_true", help="确认删除目标库旧 schema/table")
-    load = commands.add_parser("load", help="执行 initial_load YAML 的下载、预览和导入")
-    load.add_argument("--config", type=Path, required=True)
     services = commands.add_parser("services", help="通过独立模板建立或检查本地数据库容器")
     services.add_argument("action", choices=["up", "status"])
     worker = commands.add_parser("worker"); worker.add_argument("--once", action="store_true")
@@ -108,30 +105,21 @@ def main(argv=None):
         elif args.command == "plan":
             import yaml
             result = service.plan(yaml.safe_load(args.request.read_text(encoding="utf-8")))
-        elif args.command == "download": result = {"task":service.state.enqueue(args.job,"download",{"owner":"cli"})}
-        elif args.command == "preview": result = service.preview(args.job)
-        elif args.command == "commit": result = {"task":service.state.enqueue(args.job,"commit",{"token":args.token,"owner":"cli"})}
+        elif args.command == "commit": result = {"task":service.state.enqueue(args.job,"pipeline_commit",{"owner":"cli","background":True})}
         elif args.command=='run':
-            item=service._job(args.job)
-            if item['plan'].get('pipeline_version')!=2:raise ValueError('run 仅适用于新管线任务')
+            service.state.ensure_execution(args.job)
             result={'task':service.state.enqueue(args.job,'pipeline_run',{'owner':'cli','background':True})}
         elif args.command=='validate':result={'task':service.state.enqueue(args.job,'pipeline_validate',{'owner':'cli','background':True,'validation':{'rules':args.rules}})}
-        elif args.command == "resume": result = {"task":service.state.enqueue(args.job,"resume",{"owner":"cli"})}
-        elif args.command == "sync-audit":result={'task':service.state.enqueue(args.job,'sync_audit',{'owner':'cli'})}
+        elif args.command == "sync-audit":result={'task':service.state.enqueue(args.job,'pipeline_sync',{'owner':'cli'})}
         elif args.command == "cancel": service.state.cancel(args.job); result = {"cancel_requested": True}
         elif args.command == "job": result = service._job(args.job)
         elif args.command == "jobs": result = service.state.jobs()
         elif args.command == "probe": result = service.probe(args.datasets)
         elif args.command == "query": result = (service.pg if args.target=='postgres' else service.ch).query(args.dataset,args.code,args.start,args.end,args.limit,args.after)
-        elif args.command=='rollback':result={'task':service.state.enqueue(args.job,'rollback',{'targets':args.targets,'owner':'cli'})}
+        elif args.command=='rollback':result={'task':service.state.enqueue(args.job,'pipeline_rollback',{'targets':args.targets,'owner':'cli'})}
         elif args.command == "rebuild":
             from .migration import rebuild as rebuild_databases
             result = rebuild_databases(service, args.confirm_drop)
-        elif args.command == "load":
-            import yaml
-            from .migration import initial_load,load_manifest
-            config=yaml.safe_load(args.config.read_text(encoding="utf-8"))
-            result=load_manifest(service,config) if "batches" in config else initial_load(service,config)
         elif args.command == "services":
             template = Path(__file__).parent / "templates/compose.yaml"
             environment = os.environ.copy()

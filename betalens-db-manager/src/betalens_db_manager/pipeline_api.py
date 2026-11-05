@@ -67,6 +67,7 @@ def install_routes(app,service,response):
     def commit(job:str):
         item=service._job(job,True)
         if item['plan'].get('pipeline_version')!=2 or item['plan']['request']['auto_commit']:raise ValueError('仅适用于选择手动提交的新任务')
+        if item['status'] not in {'ready_to_commit','partial','paused','interrupted'}:raise ValueError('尚无可提交的标准化缓存')
         return response({'task':service.state.enqueue(job,'pipeline_commit',{'background':item['plan']['request']['run_in_background']})})
 
     @app.post('/api/tasks/{job}/validations')

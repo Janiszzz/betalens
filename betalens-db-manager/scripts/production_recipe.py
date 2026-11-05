@@ -1,8 +1,7 @@
 """Generate bounded real-source acceptance requests without running them.
 
 This helper never creates a manager, loads credentials or opens a database.
-The caller must run each request through plan -> download -> preview -> commit
--> read-back. No cached or invented source response is accepted by this recipe.
+The caller must run each request through plan -> run (auto_commit=false) -> commit -> validate. No cached or invented source response is accepted by this recipe.
 """
 from __future__ import annotations
 
@@ -34,10 +33,10 @@ def recipes(trade_date='20261016', period='20241231', targets=None, rpm=40):
                    'asset_types': [asset], 'codes': list(codes if codes is not None else ['000001.SZ']),
                    'start_date': start or current_day, 'end_date': end or current_day,
                    'targets': target_names, 'requests_per_minute': rpm,
-                   'mode': 'refresh_source', 'parameters': parameters or {}}
+                   'pipeline_version':2, 'auto_commit':False, 'mode': 'refresh_source', 'parameters': parameters or {}}
         output.append({'label': label, 'request': request, 'expected_tables': [table],
                        'expected_endpoints': list(endpoints), 'sample_only': True,
-                       'execution': 'plan_download_preview_confirm_commit_readback', 'notes': list(notes or [])})
+                       'execution': 'v2_plan_run_commit_validate', 'notes': list(notes or [])})
 
     # Unified dimensions and the complete per-source profile tables.
     for table in ('security_dim', 'stock_profile'):

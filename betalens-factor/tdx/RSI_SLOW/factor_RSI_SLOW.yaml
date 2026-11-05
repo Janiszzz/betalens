@@ -6,16 +6,17 @@ meta:
   logic: 12 日慢速 RSI；高值=中期上涨动量强 → 高分组做多（positive）。
 factor_spec:
   inputs:
-    close_wide: 收盘价(元)
+    close_wide: close
   compute_kwargs:
     window: 12
   direction: positive
-  table_name: daily_market
+  table_name: market_daily_post_adjusted
+  query_filters: {asset_type: stock}
   index_code: 000906.SH
   use_industry: true
   use_mktcap: false
-  industry_scheme: 申万一级行业
-  backtest_metric: 收盘价(元)
+  industry_scheme: {scheme_code: null, level: 1}
+  backtest_metric: close
 weight:
   mode: freeplay
   long_groups: null

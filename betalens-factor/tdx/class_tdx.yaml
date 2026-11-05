@@ -6,8 +6,8 @@ defaults:
   index_code: 000906.SH
   use_industry: true
   use_mktcap: false
-  industry_scheme: 申万一级行业
-  backtest_metric: 收盘价(元)
+  industry_scheme: {scheme_code: null, level: 1}
+  backtest_metric: close
   start_date: '2024-01-01'
   end_date: '2024-12-31'
   rebal_freq: W

@@ -412,27 +412,27 @@ def _rescale_side_by_industry(
 
 def query_industry_panel(
     pre_queried_data: pd.DataFrame,
-    scheme: str = '申万一级行业',
-    industry_table: str = 'industry',
+    scheme: dict | None = None,
+    industry_table: str = "stock_industry_membership_versions",
     verbose: bool = True,
 ) -> pd.Series:
     """
     面板行业查询：为 pre_queried_data 的每个 (input_ts, code) 取 point-in-time 行业名。
 
-    逐期调用 datafeed.query_industry（datetime<=查询日 的最近一条，天然防前视），
+    逐期调用 datafeed.query_industry，核验发布、历史可得性及完整行业范围，
     复用现有 API，不另写 SQL。
 
     Args:
         pre_queried_data: 含 input_ts, code 列（pre_query_characteristic_data 的输出）
-        scheme: 分类体系（metric），不带版本后缀时自动落到查询日生效的版本
-        industry_table: 行业表名，默认 'industry'
+        scheme: 分类体系（metric），scheme_code/level 字典；省略版本时使用有证据的唯一申万版本
+        industry_table: 行业物理表 stock_industry_membership_versions
         verbose: True 时打印行业分布/缺失/面板平衡诊断
 
     Returns:
         Series，MultiIndex=(input_ts, code)，值为 ind_name；未匹配到的留空
 
     Example:
-        >>> ind_panel = query_industry_panel(pre_queried_data, '申万一级行业')
+        >>> ind_panel = query_industry_panel(pre_queried_data, {'scheme_code': None, 'level': 1})
         >>> ind_panel.xs(ts)  # 取某期 code->行业
     """
     data = Datafeed(industry_table)
@@ -446,7 +446,7 @@ def query_industry_panel(
             res = data.query_industry(
                 codes=codes,
                 dates=date_str,
-                scheme=scheme,
+                **(scheme or {}),
             )
             if res is None or res.empty:
                 continue
@@ -553,8 +553,8 @@ def preprocess_factor(
     standardize_method: str = 'zscore',
     industry_col: str = None,
     log_mktcap_col: str = None,
-    industry_scheme: str = None,
-    industry_table: str = 'industry',
+    industry_scheme: dict | None = None,
+    industry_table: str = "stock_industry_membership_versions",
     verbose: bool = True,
     neutralize: bool = True,
 ) -> pd.DataFrame:
@@ -577,9 +577,9 @@ def preprocess_factor(
         standardize_method: 'none' | 'zscore' | 'rank' | 'minmax'
         industry_col: pre_queried_data 中的行业列名（None 则跳过中性化该项）
         log_mktcap_col: pre_queried_data 中的 log市值列名（None 则跳过市值中性化）
-        industry_scheme: 自动查 industry 表的分类体系名，如 '申万一级行业'；
+        industry_scheme: 自动查 industry 表的分类体系名，如 {'scheme_code': None, 'level': 1}；
                          给定即自动注入行业标签并打印诊断（优先于 industry_col）
-        industry_table: 行业表名，默认 'industry'
+        industry_table: 行业物理表 stock_industry_membership_versions
         neutralize: 是否执行行业/市值 OLS 中性化
         verbose: True 时打印行业诊断与中性化执行摘要
 
@@ -588,7 +588,7 @@ def preprocess_factor(
 
     Example:
         >>> # 自动查表 + 诊断打印（推荐）
-        >>> cleaned = preprocess_factor(raw_data, 'ROE', industry_scheme='申万一级行业')
+        >>> cleaned = preprocess_factor(raw_data, 'ROE', industry_scheme={'scheme_code': None, 'level': 1})
         >>> # 旧用法：调用方自带行业列
         >>> cleaned = preprocess_factor(raw_data, 'ROE', industry_col='industry')
         >>> labeled = single_characteristic(cleaned, 'ROE', quantiles={'ROE': 10})
@@ -598,7 +598,7 @@ def preprocess_factor(
 
     # 1b. 行业标签：industry_scheme 给定则自动查表（point-in-time），否则用 industry_col
     ind_panel = None
-    if neutralize and industry_scheme:
+    if neutralize and industry_scheme is not None:
         ind_panel = query_industry_panel(
             data, scheme=industry_scheme,
             industry_table=industry_table, verbose=False,

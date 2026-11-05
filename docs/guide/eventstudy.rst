@@ -26,7 +26,7 @@
 
    from betalens import Datafeed, EventStudy
 
-   df_market = Datafeed("daily_market")
+   df_market = Datafeed("market_daily_post_adjusted")
    es = EventStudy(df_market)
 
 基础事件分析
@@ -47,7 +47,7 @@
        code='868008.WI',
        window_before=20,
        window_after=20,
-       metric='收盘价(元)'
+       metric='close'
    )
 
 ``analyze()`` 返回一个字典，包含：
@@ -113,7 +113,7 @@ Day 0 日期规则
        benchmark_code='000905.SH',
        window_before=20,
        window_after=20,
-       metric='收盘价(元)'
+       metric='close'
    )
 
 多标的平均模式
@@ -128,7 +128,7 @@ Day 0 日期规则
        code=['000905.SH', '000300.SH'],
        window_before=20,
        window_after=20,
-       metric='收盘价(元)'
+       metric='close'
    )
 
    # 多标的模式额外返回：
@@ -191,7 +191,7 @@ Dashboard 的“多标的处理”参数可选择“等权聚合”或“同图�
        event_index=0,            # 第一个事件
        window_before=10,
        window_after=10,
-       metric='收盘价(元)',
+       metric='close',
        save_path='multi_stocks.png'
    )
 
@@ -205,7 +205,7 @@ Dashboard 的“多标的处理”参数可选择“等权聚合”或“同图�
        code='868008.WI',
        window_before=10,
        window_after=10,
-       metric='收盘价(元)',
+       metric='close',
        max_events=10,            # 最多展示10个事件
        save_path='events_lines.png'
    )
@@ -222,7 +222,7 @@ Dashboard 的“多标的处理”参数可选择“等权聚合”或“同图�
    import pandas as pd
 
    # 1. 初始化
-   df = Datafeed("daily_market")
+   df = Datafeed("market_daily_post_adjusted")
    es = EventStudy(df)
 
    # 2. 加载事件数据
@@ -235,7 +235,7 @@ Dashboard 的“多标的处理”参数可选择“等权聚合”或“同图�
        code='868008.WI',
        window_before=20,
        window_after=20,
-       metric='收盘价(元)'
+       metric='close'
    )
 
    # 4. 查看统计

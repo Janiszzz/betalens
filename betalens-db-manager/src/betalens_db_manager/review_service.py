@@ -38,6 +38,7 @@ class ReviewService:
     def __init__(self,service):self.s=service;self.store=PipelineStore(service.state)
 
     def _job(self,job,write=False):
+        if write:self.s.state.ensure_execution(job)
         item=self.s._job(job,write)
         if item['plan'].get('pipeline_version')!=2 or item['plan'].get('revision')!='manager-v1' or item['plan'].get('pipeline_parent'):
             raise ValueError('人工审计仅支持普通表异步主任务')
@@ -76,6 +77,7 @@ class ReviewService:
         result=unit['result'] or {};samples=result.get('reject_sample') or []
         return {'batch':unit['id'],'status':decision['status'] if decision else 'pending','error':unit['error'],
                 'rejected_rows':result.get('rejected'),'reasons':list(dict.fromkeys(s.get('reason') or s.get('code') or '未记录具体原因' for s in samples)),
+                'reason_counts':result.get('reject_summary',[]),
                 'samples':samples[:3],'cached_rows':sum(r['rows'] for records in result.get('tables',{}).values() for r in records),
                 'decision':{k:decision[k] for k in ('id','action','status','note','result','error','created','updated','operation_job')} if decision else None}
 

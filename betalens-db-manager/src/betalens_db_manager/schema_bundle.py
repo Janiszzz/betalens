@@ -198,7 +198,7 @@ class SchemaBundle:
             fresh=self.plan(plan['selections'])
             if fresh['snapshot_hash']!=plan['snapshot_hash']:raise ValueError('结构状态已变化，请重新预览')
             with self.s.state.connect() as conn:
-                active=conn.execute("SELECT 1 FROM tasks WHERE status='running' AND operation NOT IN ('pipeline_validate','preview','reference_preview') LIMIT 1").fetchone()
+                active=conn.execute("SELECT 1 FROM tasks WHERE status='running' AND operation!='pipeline_validate' LIMIT 1").fetchone()
             if active:raise ValueError('有数据操作正在执行，请结束后再建表')
             entries=self.entries();results=[];operation=uuid.uuid4().hex
             record={'operation_id':operation,'token':token,'status':'running','started_at':now(),'results':results}

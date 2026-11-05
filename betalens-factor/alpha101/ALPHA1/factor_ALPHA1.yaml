@@ -6,8 +6,8 @@ meta:
   logic: 严格按论文公式计算，高值作为正向截面因子。
 factor_spec:
   inputs:
-    close_wide: 收盘价(元)
-    returns_wide: 涨跌幅(%)
+    close_wide: close
+    returns_wide: pct_change
   industry_inputs: {}
   compute_kwargs:
     returns_threshold: -0.05
@@ -16,12 +16,13 @@ factor_spec:
     signed_power_base_argmax_window: 5
     rank_ts_argmax_signed_power_center: 0.5
   direction: positive
-  table_name: daily_market
+  table_name: market_daily_post_adjusted
+  query_filters: {asset_type: stock}
   index_code: 000906.SH
   use_industry: true
   use_mktcap: false
-  industry_scheme: 申万一级行业
-  backtest_metric: 收盘价(元)
+  industry_scheme: {scheme_code: null, level: 1}
+  backtest_metric: close
   required_history_bars: 24
   mask_inputs_by_pit: true
 weight:

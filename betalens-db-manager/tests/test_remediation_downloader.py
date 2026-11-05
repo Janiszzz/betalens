@@ -1,3 +1,4 @@
+from test_manager import archive_requests
 """Download completion and replay use the same frozen response validation facts."""
 from copy import deepcopy
 import gzip
@@ -82,7 +83,7 @@ def vendor_manager(tmp_path,*,wrong_security=False,pagination=False):
                 'items':[['B' if wrong_security else 'A','A','2026-10-13','12.5']] if params.get('offset',0)==0 else []}
     service.sources.register('http',lambda value:FakeAdapter(value))
     job=service.plan({'tables':['sample_prices'],'targets':['postgres'],'start_date':'2026-10-13','end_date':'2026-10-13','codes':['A']})
-    service.download(job['id'])
+    archive_requests(service,job['id'])
     return service,service.state.job(job['id']),definition,mapping,calls
 
 

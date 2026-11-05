@@ -71,7 +71,7 @@ def time_coverage(service,name,target,start,end):
         observed={str(r['day']):int(r['rows']) for r in found}
     else:raise ValueError('目标库无效')
     expected=set();calendar_known=True
-    from .service import dates
+    from .manager_kernel import dates
     if rule=='trading_day':
         try:
             if target=='postgres':
@@ -169,10 +169,6 @@ def install_routes(app,service,response):
     @app.get('/api/tables/{name}/introspect')
     def introspect(name:str,target:str='postgres'):return response(service.schema.inspect(name,target))
 
-    @app.post('/api/tables/archive-backfill')
-    def archive_backfill(payload:dict=Body(...)):
-        from .archive_migration import plan_archive_backfill
-        with registry_context(service.registry):return response(plan_archive_backfill(service,payload['tables'],payload.get('targets')))
 
     @app.get('/api/schema/operations')
     def operations():return response(service.state.ledger_rows('schema_operation'))

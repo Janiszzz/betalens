@@ -30,11 +30,16 @@ class TushareSource:
     def __init__(self, settings: Settings, state: State):
         self.settings, self.state = settings, state
 
+    def _check_cancel(self):
+        stop=getattr(self,'_download_stop',None)
+        if stop is not None and stop.is_set():raise InterruptedError('下载派发已停止')
+        job=getattr(self,'active_job',None)
+        if job:self.state.check_cancel(job)
+
     def _wait(self, seconds):
         deadline = time.monotonic() + max(0, seconds)
         while True:
-            job = getattr(self, 'active_job', None)
-            if job: self.state.check_cancel(job)
+            self._check_cancel()
             remaining = deadline - time.monotonic()
             if remaining <= 0: return
             time.sleep(min(remaining, .2))
@@ -55,7 +60,7 @@ class TushareSource:
         logged = False
         while True:
             job = getattr(self, 'active_job', None)
-            if job: self.state.check_cancel(job)
+            self._check_cancel()
             if adaptive:
                 from .adaptive_rate import effective,scope as rate_scope
                 limits={rate_scope(self):effective(self,'',rpm),rate_scope(self,endpoint):effective(self,endpoint,min(rpm,cap or rpm))}
@@ -153,6 +158,13 @@ class TushareSource:
 
 
 def read_archive(path: Path, expected_sha: str) -> dict:
+    from .normalization_context import CURRENT
+    inputs=CURRENT.get();key=(str(path),expected_sha)
+    if inputs is not None and key in inputs.archives:
+        inputs.archives.move_to_end(key)
+        return inputs.archives[key][0]
     with gzip.open(path, "rb") as handle: raw = handle.read()
     if hashlib.sha256(raw).hexdigest() != expected_sha: raise ValueError("原始归档哈希不匹配")
-    return json.loads(raw, parse_float=Decimal,parse_constant=str)["data"]
+    data=json.loads(raw, parse_float=Decimal,parse_constant=str)["data"]
+    if inputs is not None:inputs.put(key,data,len(raw))
+    return data

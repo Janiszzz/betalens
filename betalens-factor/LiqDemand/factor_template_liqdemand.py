@@ -35,7 +35,7 @@ LiqDemand 类因子专用模板 —— 复现 Nathan & Suominen (2026)
         ratio = close_wide / close_wide.rolling(window, min_periods=120).max()
         return (-ratio).replace([np.inf, -np.inf], np.nan)
 
-    spec = FactorSpec(name="DISP", inputs={"close_wide": "收盘价(元)"},
+    spec = FactorSpec(name="DISP", inputs={"close_wide": "close"},
                       compute=compute_disp, direction="negative",
                       compute_kwargs={"window": 252}, index_code="000906.SH")
     LiqDemandPipeline(spec).run("2024-01-01", "2025-12-31",
@@ -167,7 +167,7 @@ class LiqDemandPipeline(FactorPipeline):
         for arg_name, metric in sp.inputs.items():
             w = fetch_daily_wide(metric, universe=universe,
                                  start_date=fetch_start, end_date=end_date,
-                                 table_name=sp.table_name)
+                                 table_name=sp.table_name, filters=sp.query_filters)
             if verbose:
                 print(f"  {arg_name} ({metric}): {w.shape}")
             wides[arg_name] = w
@@ -194,9 +194,9 @@ class LiqDemandPipeline(FactorPipeline):
         if sp.use_industry or sp.use_mktcap:
             mktcap_col = None
             if sp.use_mktcap:
-                mktcap_wide = fetch_daily_wide("A股流通市值(元)", universe=universe,
+                mktcap_wide = fetch_daily_wide("circulating_market_value", universe=universe,
                                                start_date=fetch_start, end_date=end_date,
-                                               table_name=sp.table_name)
+                                               table_name=sp.table_name, filters=sp.query_filters)
                 if not mktcap_wide.empty:
                     log_mktcap = np.log(mktcap_wide.replace(0, np.nan))
                     lm_long = wide_to_prequery(log_mktcap, "log_mktcap", signal_dates)

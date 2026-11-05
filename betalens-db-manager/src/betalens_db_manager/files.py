@@ -24,16 +24,27 @@ def _import_file(service, name: str, path: Path, column_map: dict | None = None,
     from .sources import FileSourceAdapter
     FileSourceAdapter().plan({'path':str(path),'column_map':column_map})
     canonical_file=name in load_canonical_catalog()
+    if not canonical_file:
+        from .execution_policy import LegacyPipelineError
+        raise LegacyPipelineError('文件任务须选择已登记的本地表；旧来源表执行入口已移除')
     spec=canonical(name) if canonical_file else dataset(name)
     if not column_map: raise ValueError("文件导入必须提供显式列映射")
     path = path.expanduser().resolve(strict=True)
     if not path.is_file(): raise ValueError("输入必须是文件")
     mapping = column_map or {}
-    source_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+    from .pipeline_cache import file_sha
+    source_hash = file_sha(path)
     plan = dict(request=dict(datasets=[name], start_date="1900-01-01", end_date="2200-01-01", codes=[], mode=mode, parameters={}, targets=targets or ["postgres", "clickhouse"], sources=["file"]),
                 contracts={name: spec.hash}, target=service.settings.fingerprint,
                 file=dict(name=path.name, sha256=source_hash, column_map=mapping, encoding=encoding), revision="1")
     plan['file']['path']=str(path)
+    from .pipeline_options import options
+    from .mapping import VERSION
+    from .processors import VERSION as PROCESSOR_VERSION
+    plan['pipeline_version']=2;plan['revision']='file-v2'
+    plan['request'].update(options({'auto_commit':False}),tables=[name],requests_per_minute=service.settings.requests_per_minute)
+    plan.update(canonical_contracts={name:spec.hash},mapping_version=VERSION,processor_version=PROCESSOR_VERSION,
+                mapping_snapshots={},source_contracts={},retrieval_policies={},requests=[])
     if job_id:
         item=service._job(job_id,True)
         if item['plan']['file']['sha256']!=source_hash:raise ValueError('源文件已变化，请创建新任务')
@@ -41,7 +52,7 @@ def _import_file(service, name: str, path: Path, column_map: dict | None = None,
     job = item["id"]
     service._task_status(job,'planned')
     if defer:
-        service.state.enqueue(job,'file_download')
+        service.state.enqueue(job,'pipeline_run')
         return service.state.job(job)
     from .mapping import VERSION
     for field,rule in mapping.items():
@@ -56,10 +67,10 @@ def _import_file(service, name: str, path: Path, column_map: dict | None = None,
                 'required':int(not target_field.get('nullable',True) or column in spec.keys),'mapping_version':VERSION,'description':'用户显式文件映射'}
         service.state.ledger_put('meta_source_mapping',digest([job,field]),record)
     root = (service.settings.archive_dir or service.settings.state_dir/"archive") / job / name
-    root.mkdir(parents=True)
+    root.mkdir(parents=True,exist_ok=True)
     stored = root / ("source" + "".join(path.suffixes))
     shutil.copyfile(path, stored)
-    if hashlib.sha256(stored.read_bytes()).hexdigest() != source_hash: raise ValueError("复制期间源文件发生变化")
+    if file_sha(stored) != source_hash: raise ValueError("复制期间源文件发生变化")
     fields = list(mapping) if canonical_file else [f["name"] for f in spec.fields]
     source_names={key:value if isinstance(value,str) else value.get('column') for key,value in mapping.items()}
     if set(source_names.values()) - {f['name'] for f in spec.fields}: raise ValueError("列映射含未知目标字段")
@@ -90,6 +101,7 @@ def _import_file(service, name: str, path: Path, column_map: dict | None = None,
             batch.append([record.get(key) for key in fields] if canonical_file else [mapped.get(key) for key in fields])
             if len(batch) >= 5000: flush()
         if batch or counter == 0: flush()
+        service.state.ledger_put('file_ingestion',job,{'task_id':job,'complete':True,'parts':counter,'source_sha256':source_hash,'source_path':str(stored)})
         service.state.update_job(job, status="downloaded")
     except Exception as exc:
         service.state.update_job(job, status="failed", error=service.safe_error(exc))
@@ -100,3 +112,24 @@ def _import_file(service, name: str, path: Path, column_map: dict | None = None,
 def download_file(service,job):
     item=service._job(job,True);v=item['plan']['file'];request=item['plan']['request']
     return import_file(service,request['datasets'][0],Path(v['path']),v['column_map'],request['mode'],v.get('encoding','utf-8-sig'),request['targets'],job_id=job)
+
+
+def verify_file_cache(service,item):
+    """Verify immutable file evidence even when a normalized cache is reusable."""
+    from .pipeline_cache import file_sha
+    from .source import read_archive
+    proof=service.state.ledger_get('file_ingestion',item['id']) or {}
+    parts=item['slices'];definition=item['plan']['file']
+    if not proof.get('complete') or len(parts)!=proof.get('parts') or proof.get('source_sha256')!=definition['sha256']:
+        raise ValueError('文件归档完成凭证不完整')
+    if sorted(p['id'] for p in parts)!=[f'file-{i:08d}' for i in range(proof['parts'])]:raise ValueError('文件分片编号不连续')
+    source=Path(proof['source_path']) if proof.get('source_path') else Path(parts[0]['archive']).parent/('source'+''.join(Path(definition['name']).suffixes))
+    if file_sha(source)!=definition['sha256']:raise ValueError('源文件归档哈希不符')
+    for part in parts:
+        service.state.check_cancel(item['id'])
+        data=read_archive(Path(part['archive']),part['sha'])
+        meta=json.loads(Path(part['archive']).with_suffix('.meta.json').read_text())
+        if part['status']!='downloaded' or meta.get('sha256')!=part['sha'] or meta.get('source_sha256')!=definition['sha256']:
+            raise ValueError('文件分片证据不一致')
+        if data.get('fields')!=list(definition['column_map']) or len(data.get('items',[]))!=part['rows'] or any(len(r)!=len(data['fields']) for r in data['items']):
+            raise ValueError('文件分片字段或行宽不一致')

@@ -6,18 +6,19 @@ meta:
   logic: 严格按论文公式计算，高值作为正向截面因子。
 factor_spec:
   inputs:
-    high_wide: 最高价(元)
-    low_wide: 最低价(元)
-    vwap_wide: 均价(元)
+    high_wide: high
+    low_wide: low
+    vwap_wide: average_price
   industry_inputs: {}
   compute_kwargs: {}
   direction: positive
-  table_name: daily_market
+  table_name: market_daily_post_adjusted
+  query_filters: {asset_type: stock}
   index_code: 000906.SH
   use_industry: true
   use_mktcap: false
-  industry_scheme: 申万一级行业
-  backtest_metric: 收盘价(元)
+  industry_scheme: {scheme_code: null, level: 1}
+  backtest_metric: close
   required_history_bars: 1
   mask_inputs_by_pit: true
 weight:

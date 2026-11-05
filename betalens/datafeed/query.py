@@ -1,24 +1,20 @@
 """Business time-series queries over the source-neutral wide tables.
 
-Legacy public SQL builders and DataFrame utilities below are retained pending
-migration approval. Structured queries never use legacy physical relations.
+Structured queries share PIT rules across both backends. DataFrame utilities
+remain here pending their separate migration approval.
 """
 from __future__ import annotations
 
 import itertools
-import logging
-import re
 from datetime import datetime
 from decimal import Decimal
-from typing import Optional, List, Dict, Tuple, Any, Union
+from typing import Optional, List
 import numpy as np
 import pandas as pd
 
 from .contracts import (RANGE_COLUMNS, STATUS_COLUMNS, SchemaError, PITUnavailableError,
-    VersionConflictError, bounds, frame, local_time, proven, timestamp)
-from .readers import get_reader, identifier, require_columns, PostgresReader, ClickHouseReader
-
-_DATE_ONLY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+    VersionConflictError, bounds, frame, local_time, proven, timestamp, integer, hours)
+from .readers import get_reader, identifier, require_columns, filter_value, PostgresReader, ClickHouseReader
 
 PROVEN_COLUMNS = {"available_at": "timestamp", "availability_basis": "text",
                   "data_quality_status": "text"}
@@ -26,15 +22,22 @@ PROVEN_COLUMNS = {"available_at": "timestamp", "availability_basis": "text",
 
 def _column_unit(reader, table, column):
     """Read native units without guessing a unit from a metric alias."""
-    if not reader.columns("meta_column"):
+    metadata = reader.columns("meta_column")
+    if not metadata:
         return
     require_columns(reader, "meta_column", {"table_name": "text", "column_name": "text", "unit": "text"})
     cache = getattr(reader, "_unit_contract", {})
     if table not in cache:
-        rows = reader.rows("meta_column", ["column_name", "unit"], [("table_name", "=", table)])
-        cache[table] = {r["column_name"]: r["unit"] for r in rows}
+        fields = ["column_name", "unit"] + (["precision", "scale"] if {"precision", "scale"} <= metadata.keys() else [])
+        rows = reader.rows("meta_column", fields, [("table_name", "=", table)])
+        cache[table] = {r["column_name"]: r for r in rows}
         reader._unit_contract = cache
-    return cache[table].get(column)
+    details = cache[table].get(column, {})
+    if details.get("precision") is not None and details.get("scale") is not None:
+        actual = getattr(reader, "_numeric_shapes", {}).get(table, {}).get(column)
+        if actual != (int(details["precision"]), int(details["scale"])):
+            raise SchemaError(f"{table}.{column} Decimal 精度与 meta_column 声明不一致")
+    return details.get("unit")
 
 
 def _query_fields(reader, table, metric, filters):
@@ -67,7 +70,7 @@ def _query_fields(reader, table, metric, filters):
     if reader.columns(table)[metric] not in {"numeric", "integer"}:
         raise SchemaError(f"{table}.{metric} 必须是数值字段")
     expected[metric] = reader.columns(table)[metric]
-    return expected, [(key, "=", value) for key, value in filters.items()]
+    return expected, [(key, "=", filter_value(value, reader.columns(table)[key])) for key, value in filters.items()]
 
 
 def _codes(codes, *, required=False):
@@ -154,17 +157,17 @@ def observations(reader, table, metric, codes=None, lower=None, upper=None,
     return sorted(selected.values(), key=lambda r: (r["available_at"], r["code"]))
 
 
-def query_time_range(cursor, table_name, codes=None, start_date=None, end_date=None,
-                     metric=None, limit=None, logger=None, *, as_of=None, filters=None):
-    reader = get_reader(cursor)
+def query_time_range(source, table_name, codes=None, start_date=None, end_date=None,
+                     metric=None, limit=None, *, as_of=None, filters=None):
+    reader = get_reader(source)
     codes = _codes(codes)
     lower, upper, exclusive = bounds(start_date, end_date)
     if as_of is not None:
         cutoff = timestamp(as_of)
         if upper is None or cutoff < upper:
             upper, exclusive = cutoff, False
-    if limit is not None and (isinstance(limit, bool) or int(limit) != limit or limit < 0):
-        raise ValueError("limit 必须是非负整数")
+    if limit is not None:
+        limit = integer(limit, "limit", minimum=0)
     records = []
     with reader.snapshot():
         rows = observations(reader, table_name, metric, codes, lower, upper,
@@ -182,9 +185,7 @@ def match_nearest(rows, codes, anchors, metric, direction, time_tolerance=None, 
         raise ValueError("无效匹配方向")
     tolerance = None
     if time_tolerance is not None:
-        if not np.isfinite(float(time_tolerance)) or float(time_tolerance) < 0:
-            raise ValueError("time_tolerance 必须是非负小时数")
-        tolerance = pd.Timedelta(hours=float(time_tolerance))
+        tolerance = pd.Timedelta(hours=hours(time_tolerance))
     inputs = []
     for code, anchor in itertools.product(codes, anchors):
         start, end = (timestamp(anchor[0]), timestamp(anchor[1])) if ranges else (timestamp(anchor), timestamp(anchor))
@@ -218,7 +219,7 @@ def match_nearest(rows, codes, anchors, metric, direction, time_tolerance=None, 
     return frame(records, columns, numeric=("diff_hours", metric), times=("input_ts", "datetime"))
 
 
-def _nearest(cursor, table_name, codes, anchors, metric, direction, time_tolerance,
+def _nearest(source, table_name, codes, anchors, metric, direction, time_tolerance,
              *, ranges=False, filters=None, engine=None):
     codes = _codes(codes, required=True)
     if metric is None:
@@ -229,14 +230,14 @@ def _nearest(cursor, table_name, codes, anchors, metric, direction, time_toleran
     anchors = list(anchors)
     if ranges and any(not isinstance(a, (list, tuple)) or len(a) != 2 for a in anchors):
         raise ValueError("ranges 的每个元素必须是 (start, end)")
+    times = [timestamp(x) for a in anchors for x in a] if ranges else [timestamp(a) for a in anchors]
     # Validate direction, ranges and tolerance even when no source rows exist.
     empty = match_nearest([], codes, anchors, metric, direction, time_tolerance, ranges=ranges)
-    reader = get_reader(cursor)
+    reader = get_reader(source)
     if not codes or not anchors:
         with reader.snapshot():
             _query_fields(reader, table_name, metric, filters)
         return empty
-    times = [timestamp(x) for a in anchors for x in a] if ranges else [timestamp(a) for a in anchors]
     lower = min(times) if direction == "after" or ranges else None
     upper = max(times) if direction == "before" or ranges else None
     if time_tolerance is not None and not ranges:
@@ -263,35 +264,35 @@ def _nearest(cursor, table_name, codes, anchors, metric, direction, time_toleran
     return match_nearest(rows, codes, anchors, metric, direction, time_tolerance, ranges=ranges)
 
 
-def query_nearest_before(cursor, table_name, codes, datetimes, metric, time_tolerance=None, logger=None, *, filters=None):
-    return _nearest(cursor, table_name, codes, datetimes, metric, "before", time_tolerance, filters=filters)
+def query_nearest_before(source, table_name, codes, datetimes, metric, time_tolerance=None, *, filters=None):
+    return _nearest(source, table_name, codes, datetimes, metric, "before", time_tolerance, filters=filters)
 
 
-def query_nearest_after(cursor, table_name, codes, datetimes, metric, time_tolerance=None, logger=None, *, filters=None):
-    return _nearest(cursor, table_name, codes, datetimes, metric, "after", time_tolerance, filters=filters)
+def query_nearest_after(source, table_name, codes, datetimes, metric, time_tolerance=None, *, filters=None):
+    return _nearest(source, table_name, codes, datetimes, metric, "after", time_tolerance, filters=filters)
 
 
-def query_nearest_in_range_before(cursor, table_name, codes, ranges, metric, time_tolerance=None, logger=None, *, filters=None):
-    return _nearest(cursor, table_name, codes, ranges, metric, "before", time_tolerance, ranges=True, filters=filters)
+def query_nearest_in_range_before(source, table_name, codes, ranges, metric, time_tolerance=None, *, filters=None):
+    return _nearest(source, table_name, codes, ranges, metric, "before", time_tolerance, ranges=True, filters=filters)
 
 
-def query_nearest_in_range_after(cursor, table_name, codes, ranges, metric, time_tolerance=None, logger=None, *, filters=None):
-    return _nearest(cursor, table_name, codes, ranges, metric, "after", time_tolerance, ranges=True, filters=filters)
+def query_nearest_in_range_after(source, table_name, codes, ranges, metric, time_tolerance=None, *, filters=None):
+    return _nearest(source, table_name, codes, ranges, metric, "after", time_tolerance, ranges=True, filters=filters)
 
 
-def get_available_dates(cursor, table_name, code, metric, start_date=None, end_date=None, logger=None, *, as_of=None, filters=None):
-    result = query_time_range(cursor, table_name, [code], start_date, end_date, metric,
+def get_available_dates(source, table_name, code, metric, start_date=None, end_date=None, *, as_of=None, filters=None):
+    result = query_time_range(source, table_name, [code], start_date, end_date, metric,
                               as_of=as_of, filters=filters)
     return sorted(value.to_pydatetime() for value in result.datetime.drop_duplicates())
 
 
-def get_latest_date(cursor, table_name, code=None, metric=None, logger=None, *, as_of=None, filters=None):
-    result = query_time_range(cursor, table_name, [code] if code else None, metric=metric,
+def get_latest_date(source, table_name, code=None, metric=None, *, as_of=None, filters=None):
+    result = query_time_range(source, table_name, [code] if code else None, metric=metric,
                               limit=1, as_of=as_of, filters=filters)
     return None if result.empty else result.datetime.iloc[0].to_pydatetime()
 
 
-def query_trade_status(cursor, table_name, codes, dates, metric="交易状态", logger=None):
+def query_trade_status(source, table_name, codes, dates, metric="交易状态"):
     from .reference import load_reference, known_scopes, suspension_status
 
     if table_name != "stock_suspension_intervals_versions" or metric != "交易状态":
@@ -299,8 +300,8 @@ def query_trade_status(cursor, table_name, codes, dates, metric="交易状态", 
     codes = _codes(codes)
     if isinstance(dates, str):
         raise ValueError("dates 必须是列表")
-    dates = list(dates)
-    reader = get_reader(cursor)
+    dates = [timestamp(value) for value in dates]
+    reader = get_reader(source)
     records = []
     with reader.snapshot():
         scopes = load_reference(reader, "suspension", codes=codes) if dates and codes != [] else []
@@ -320,265 +321,6 @@ def query_trade_status(cursor, table_name, codes, dates, metric="交易状态", 
                 records.append({"code": code, "datetime": local_time(at), "value": value,
                                 "status_text": reason, "name": historical_name(names, code, at)})
     return frame(records, STATUS_COLUMNS, integers=("value",), times=("datetime",))
-
-def _get_default_logger():
-    """获取默认logger"""
-    logger = logging.getLogger('TimeSeriesQueryEngine')
-    if not logger.handlers:
-        logger.setLevel(logging.INFO)
-        ch = logging.StreamHandler()
-        ch.setLevel(logging.INFO)
-        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        ch.setFormatter(formatter)
-        logger.addHandler(ch)
-    return logger
-
-def build_query(
-    table_name: str,
-    conditions: Optional[List[str]] = None,
-    params: Optional[List] = None,
-    select_columns: str = '*',
-    order_by: Optional[str] = None,
-    limit: Optional[int] = None,
-) -> Tuple[str, List]:
-    """
-    构建SQL查询
-
-    Args:
-        table_name: 数据库表名
-        conditions: 条件列表
-        params: 参数列表
-        select_columns: 要选择的列
-        order_by: ORDER BY 子句（如 "datetime DESC"）
-        limit: 最大返回行数
-
-    Returns:
-        (SQL语句, 参数列表)
-    """
-    query = f"SELECT {select_columns} FROM {table_name}"
-
-    if conditions:
-        query += " WHERE " + " AND ".join(conditions)
-
-    if order_by:
-        query += f" ORDER BY {order_by}"
-
-    if limit is not None:
-        query += f" LIMIT {int(limit)}"
-
-    if params is None:
-        params = []
-
-    return query, params
-
-def generate_input_pairs(
-    codes: List[str],
-    datetimes: List[str]
-) -> List[Tuple[str, str]]:
-    """
-    生成(code, datetime)笛卡尔积
-    
-    Args:
-        codes: 代码列表
-        datetimes: 时间戳列表
-        
-    Returns:
-        (code, datetime)元组列表
-    """
-    return list(itertools.product(codes, datetimes))
-
-def generate_input_range_pairs(
-    codes: List[str],
-    ranges: List[Tuple[str, str]]
-) -> List[Tuple[str, str, str]]:
-    """
-    生成 (code, start_ts, end_ts) 笛卡尔积
-
-    Args:
-        codes: 代码列表
-        ranges: (start_ts, end_ts) 区间列表
-
-    Returns:
-        (code, start_ts, end_ts) 元组列表
-    """
-    return [(code, start, end) for code, (start, end) in itertools.product(codes, ranges)]
-
-def build_nearest_in_range_query(
-    table_name: str,
-    input_tuples: List[Tuple[str, str, str]],
-    metric: str,
-    direction: str = 'after',  # 'after' or 'before'
-    time_tolerance: Optional[float] = None
-) -> Tuple[str, List]:
-    """
-    构建区间内最近时点匹配查询
-
-    在每个 (code, start_ts, end_ts) 区间内，按方向查找距锚点最近的数据：
-    - direction='after'：锚点为 start_ts，区间过滤 t.datetime > start AND t.datetime < end
-    - direction='before'：锚点为 end_ts，区间过滤 t.datetime <= end AND t.datetime >= start
-
-    Args:
-        table_name: 表名
-        input_tuples: (code, start_ts, end_ts) 元组列表
-        metric: 指标名
-        direction: 查询方向，'after' 或 'before'
-        time_tolerance: 锚点容差（小时），与区间共同生效（取交集）
-
-    Returns:
-        (SQL语句, 参数列表)
-    """
-    value_placeholders = ', '.join(
-        ['(%s, %s::TIMESTAMP, %s::TIMESTAMP)'] * len(input_tuples)
-    )
-
-    if direction == 'after':
-        # 锚点 = start_ts
-        anchor_select = 'i.start_ts AS input_ts'
-        range_condition = 'AND t.datetime > i.start_ts AND t.datetime < i.end_ts'
-        time_diff_expr = 't.datetime - i.start_ts'
-        order_by = 'ASC'
-    elif direction == 'before':
-        # 锚点 = end_ts
-        anchor_select = 'i.end_ts AS input_ts'
-        range_condition = 'AND t.datetime <= i.end_ts AND t.datetime >= i.start_ts'
-        time_diff_expr = 'i.end_ts - t.datetime'
-        order_by = 'DESC'
-    else:
-        raise ValueError(f"无效的direction: {direction}，应为'after'或'before'")
-
-    tolerance_condition = ""
-    if time_tolerance is not None:
-        tolerance_condition = f"AND ({time_diff_expr}) <= %s * INTERVAL '1 hour'"
-
-    sql = f"""
-    WITH input_data (code, start_ts, end_ts) AS (
-        VALUES {value_placeholders}
-    ),
-    candidate_data AS (
-        SELECT
-            i.code,
-            {anchor_select},
-            t.datetime AS datetime,
-            EXTRACT(EPOCH FROM ({time_diff_expr}))/3600 AS diff_hours,
-            t.value,
-            t.name,
-            ROW_NUMBER() OVER (
-                PARTITION BY i.code, i.start_ts, i.end_ts
-                ORDER BY t.datetime {order_by}
-            ) AS rn
-        FROM input_data i
-        LEFT JOIN {table_name} t
-            ON i.code = t.code
-            {range_condition}
-            AND t.metric = %s
-            {tolerance_condition}
-    )
-    SELECT
-        code,
-        input_ts,
-        datetime,
-        diff_hours,
-        value,
-        name
-    FROM candidate_data
-    WHERE rn = 1
-    """
-
-    params_list = []
-    for code, start_ts, end_ts in input_tuples:
-        params_list.extend([code, start_ts, end_ts])
-    params_list.append(metric)
-
-    if time_tolerance is not None:
-        params_list.append(time_tolerance)
-
-    return sql, params_list
-
-def build_nearest_query(
-    table_name: str,
-    input_tuples: List[Tuple[str, str]],
-    metric: str,
-    direction: str = 'after',  # 'after' or 'before'
-    time_tolerance: Optional[float] = None
-) -> Tuple[str, List]:
-    """
-    构建最近时点匹配查询
-    
-    Args:
-        table_name: 表名
-        input_tuples: (code, datetime)元组列表
-        metric: 指标名
-        direction: 查询方向，'after'（之后）或'before'（之前）
-        time_tolerance: 时间容差（小时）
-        
-    Returns:
-        (SQL语句, 参数列表)
-    """
-    # 生成输入数据占位符
-    value_placeholders = ', '.join(['(%s, %s::TIMESTAMP)'] * len(input_tuples))
-    
-    # 根据方向设置比较运算符和排序
-    if direction == 'after':
-        comparison_op = '>'
-        order_by = 'ASC'
-        time_diff_expr = 't.datetime - i.input_ts'
-    elif direction == 'before':
-        comparison_op = '<='
-        order_by = 'DESC'
-        time_diff_expr = 'i.input_ts - t.datetime'
-    else:
-        raise ValueError(f"无效的direction: {direction}，应为'after'或'before'")
-    
-    # 时间容差条件
-    tolerance_condition = ""
-    if time_tolerance is not None:
-        tolerance_condition = f"AND ({time_diff_expr}) <= %s * INTERVAL '1 hour'"
-    
-    # 构建SQL
-    sql = f"""
-    WITH input_data (code, input_ts) AS (
-        VALUES {value_placeholders}
-    ),
-    candidate_data AS (
-        SELECT
-            i.code,
-            i.input_ts,
-            t.datetime AS datetime,
-            EXTRACT(EPOCH FROM ({time_diff_expr}))/3600 AS diff_hours,
-            t.value,
-            t.name,
-            ROW_NUMBER() OVER (
-                PARTITION BY i.code, i.input_ts 
-                ORDER BY t.datetime {order_by}
-            ) AS rn
-        FROM input_data i
-        LEFT JOIN {table_name} t
-            ON i.code = t.code
-            AND t.datetime {comparison_op} i.input_ts
-            AND t.metric = %s
-            {tolerance_condition}
-    )
-    SELECT 
-        code,
-        input_ts,
-        datetime,
-        diff_hours,
-        value,
-        name
-    FROM candidate_data
-    WHERE rn = 1
-    """
-    
-    # 构造参数列表
-    params_list = []
-    for code, dt in input_tuples:
-        params_list.extend([code, dt])
-    params_list.append(metric)
-    
-    if time_tolerance is not None:
-        params_list.append(time_tolerance)
-    
-    return sql, params_list
 
 def pivot_to_wide(
     df: pd.DataFrame,

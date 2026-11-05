@@ -1,0 +1,132 @@
+{
+  "task_id": "93142cda35b744d193a5388f7c780762",
+  "status": "partial",
+  "failed_cohorts": 145,
+  "rejection_entries": 91969,
+  "homogeneous_cohort_reason_counts": [
+    {
+      "dataset": "index_membership",
+      "code": null,
+      "reason": "security_code: 需要带境内市场后缀的标准证券代码，不能丢失前导零",
+      "count": 86086
+    },
+    {
+      "dataset": null,
+      "code": null,
+      "reason": "源数据业务主键为空",
+      "count": 376
+    },
+    {
+      "dataset": "index_weight",
+      "code": "incomplete_partition",
+      "reason": "响应达到上限，缺少完整拆分证据，必须重新拉取",
+      "count": 41
+    }
+  ],
+  "counts_caveat": "Reason counts cover cohorts with one sampled reason; mixed cohorts contain only the first 100 stored rejection samples, so these are lower bounds.",
+  "identifier_scan": {
+    "archive_leaf_parts": 6913,
+    "rows": 1588445,
+    "previously_invalid": 143294,
+    "initially_unhandled_valid_native_symbols": {
+      "6758": 18,
+      "7974": 12,
+      "7832": 12,
+      "9766": 12,
+      "035720": 6,
+      "3659": 12,
+      "9697": 12,
+      "9684": 12,
+      "259960": 6,
+      "036570": 6,
+      "3635": 12,
+      "2432": 12,
+      "251270": 6,
+      "7203": 6,
+      "9983": 6,
+      "2914": 6,
+      "7267": 6,
+      "6460": 6,
+      "5PD": 4,
+      "900250": 4,
+      "5GD": 4
+    },
+    "still_invalid_after_fix": {}
+  },
+  "index_weight_live_probe": {
+    "endpoint": "index_weight",
+    "parameters": {
+      "end_date": "20261030",
+      "index_code": "000013.CSI",
+      "start_date": "20261030"
+    },
+    "pages": [
+      {
+        "offset": 0,
+        "requested_limit": 5000,
+        "rows": 5000,
+        "overlap": 0,
+        "elapsed_ms": 227
+      },
+      {
+        "offset": 5000,
+        "requested_limit": 5000,
+        "rows": 2389,
+        "overlap": 0,
+        "elapsed_ms": 98
+      },
+      {
+        "offset": 7389,
+        "requested_limit": 5000,
+        "rows": 0,
+        "overlap": 0,
+        "elapsed_ms": 74
+      }
+    ],
+    "advancing": true,
+    "empty_terminal": true
+  },
+  "replays": {
+    "previously_4655_rejections": {
+      "seconds": 7.3524,
+      "child": "82371b2b4a8f4e91b4c7a94ffe6c3614",
+      "rejects": 0,
+      "reject_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "tables": {
+        "index_membership": {
+          "rows": 24884,
+          "sha256": "8885bb5d0af1ad4d5060e759bab63e25808dba3d83a8940a5f5d2fa7c0cff96f"
+        },
+        "corporate_action": {
+          "rows": 6,
+          "sha256": "002468ad02801798cdef4283d19f86852bcb0ddf57070b07d6baa713b13152db"
+        },
+        "security_name_history": {
+          "rows": 48,
+          "sha256": "74b1e93da22d1d0e15492eb02b1ef93179b9d3053a4a60456771bacac52ca582"
+        }
+      }
+    },
+    "previously_1_rejection": {
+      "seconds": 5.0512,
+      "child": "a277bab3646347b9b9b89ed3c7034028",
+      "rejects": 0,
+      "reject_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "tables": {
+        "index_membership": {
+          "rows": 10828,
+          "sha256": "f17406265c830f433a4df53f3af14979446e803e723dee8d21582b7c560c9e33"
+        },
+        "corporate_action": {
+          "rows": 1,
+          "sha256": "3877b0c131a011bf6c0df6a720c5ffb0f4716ac40f04b4e0d477a9487d58a5b3"
+        },
+        "security_name_history": {
+          "rows": 20,
+          "sha256": "a1f91a67e89d0e78e37f5b91d9f37df0e90fb9bd86e52d9a6302479ca372be35"
+        }
+      }
+    }
+  },
+  "production_rejected_task_retried": false
+}

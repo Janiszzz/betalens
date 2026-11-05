@@ -45,7 +45,7 @@ _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-DB_TABLE = "daily_market"
+DB_TABLE = "market_daily_post_adjusted"
 
 
 @dataclass
@@ -54,26 +54,27 @@ class FactorSpec:
     inputs: dict[str, str]
     compute: Callable[..., Any]
     strategy_type: str = "cross_section"
-    industry_inputs: dict[str, str] = field(default_factory=dict)
+    industry_inputs: dict[str, dict] = field(default_factory=dict)
     required_history_bars: int = 0
     mask_inputs_by_pit: bool = False
     direction: str = "positive"
     compute_kwargs: dict[str, Any] = field(default_factory=dict)
     table_name: str = DB_TABLE
+    query_filters: dict = field(default_factory=dict)
     use_industry: bool = False
     use_mktcap: bool = False
     winsorize_method: str | None = None
     winsorize_n: float = 3.0
     standardize_method: str | None = None
     neutralize: bool | None = None
-    industry_scheme: str = "申万一级行业"
+    industry_scheme: dict = field(default_factory=dict)
     index_code: str | None = None
     long_groups: list | None = None
     short_groups: list | None = None
     weight_mode: str = "freeplay"
     group_weights: dict[str, Any] = field(default_factory=dict)
     intra_group_allocation: dict[str, Any] = field(default_factory=dict)
-    backtest_metric: str = "收盘价(元)"
+    backtest_metric: str = "close"
 
 
 class FactorPipeline:
@@ -384,7 +385,7 @@ class TimingFactorPipeline:
                 start_date=fetch_start,
                 end_date=end_date,
                 table_name=sp.table_name,
-            )
+             filters=sp.query_filters)
             if wide.empty:
                 raise ValueError(f"empty input data: {arg_name} ({metric})")
             wides[arg_name] = wide

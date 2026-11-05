@@ -3,16 +3,16 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from datetime import date, datetime
-from decimal import Decimal
+from decimal import Decimal, localcontext
+from numbers import Real
 import json
 import re
 
 import pandas as pd
 import psycopg2.extras
-from psycopg2.extensions import TRANSACTION_STATUS_IDLE
 import requests
 
-from .contracts import DatafeedError, SchemaError, timestamp
+from .contracts import DatafeedError, SchemaError, timestamp, calendar_date, integer
 from .pool import get_read_pool
 
 
@@ -22,21 +22,66 @@ def identifier(value):
     return value
 
 
-def logical_type(value):
-    value = value.lower().replace("nullable(", "").replace("lowcardinality(", "")
-    if "timestamp" in value or "datetime" in value:
-        return "timestamp"
-    if value.startswith("date"):
-        return "date"
-    if "numeric" in value or "decimal" in value or "float" in value or "double" in value:
-        return "numeric"
-    if "int" in value or value == "boolean":
-        return "integer"
-    if "json" in value:
-        return "json"
-    if any(part in value for part in ("text", "char", "string")):
-        return "text"
+def scalar_type(value):
+    value = re.sub(r"\s+", " ", value.strip().lower())
+    for _ in range(4):
+        wrapper = re.fullmatch(r"(?:nullable|lowcardinality)\((.*)\)", value)
+        if not wrapper:
+            return value
+        value = wrapper[1].strip()
     return value
+
+
+def decimal_shape(value):
+    found = re.fullmatch(r"(?:numeric|decimal)\(\s*(\d+)\s*,\s*(\d+)\s*\)", scalar_type(value))
+    return (int(found[1]), int(found[2])) if found else None
+
+
+def logical_type(value):
+    value = scalar_type(value)
+    if re.fullmatch(r"timestamp(?:\(\d+\))?(?: with(?:out)? time zone)?|timestamptz|datetime(?:64\(\d+(?:,\s*'[^']+')?\)|\('[^']+'\))?", value):
+        return "timestamp"
+    if value in {"date", "date32"}:
+        return "date"
+    if value in {"numeric", "real", "double precision", "float32", "float64"} or decimal_shape(value):
+        return "numeric"
+    if value in {"smallint", "integer", "bigint"} or re.fullmatch(r"u?int(?:8|16|32|64|128|256)", value):
+        return "integer"
+    if value in {"bool", "boolean"}:
+        return "boolean"
+    if value in {"json", "jsonb"}:
+        return "json"
+    if value in {"text", "string", "character", "character varying"} or re.fullmatch(r"(?:varchar|char|character varying|fixedstring)\(\d+\)", value):
+        return "text"
+    return "unsupported"
+
+
+def filter_value(value, kind):
+    if kind == "timestamp":
+        return timestamp(value).to_pydatetime()
+    if kind == "date":
+        return calendar_date(value)
+    if kind == "integer":
+        return integer(value, "整数查询条件")
+    if kind == "boolean" and isinstance(value, bool):
+        return value
+    if kind == "text" and isinstance(value, str):
+        return value
+    if kind == "numeric" and isinstance(value, (Real, Decimal)) and not isinstance(value, bool):
+        number = Decimal(str(value))
+        if number.is_finite():
+            return number
+    raise ValueError(f"查询条件不符合字段类型 {kind}")
+
+
+def _check_decimal(value, shape):
+    if not isinstance(value, Decimal) or shape is None:
+        return
+    precision, scale = shape
+    with localcontext() as context:
+        context.prec = max(precision + scale + 2, len(value.as_tuple().digits) + abs(value.as_tuple().exponent) + 2)
+        if abs(value) >= Decimal(10) ** (precision - scale) or value != value.quantize(Decimal(1).scaleb(-scale)):
+            raise ValueError("数值查询条件超出数据库 Decimal 精度，拒绝截断")
 
 
 def require_columns(reader, table, expected):
@@ -46,6 +91,8 @@ def require_columns(reader, table, expected):
     for name, kind in expected.items():
         if name not in actual:
             raise SchemaError(f"{table} 缺少字段 {name}")
+        if actual[name] == "unsupported":
+            raise SchemaError(f"{table}.{name} 不支持数组、复合或未知字段类型")
         if kind and actual[name] != kind:
             raise SchemaError(f"{table}.{name} 类型应为 {kind}，实际为 {actual[name]}")
 
@@ -72,6 +119,9 @@ def select_sql(reader, table, columns, filters=(), order=(), limit=None):
             continue
         placeholders = []
         for item in values:
+            item = filter_value(item, names[column])
+            shape = getattr(reader, "_numeric_shapes", {}).get(table, {}).get(column)
+            _check_decimal(item, shape)
             key = "p" + str(len(params))
             if reader.backend == "postgres":
                 placeholders.append("%(" + key + ")s")
@@ -80,11 +130,15 @@ def select_sql(reader, table, columns, filters=(), order=(), limit=None):
             typ = "String"
             if isinstance(item, (pd.Timestamp, datetime)):
                 typ = "DateTime64(6,'UTC')"
-                item = timestamp(item, stored=True).strftime("%Y-%m-%d %H:%M:%S.%f")
+                item = timestamp(item).strftime("%Y-%m-%d %H:%M:%S.%f")
             elif isinstance(item, date):
                 typ, item = "Date32", item.isoformat()
+            elif isinstance(item, bool):
+                typ, item = "Bool", int(item)
             elif isinstance(item, int):
                 typ = "Int64"
+            elif isinstance(item, Decimal):
+                typ = f"Decimal({shape[0]},{shape[1]})" if shape else "Float64"
             placeholders.append("{" + key + ":" + typ + "}")
             params[key] = str(item)
         bound = "(" + ",".join(placeholders) + ")" if operator == "IN" else placeholders[0]
@@ -97,64 +151,40 @@ def select_sql(reader, table, columns, filters=(), order=(), limit=None):
                 raise ValueError("无效排序")
         sql += " ORDER BY " + ",".join(quote + c + quote + " " + d for c, d in order)
     if limit is not None:
-        if isinstance(limit, bool) or int(limit) != limit or limit < 0:
-            raise ValueError("limit 必须是非负整数")
-        sql += " LIMIT " + str(int(limit))
+        sql += " LIMIT " + str(integer(limit, "limit", minimum=0))
     return sql, params
 
 
 class PostgresReader:
     backend = "postgres"
 
-    def __init__(self, config=None, *, cursor=None, schema="betalens"):
-        self.config = dict(config or {})
-        self.namespace = identifier(self.config.get("schema", schema))
+    def __init__(self, config):
+        self.config = dict(config)
+        self.namespace = identifier(config["schema"])
         self._columns = {}
-        self._pool = None
+        self._numeric_shapes = {}
         self._depth = 0
-        self._owned = cursor is None
-        self.conn = getattr(cursor, "connection", None)
-        self.cursor = cursor
-        if cursor is not None:
-            return
-        self._pool = get_read_pool(self.config,
-            min_connections=self.config.get("pool_min_connections", 1),
-            max_connections=self.config.get("pool_max_connections", 10),
-            statement_timeout_ms=self.config.get("statement_timeout_ms", 120000))
+        self._pool = get_read_pool(config,
+            min_connections=config["pool_min_connections"],
+            max_connections=config["pool_max_connections"],
+            statement_timeout_ms=config["statement_timeout_ms"])
         self.conn = self._pool.acquire()
         try:
             self.conn.set_session(readonly=True, autocommit=False, isolation_level="REPEATABLE READ")
             self.cursor = self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-            self.cursor._reader = self
         except Exception:
             self._pool.release(self.conn)
             raise
 
     @contextmanager
     def snapshot(self):
-        previous = None
-        if not self._owned and not self._depth:
-            if self.conn.get_transaction_status() == TRANSACTION_STATUS_IDLE:
-                previous = (self.conn.readonly, self.conn.autocommit, self.conn.isolation_level)
-                self.conn.set_session(readonly=True, autocommit=False, isolation_level="REPEATABLE READ")
-            else:
-                self.cursor.execute("SHOW transaction_read_only")
-                readonly = next(iter(self.cursor.fetchone().values())) if isinstance(self.cursor, psycopg2.extras.RealDictCursor) else self.cursor.fetchone()[0]
-                self.cursor.execute("SHOW transaction_isolation")
-                isolation = next(iter(self.cursor.fetchone().values())) if isinstance(self.cursor, psycopg2.extras.RealDictCursor) else self.cursor.fetchone()[0]
-                if readonly != "on" or isolation not in {"repeatable read", "serializable"}:
-                    raise DatafeedError("外部游标已有事务，需使用只读 REPEATABLE READ 事务")
         self._depth += 1
         try:
             yield self
         finally:
             self._depth -= 1
-            if (self._owned or previous is not None) and not self._depth and self.conn is not None:
+            if not self._depth and self.conn is not None:
                 self.conn.rollback()
-                if previous is not None:
-                    self.conn.set_session(readonly=previous[0] if previous[0] is not None else "DEFAULT",
-                                          autocommit=previous[1],
-                                          isolation_level=previous[2] if previous[2] is not None else "DEFAULT")
 
     def execute(self, sql, params=None):
         if not sql.lstrip().upper().startswith("SELECT "):
@@ -167,17 +197,19 @@ class PostgresReader:
     def columns(self, table):
         identifier(table)
         if table not in self._columns:
-            rows = self.execute("SELECT column_name, data_type FROM information_schema.columns "
+            rows = self.execute("SELECT column_name, data_type, numeric_precision, numeric_scale FROM information_schema.columns "
                                 "WHERE table_schema=%(schema)s AND table_name=%(table)s ORDER BY ordinal_position",
                                 {"schema": self.namespace, "table": table})
             self._columns[table] = {r["column_name"]: logical_type(r["data_type"]) for r in rows}
+            self._numeric_shapes[table] = {r["column_name"]: (r["numeric_precision"], r["numeric_scale"])
+                for r in rows if r["data_type"] == "numeric" and r["numeric_precision"] is not None}
         return self._columns[table]
 
     def rows(self, table, columns=None, filters=(), order=(), limit=None):
         return self.execute(*select_sql(self, table, columns, filters, order, limit))
 
     def close(self):
-        if self._owned and self.conn is not None:
+        if self.conn is not None:
             try:
                 self.cursor.close()
             finally:
@@ -192,6 +224,7 @@ class ClickHouseReader:
         self.config = dict(config)
         self.namespace = identifier(config["database"])
         self._columns = {}
+        self._numeric_shapes = {}
         self.session = requests.Session()
         self.session.auth = (config["user"], config.get("password", ""))
 
@@ -225,6 +258,7 @@ class ClickHouseReader:
                                 "AND table={table:String} ORDER BY position",
                                 {"db": self.namespace, "table": table})
             self._columns[table] = {r["name"]: logical_type(r["type"]) for r in rows}
+            self._numeric_shapes[table] = {r["name"]: decimal_shape(r["type"]) for r in rows if decimal_shape(r["type"])}
         return self._columns[table]
 
     def rows(self, table, columns=None, filters=(), order=(), limit=None):
@@ -236,12 +270,12 @@ class ClickHouseReader:
 
 
 def get_reader(value):
-    """Accept the public facade, a reader, or the legacy PG cursor argument."""
+    """Resolve a structured subscription or its internal reader; never a raw cursor."""
     if hasattr(value, "_reader"):
         return value._reader
     if isinstance(value, (PostgresReader, ClickHouseReader)) or hasattr(value, "rows"):
         return value
-    return PostgresReader(cursor=value)
+    raise TypeError("查询必须传入 Datafeed，不再接受原生数据库游标")
 
 
 def typed_rows(reader, table, rows):

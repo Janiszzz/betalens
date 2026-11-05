@@ -11,7 +11,7 @@ from betalens_db_manager.downloader import TaskDownloader
 from betalens_db_manager.pipeline import normalize_child
 from betalens_db_manager.pipeline_options import light_normalization
 from betalens_db_manager.response_validation import validate_archives, validate_response
-from betalens_db_manager.service import TushareImportService, normalize_source
+from betalens_db_manager.manager_kernel import ManagerKernel, normalize_source
 from betalens_db_manager.source import SourceError
 from betalens_db_manager.util import digest
 from test_manager import cached_part, manager, live_manager
@@ -39,7 +39,7 @@ def quote(source, close, **values):
 
 @pytest.mark.parametrize('reverse', [False, True])
 def test_cross_feed_close_rounding_selects_daily_independent_of_order(reverse):
-    service = TushareImportService.__new__(TushareImportService)
+    service = ManagerKernel.__new__(ManagerKernel)
     rows = [quote('daily', '13.94'), quote('daily_basic', '13.9389')]
     if reverse:
         rows.reverse()
@@ -55,7 +55,7 @@ def test_cross_feed_close_rounding_selects_daily_independent_of_order(reverse):
     [quote('daily', '13.94', volume=Decimal('10')), quote('daily_basic', '13.9389', volume=Decimal('11'))],
 ])
 def test_close_tolerance_does_not_hide_real_or_unrelated_conflicts(rows):
-    service = TushareImportService.__new__(TushareImportService)
+    service = ManagerKernel.__new__(ManagerKernel)
     assert service._merge(rows, canonical('market_daily_raw'))[0]['data_quality_status'] == 'conflicting_source_rows'
 
 

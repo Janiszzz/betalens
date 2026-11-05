@@ -11,7 +11,9 @@ from .util import digest, identifier
 def optional_source_fields(endpoint: str) -> frozenset[str]:
     # Announcement dates are publication evidence, not a mandatory NAV identity.
     # Keep the field in the source key so distinct dated revisions stay distinct.
-    return frozenset({'ann_date'}) if endpoint=='fund_nav' else frozenset()
+    # Dividend proposals may precede an announcement. The observation table
+    # uses a content-derived record_version, so no date may be invented here.
+    return frozenset({'ann_date'}) if endpoint in {'fund_nav','dividend'} else frozenset()
 
 
 @dataclass(frozen=True)

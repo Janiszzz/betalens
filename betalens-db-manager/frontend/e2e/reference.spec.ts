@@ -28,28 +28,26 @@ test('完整性缺口生成可审查请求，显式拉取和审计后才允许�
   await page.route('**/api/reference/tasks', async route => {
     if (route.request().method() === 'POST') {
       request = route.request().postDataJSON(); calls.push('create');
-      task = {id: 'reference-ui-task', status: 'planned', request, attempts: [], logs: []};
+      task = {id: 'reference-ui-task', status: 'planned', request, plan: {pipeline_version: 2, request}, attempts: [], logs: []};
       await route.fulfill({json: task});
     } else await route.fulfill({json: task ? [task] : []});
   });
   await page.route('**/api/reference/tasks/reference-ui-task', route => route.fulfill({json: task}));
-  await page.route('**/api/reference/tasks/reference-ui-task/download', async route => {
-    calls.push('download'); task = {...task, status: 'downloaded', attempts: [{attempt_id: 'attempt-1', status: 'completed'}], logs: [{event: 'request', source_endpoint: 'suspend_d', http_status: 200, rows: 0}]};
+  await page.route('**/api/tasks/reference-ui-task/start', async route => {
+    calls.push('start'); task = {...task, status: 'ready_to_commit', attempts: [{attempt_id: 'attempt-1', status: 'completed'}], logs: [{event: 'request', http_status: 200}], preview: {token: 'review-token', blocking: false, raw_sample: [{security_code: '000001.SZ', suspend_timing: null}], normalized_sample: [{security_code: '000001.SZ', available_at: null, downloaded_at: '2026-10-25T00:00:00+00:00'}], scopes: [{scope_id: 'scope-1', reason: '完整响应无事件'}], heads: [{target: 'postgres', revision_id: 'old-revision'}], changes: [{before: {revision_id: 'old-revision'}, after: {revision_id: 'revision-1', status: '未报告停牌'}}]}};
     await route.fulfill({json: task});
   });
-  await page.route('**/api/reference/tasks/reference-ui-task/preview', async route => {
-    calls.push('preview'); task = {...task, status: 'previewed', preview: {token: 'review-token', blocking: false, raw_sample: [{security_code: '000001.SZ', suspend_timing: null}], normalized_sample: [{security_code: '000001.SZ', available_at: null, downloaded_at: '2026-10-25T00:00:00+00:00'}], scopes: [{scope_id: 'scope-1', reason: '完整响应无事件'}], heads: [{target: 'postgres', revision_id: 'old-revision'}], changes: [{before: {revision_id: 'old-revision'}, after: {revision_id: 'revision-1', status: '未报告停牌'}}]}};
-    await route.fulfill({json: task});
-  });
-  await page.route('**/api/reference/tasks/reference-ui-task/commit', async route => {
+  await page.route('**/api/tasks/reference-ui-task/pipeline/commit', async route => {
     calls.push('commit'); publishBody = route.request().postDataJSON();
     task = {...task, status: 'completed', result: {targets: [{target: 'postgres', module: 'suspension', status: 'published', revision_id: 'revision-1'}]}};
     await route.fulfill({json: task});
   });
-  await page.route('**/api/reference/tasks/reference-ui-task/rollback', async route => {
+  await page.route('**/api/tasks/reference-ui-task/rollback', async route => {
     calls.push('rollback'); task = {...task, status: 'revoked', result: {targets: [{target: 'postgres', status: 'revoked', rollback_task_id: 'rollback-1'}]}};
     await route.fulfill({json: task});
   });
+  await page.route('**/api/tasks/reference-ui-task/pipeline', route => route.fulfill({json: task}));
+  await page.route('**/api/tasks/reference-ui-task/validations', route => route.fulfill({json: []}));
   await page.goto('/integrity');
   await expect(page.getByRole('heading', {name: '业务完整性', exact: true})).toBeVisible();
   await expect(page.getByRole('link', {name: '业务完整性', exact: true})).toHaveAttribute('href', '/integrity');
@@ -67,27 +65,26 @@ test('完整性缺口生成可审查请求，显式拉取和审计后才允许�
   await expect(page.getByLabel('参考表请求起始日期')).toHaveValue('2026-10-13');
   await expect(page.getByLabel('参考表请求结束日期')).toHaveValue('2026-10-13');
   expect(calls).toEqual([]);
+  await page.getByLabel('轻量检查后自动入库', {exact: true}).uncheck();
   await page.getByRole('button', {name: '登记参考表更新任务', exact: true}).click();
   await expect(page.getByTestId('reference-task')).toContainText('reference-ui-task');
   expect(request.targets).toEqual(['postgres']); expect(request.modules).toEqual(['suspension']);
   expect(request.security_codes).toEqual(['000001.SZ']); expect(calls).toEqual(['create']);
   await expect(page).toHaveURL(/\/integrity\?task=reference-ui-task$/);
   await expect(page.getByRole('button', {name: '确认追加并核验发布', exact: true})).toHaveCount(0);
-  await page.getByRole('button', {name: '开始拉取参考数据', exact: true}).click();
+  await page.getByRole('button', {name: '启动异步采集并生成缓存', exact: true}).click();
   await expect(page.getByTestId('reference-task-logs')).toContainText('200');
-  expect(calls).toEqual(['create', 'download']);
-  await page.getByRole('button', {name: '检查参考数据缓存与差异', exact: true}).click();
   await expect(page.getByTestId('reference-audit')).toContainText('原始响应缓存');
   await expect(page.getByTestId('reference-audit')).toContainText('完整响应无事件');
-  expect(calls).toEqual(['create', 'download', 'preview']);
+  expect(calls).toEqual(['create', 'start']);
   await page.getByRole('button', {name: '确认追加并核验发布', exact: true}).click();
   await expect(page.getByTestId('reference-publish-results')).toContainText('published');
-  expect(publishBody).toEqual({token: 'review-token', accept_partial: false});
+  expect(publishBody).toEqual({});
   await expect(page.getByTestId('integrity-rows-postgres')).toContainText('未报告停牌');
   await page.getByRole('button', {name: '撤销本任务可信发布', exact: true}).click();
   await expect(page.getByTestId('reference-publish-results')).toContainText('rollback-1');
   await expect(page.getByTestId('integrity-rows-postgres')).toContainText('未请求');
-  expect(calls).toEqual(['create', 'download', 'preview', 'commit', 'rollback']);
+  expect(calls).toEqual(['create', 'start', 'commit', 'rollback']);
   expect(checks).toBeGreaterThanOrEqual(3); expect(errors).toEqual([]);
   await page.screenshot({path: info.outputPath('reference-task-revocation.png'), fullPage: true});
 });
@@ -95,13 +92,15 @@ test('完整性缺口生成可审查请求，显式拉取和审计后才允许�
 test('参考表建表预览不写库，过期审计拒绝写入，版本审计明确包含未发布数据', async ({page}) => {
   await baseRoutes(page);
   let applies = 0; let versionRequest = ''; let commitCalls = 0;
-  const task = {id: 'blocked-reference', status: 'previewed', request: {targets: ['postgres']}, preview: {token: 'expired', blocking: true, errors: [{reason: '版本头已改变，需要重新审计'}]}};
+  const task = {id: 'blocked-reference', status: 'ready_to_commit', request: {targets: ['postgres']}, plan: {pipeline_version: 2, request: {targets: ['postgres'], auto_commit: false}}, preview: {token: 'expired', blocking: true, errors: [{reason: '版本头已改变，需要重新审计'}]}};
   await page.route('**/api/reference/tasks', route => route.fulfill({json: [task]}));
   await page.route('**/api/reference/tasks/blocked-reference', route => route.fulfill({json: task}));
-  await page.route('**/api/reference/tasks/blocked-reference/commit', route => {commitCalls++;return route.fulfill({status: 409, json: {detail: 'stale confirmation'}});});
+  await page.route('**/api/tasks/blocked-reference/pipeline/commit', route => {commitCalls++;return route.fulfill({status: 409, json: {detail: 'stale confirmation'}});});
   await page.route('**/api/reference/schema/preview', route => route.fulfill({json: {token: 'schema-review', targets: [{target: 'postgres', ddl: ['CREATE TABLE betalens.trade_calendar_versions (...)']}, {target: 'clickhouse', ddl: ['CREATE TABLE betalens.trade_calendar_versions (...)']}]}}));
   await page.route('**/api/reference/schema/apply', route => {applies++;return route.fulfill({json: {results: [{target: 'postgres', status: 'completed'}, {target: 'clickhouse', status: 'failed', reason: '模拟单库失败'}]}});});
   await page.route('**/api/reference/versions?*', route => {versionRequest = route.request().url();return route.fulfill({json: {revisions: [{revision_id: 'unpublished', status: 'unpublished'}], scopes: [], rows: [{revision_id: 'unpublished', security_code: '000001.SZ'}], events: [{revision_id: 'old', event: 'revoked'}]}});});
+  await page.route('**/api/tasks/blocked-reference/pipeline', route => route.fulfill({json: task}));
+  await page.route('**/api/tasks/blocked-reference/validations', route => route.fulfill({json: []}));
   await page.goto('/integrity?task=blocked-reference');
   await expect(page.getByRole('button', {name: '确认追加并核验发布', exact: true})).toBeDisabled();
   await expect(page.getByTestId('reference-audit')).toContainText('版本头已改变，需要重新审计');

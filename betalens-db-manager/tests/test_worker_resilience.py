@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest,requests
 from test_manager import manager
 from betalens_db_manager.config import Settings
-from betalens_db_manager.service import TushareImportService
+from betalens_db_manager.manager_kernel import ManagerKernel
 from betalens_db_manager.worker import retry_control,WorkerStopping,work
 from betalens_db_manager.worker_supervisor import worker_status
 from betalens_db_manager.state import State
@@ -47,7 +47,7 @@ def test_single_metadata_write_resolves_targets_before_transaction_and_closes_co
 
 
 def test_real_write_lock_is_retried_then_claimed_exactly_once(tmp_path,capsys):
-    s=TushareImportService(Settings(state_dir=tmp_path));s.state.busy_timeout=.05
+    s=ManagerKernel(Settings(state_dir=tmp_path));s.state.busy_timeout=.05
     job=s.state.create_job({'pipeline_version':2,'request':{'targets':['postgres'],'run_in_background':True}},s.settings.fingerprint)
     task=s.state.enqueue(job['id'],'pipeline_run');assert s.state.job(job['id'])['status']=='queued'
     locked=threading.Event()
@@ -71,7 +71,7 @@ def test_busy_retry_obeys_stop_and_does_not_retry_unrelated_sql_errors(tmp_path)
 
 
 def test_cancelled_queue_stays_stopped_until_an_explicit_new_start(tmp_path):
-    s=TushareImportService(Settings(state_dir=tmp_path))
+    s=ManagerKernel(Settings(state_dir=tmp_path))
     job=s.state.create_job({'pipeline_version':2,'request':{'targets':['postgres'],'run_in_background':True}},s.settings.fingerprint)
     s.state.enqueue(job['id'],'pipeline_run');s.state.cancel(job['id'])
     assert s.state.claim() is None and s.state.job(job['id'])['status']=='cancelled'
@@ -81,8 +81,30 @@ def test_cancelled_queue_stays_stopped_until_an_explicit_new_start(tmp_path):
     assert s.state.claim()['job']==job['id']
 
 
+def test_explicit_rollback_after_cancel_does_not_resume_ingestion(tmp_path):
+    s=ManagerKernel(Settings(state_dir=tmp_path))
+    job=s.state.create_job({'pipeline_version':2,'request':{'targets':['postgres'],'run_in_background':True}},s.settings.fingerprint)
+    s.state.cancel(job['id'])
+    operation=s.state.enqueue(job['id'],'pipeline_rollback')
+    assert s.state.job(job['id'])['cancel']==0
+    # Queues created by the previous release retained the cancelled flag.
+    with s.state.connect() as conn:conn.execute('UPDATE jobs SET cancel=1 WHERE id=?',(job['id'],))
+    claimed=s.state.claim(allow_ui=False)
+    assert claimed['id']==operation and claimed['operation']=='pipeline_rollback'
+    assert s.state.job(job['id'])['status']=='rolling_back'
+    assert s.state.job(job['id'])['cancel']==0
+
+
+def test_cancel_after_queued_rollback_still_stops_the_operation(tmp_path):
+    s=ManagerKernel(Settings(state_dir=tmp_path))
+    job=s.state.create_job({'pipeline_version':2,'request':{'targets':['postgres'],'run_in_background':True}},s.settings.fingerprint)
+    s.state.enqueue(job['id'],'pipeline_rollback');s.state.cancel(job['id'])
+    assert s.state.claim() is None
+    assert s.state.job(job['id'])['tasks'][0]['status']=='cancelled'
+
+
 def test_worker_loop_survives_busy_claim_and_restores_signal_handlers(tmp_path,monkeypatch,capsys):
-    s=TushareImportService(Settings(state_dir=tmp_path));claim=s.state.claim;calls=[]
+    s=ManagerKernel(Settings(state_dir=tmp_path));claim=s.state.claim;calls=[]
     def busy_once(*args,**kwargs):
         calls.append(True)
         if len(calls)==1:raise sqlite3.OperationalError('database is locked')
@@ -92,6 +114,71 @@ def test_worker_loop_survives_busy_claim_and_restores_signal_handlers(tmp_path,m
     assert len(calls)==2 and signal.getsignal(signal.SIGTERM)==previous
     assert 'sqlite_busy_retry' in capsys.readouterr().out
     assert json.loads((tmp_path/'worker-heartbeat.json').read_text())['status']=='stopped'
+
+
+def queued(s,operation,table='daily_market',target='postgres',**payload):
+    job=s.state.create_job({'pipeline_version':2,'request':{'tables':[table],'targets':[target],'run_in_background':True}},s.settings.fingerprint)
+    identity=s.state.enqueue(job['id'],operation,payload)
+    return job['id'],identity
+
+
+def test_claim_admits_one_independent_audit_and_keeps_overlap_queued(tmp_path):
+    s=ManagerKernel(Settings(state_dir=tmp_path))
+    write,write_id=queued(s,'pipeline_run')
+    overlap,overlap_id=queued(s,'pipeline_validate')
+    audit,audit_id=queued(s,'pipeline_validate','financial')
+    second,second_id=queued(s,'pipeline_run','trade_status')
+    assert s.state.claim()['id']==write_id
+    assert s.state.claim()['id']==audit_id  # Skip the conflicting queue head.
+    assert s.state.claim() is None
+    s.state.finish(audit_id)
+    assert s.state.claim() is None  # Neither another writer nor overlap is safe.
+    s.state.finish(write_id)
+    assert s.state.claim()['id']==overlap_id
+    assert s.state.claim()['id']==second_id
+    assert s.state.claim() is None
+
+
+def test_claim_fences_reference_tables_unknown_scopes_and_database_targets(tmp_path):
+    from betalens_db_manager.execution_policy import operation_scope,operations_conflict
+    from betalens_db_manager.reference_contracts import MODULE_TABLE
+    module,table=next(iter(MODULE_TABLE.items()))
+    write=operation_scope('pipeline_run',{'modules':[module],'targets':['postgres']},{})
+    same=operation_scope('pipeline_validate',{'tables':[table],'targets':['postgres']},{})
+    other=operation_scope('pipeline_validate',{'tables':[table],'targets':['clickhouse']},{})
+    assert operations_conflict(write,same) and not operations_conflict(write,other)
+    assert operations_conflict(write,operation_scope('pipeline_validate',{},{}))
+
+
+def test_worker_schedules_two_children_and_releases_finished_lane(tmp_path,monkeypatch):
+    from types import SimpleNamespace
+    import multiprocessing
+    from betalens_db_manager import management_api
+    s=ManagerKernel(Settings(state_dir=tmp_path));started=[];alive=set();peak=[]
+    first,_=queued(s,'pipeline_run')
+    audit,_=queued(s,'pipeline_validate','financial')
+    second,_=queued(s,'pipeline_run','trade_status')
+    class Child:
+        def __init__(self,target,args):self.task=args[1];self.polls=0;self.running=False
+        def start(self):
+            self.running=True;started.append(self.task['job']);alive.add(self.task['job']);peak.append(len(alive))
+        def is_alive(self):
+            if self.running:
+                self.polls+=1
+                if len(started)>=2 and self.polls>=3:
+                    s.state.finish(self.task['id']);self.running=False;alive.remove(self.task['job'])
+            return self.running
+        def join(self,*_):pass
+        def terminate(self):self.running=False;alive.discard(self.task['job'])
+        kill=terminate
+    def online(*_,**kwargs):
+        if len(started)==3 and not alive:raise WorkerStopping()
+        return True
+    monkeypatch.setattr(multiprocessing,'get_context',lambda *_:SimpleNamespace(Process=Child))
+    monkeypatch.setattr(management_api,'session_online',online)
+    work(s)
+    assert started==[first,audit,second] and max(peak)==2 and not alive
+    assert all(s.state.job(job)['tasks'][0]['status']=='completed' for job in started)
 
 
 def test_worker_health_requires_live_recent_heartbeat(tmp_path):

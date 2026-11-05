@@ -7,7 +7,7 @@ from betalens_db_manager.canonical import load_canonical_catalog
 from betalens_db_manager.comparison import row_hash, row_key
 from betalens_db_manager.config import Settings
 from betalens_db_manager.publishing import operation_lock
-from betalens_db_manager.service import TushareImportService
+from betalens_db_manager.manager import DatabaseManagerService
 from betalens_db_manager.storage import CONTROL_DDL, control_spec
 from betalens_db_manager.util import atomic_json, now
 
@@ -46,7 +46,7 @@ def main():
     parser.add_argument('--env', required=True)
     parser.add_argument('--output', required=True)
     args = parser.parse_args()
-    service = TushareImportService(Settings.from_env(args.env))
+    service = DatabaseManagerService(Settings.from_env(args.env))
     report = {'generated_at': now(), 'tables': [], 'schema': [], 'capabilities': [],
               'historical_batches': service.state.ledger_rows('initial_load_batch')}
     # Keep the two snapshots stable while the download worker can still fetch.

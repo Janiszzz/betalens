@@ -16,7 +16,7 @@ from betalens_db_manager.api import create_app
 
 
 def test_frozen_options_and_large_requests(tmp_path):
-    assert options({})['download_workers']==8
+    assert options({})['download_workers']==12
     for field,value in [('download_workers',True),('normalization_workers',0),('post_check_rules',['unknown'])]:
         with pytest.raises(ValueError):options({field:value})
     request={'start_date':'2005-01-01','end_date':'2026-10-26','codes':['000001.SZ']}

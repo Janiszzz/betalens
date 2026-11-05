@@ -21,7 +21,8 @@ BUSINESS_COLUMNS = {
     "calendar": {"exchange": "text", "trade_date": "date", "is_open": "integer"},
     "industry": {"security_code": "text", "scheme_code": "text", "level": "integer",
                  "industry_code": "text", "industry_name": "text", "valid_from": "date",
-                 "valid_to": "date", "boundary_basis": "text"},
+                 "valid_to": "date", "boundary_basis": "text",
+                 "classification_version": "text", "membership_status": "text"},
     "suspension": {"security_code": "text", "trade_date": "date", "suspend_type": "text",
                    "parse_status": "text", "start_at": "timestamp", "end_at": "timestamp"},
 }
@@ -147,7 +148,8 @@ def calendar_rows(scopes, as_of):
 
 
 def calendar_days(reader, begin, end, exchange="SSE", as_of=None):
-    exchange = exchange.upper()
+    if exchange not in {"SSE", "SZSE", "BSE"}:
+        raise ValueError("exchange 必须是 SSE/SZSE/BSE")
     begin, end = local_time(timestamp(begin)).normalize(), local_time(timestamp(end)).normalize()
     if begin > end:
         raise ValueError("开始日期不能晚于结束日期")

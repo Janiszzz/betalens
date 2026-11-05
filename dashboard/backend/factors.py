@@ -31,7 +31,7 @@ def _display_inputs(factor_spec: dict[str, Any]) -> dict[str, str]:
     return {
         **{str(key): str(value) for key, value in (factor_spec.get("inputs") or {}).items()},
         **{
-            str(key): f"industry:{value}"
+            str(key): f"industry:{value.get('scheme_code') or 'SW'}:L{value.get('level', 1)}"
             for key, value in (factor_spec.get("industry_inputs") or {}).items()
         },
     }

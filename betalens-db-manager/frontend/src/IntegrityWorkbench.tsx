@@ -83,7 +83,6 @@ export default function IntegrityWorkbench({api}: {api: Api}) {
   const [draftHint, setDraftHint] = useState('');
   const [tasks, setTasks] = useState<Row[]>([]);
   const [job, setJob] = useState<Row>();
-  const [acceptPartial, setAcceptPartial] = useState(false);
   const [tables, setTables] = useState<Row[]>([]);
   const [schema, setSchema] = useState<Row>();
   const [schemaResult, setSchemaResult] = useState<Row>();
@@ -107,7 +106,7 @@ export default function IntegrityWorkbench({api}: {api: Api}) {
   function selectTask(value?: Row) {
     if (selectedTaskId.current !== value?.id) taskGeneration.current += 1;
     selectedTaskId.current = value?.id;
-    setJob(value); setAcceptPartial(false); jobStatus.current = value?.status || '';
+    setJob(value);  jobStatus.current = value?.status || '';
     const url = new URL(location.href);
     if (value?.id) url.searchParams.set('task', value.id); else url.searchParams.delete('task');
     history.replaceState(null, '', url.pathname + url.search);
@@ -173,13 +172,12 @@ export default function IntegrityWorkbench({api}: {api: Api}) {
   async function action(operation: string, body: Row = {}) {
     if (!job?.id) return;
     const id = job.id;
-    const result = await api('/reference/tasks/' + encodeURIComponent(id) + '/' + operation, body);
+    const result = await api((operation === 'retry' ? '/reference/tasks/' : '/tasks/') + encodeURIComponent(id) + '/' + operation, body);
     if (operation === 'retry') selectTask(result.task || result.job || result);
     else setJob(await api('/reference/tasks/' + encodeURIComponent(id)));
-    if (operation === 'preview') setAcceptPartial(false);
     await listTasks();
-    setNotice(operation === 'retry' ? '已创建关联的新任务；需重新拉取、审计和确认。' : operation === 'preview' ? '审计已更新，请核对缓存、版本头和差异后确认入库。' : operation === 'download' ? '拉取操作已登记，数据库尚未写入；请查看实时日志。' : operation === 'rollback' ? '撤销发布操作已登记；历史业务行和审计保留。' : '写入操作已登记，分别核验目标库及业务模块后发布。');
-    if (['commit', 'rollback'].includes(operation) && checkedRequest && result.status && finalStates.has(result.status)) setReport(await api('/integrity/check', checkedRequest));
+    setNotice(operation === 'retry' ? '已创建关联的新任务；需重新拉取、审计和确认。' : operation === 'rollback' ? '撤销发布操作已登记；历史业务行和审计保留。' : '写入操作已登记，分别核验目标库及业务模块后发布。');
+    if (['pipeline/commit', 'rollback'].includes(operation) && checkedRequest && result.status && finalStates.has(result.status)) setReport(await api('/integrity/check', checkedRequest));
   }
   const preview = auditOf(job);
   const targetResults = report?.results || {};
@@ -228,7 +226,7 @@ export default function IntegrityWorkbench({api}: {api: Api}) {
       {(draft.source_id || 'tushare') === 'tushare' && <label>Tushare 每分钟请求上限<input aria-label="参考表每分钟请求次数" type="number" min="1" max="10000" value={draft.requests_per_minute || requestRpm} onChange={event => setDraft({...draft, requests_per_minute: Number(event.target.value)})}/><small>同时遵守接口自身限频；按分页和分区完整获取，不以短页推断结束。</small></label>}
       <PipelineOptions enabled={pipelineEnabled} onEnabled={setPipelineEnabled} rules={postChecks} onRules={setPostChecks}/>
       <p>新版本独立生成；入库后先核验再发布，不从旧版本静默补值。行业查询需要完整历史快照。</p>
-      <button className="primary" disabled={busy || !draft.targets.length || !draft.modules.length || draft.start_date > draft.end_date} onClick={() => run(async () => {const result = await api('/reference/tasks', {...draft,...(pipelineEnabled?{pipeline_version:2,auto_commit:true,run_in_background:true,validation_profile:'light',post_check_rules:postChecks}:{})}); selectTask(result.task || result.job || result); await listTasks(); setDraft(undefined); setNotice('任务已持久化，仅登记请求参数；点击“开始拉取参考数据”才会访问来源。');})}>登记参考表更新任务</button>
+      <button className="primary" disabled={busy || !draft.targets.length || !draft.modules.length || draft.start_date > draft.end_date} onClick={() => run(async () => {const result = await api('/reference/tasks', {...draft,pipeline_version:2,auto_commit:pipelineEnabled,run_in_background:true,validation_profile:'light',post_check_rules:postChecks}); selectTask(result.task || result.job || result); await listTasks(); setDraft(undefined); setNotice('任务已持久化，仅登记请求参数；启动异步采集后才会访问来源。');})}>登记参考表更新任务</button>
       <details><summary>使用已有归档准备基线</summary><p>只复用来源身份、字段合同、请求参数及完整分页证据均匹配的归档；旧业务行和“任务已完成”状态不会成为可信依据。缺少证据的范围标为待重新获取，仍需缓存审计和确认。</p><label>源任务编号<input aria-label="参考表基线源任务编号" value={baselineTasks} onChange={event => setBaselineTasks(event.target.value)} placeholder="任务编号，以逗号或空格分隔"/></label><button disabled={busy || !split(baselineTasks).length || !draft.targets.length || !draft.modules.length} onClick={() => run(async () => {const result = await api('/reference/baselines', {request: draft, source_task_ids: split(baselineTasks)}); selectTask(result); await listTasks(); setDraft(undefined); setNotice('已准备基线归档，未写入数据库；请核对归档证明并审计，缺少证据的范围需显式拉取。');})}>准备可审计基线任务</button></details>
       <button onClick={() => setDraft(undefined)}>取消待登记请求</button>
     </section>}
@@ -244,9 +242,8 @@ export default function IntegrityWorkbench({api}: {api: Api}) {
         {job.error && <div className="error">{job.error}</div>}
         {job.plan?.pipeline_version===2&&<PipelineProgress job={job} api={api} refresh={()=>{listTasks();api('/reference/tasks/'+job.id).then(selectTask);}}/>}
         <div className="actions">
-          <button disabled={locked||job.plan?.pipeline_version===2} onClick={() => run(() => action('download'))}>开始拉取参考数据</button>
-          <button disabled={locked} onClick={() => run(() => action('preview'))}>检查参考数据缓存与差异</button>
-          <button disabled={locked} onClick={() => run(() => action('retry'))}>建立关联的新版本任务</button>
+          {job.plan?.pipeline_version!==2&&<span className="muted">历史任务为只读归档，可查看原始记录与审计。</span>}
+          <button disabled={locked||job.plan?.pipeline_version!==2} onClick={() => run(() => action('retry'))}>建立关联的新版本任务</button>
         </div>
         <h3>执行尝试与请求日志</h3><DataTable rows={asRows(job.attempts || job.execution_attempts)} empty="尚无执行尝试"/><DataTable rows={asRows(job.logs)} testId="reference-task-logs" empty="开始拉取后显示接口、脱敏参数、HTTP 状态、耗时、分页和重试记录。"/>
         {job.preview && <div className="reference-audit" data-testid="reference-audit">
@@ -257,13 +254,12 @@ export default function IntegrityWorkbench({api}: {api: Api}) {
           {previewTables.map((table: Row, index: number) => <details key={index}><summary>{table.target} · {table.table || table.module}</summary><DataTable rows={[{...table, normalized_sample: undefined, change_sample: undefined}]}/><DataTable rows={asRows(table.normalized_sample)}/><DataTable rows={asRows(table.change_sample)}/></details>)}
           <DataTable rows={asRows(preview.reject_sample || preview.rejected_rows || preview.errors)} empty="未提供拒收记录"/>
           <p>确认内容绑定本次缓存、映射、结构、目标库和版本头。写入后需完成目标库核验及发布，业务查询才可见。</p>
-          <label className="reference-partial"><input type="checkbox" checked={acceptPartial} onChange={event => setAcceptPartial(event.target.checked)}/>允许仅发布通过核验的模块与范围，失败及未知范围继续保留</label>
           {preview.blocking && <div className="error">本次审计存在阻止写入的问题，请修复后重新审计。</div>}
-          <button className="primary" disabled={locked || !preview.token || preview.blocking || (rejected > 0 && !acceptPartial) || ['completed', 'rolled_back', 'revoked'].includes(job.status)} onClick={() => run(() => action('commit', {token: preview.token, accept_partial: acceptPartial}))}>确认追加并核验发布</button>
+          <button className="primary" disabled={locked || job.plan?.request?.auto_commit || job.plan?.pipeline_version!==2 || !preview.token || preview.blocking || rejected > 0 || ['completed', 'rolled_back', 'revoked'].includes(job.status)} onClick={() => run(() => action('pipeline/commit'))}>确认追加并核验发布</button>
         </div>}
         <h3>分库、分模块写入与发布结果</h3><DataTable rows={asRows(outcome.targets || outcome.results || job.target_status || job.publications || outcome)} testId="reference-publish-results"/>
         <h3>撤销发布记录</h3><DataTable rows={asRows(job.rollbacks)} testId="reference-rollback-results"/>
-        <div className="actions"><button disabled={locked} onClick={() => run(() => action('rollback', {targets: requestOf(job).targets || targets}))}>撤销本任务可信发布</button><span className="muted">追加撤销事件，保留全部版本及原审计；受影响的依赖重新检查。</span></div>
+        <div className="actions"><button disabled={locked||job.plan?.pipeline_version!==2} onClick={() => run(() => action('rollback', {targets: requestOf(job).targets || targets}))}>撤销本任务可信发布</button><span className="muted">追加撤销事件，保留全部版本及原审计；受影响的依赖重新检查。</span></div>
       </div>}
     </section>
 

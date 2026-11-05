@@ -36,20 +36,20 @@ from factor_template_alpha101 import (
 
 
 MARKET_INPUTS = {
-    "open": ("open_wide", "开盘价(元)"),
-    "close": ("close_wide", "收盘价(元)"),
-    "high": ("high_wide", "最高价(元)"),
-    "low": ("low_wide", "最低价(元)"),
-    "volume": ("volume_wide", "成交量(股)"),
-    "vwap": ("vwap_wide", "均价(元)"),
-    "returns": ("returns_wide", "涨跌幅(%)"),
-    "cap": ("cap_wide", "总市值(元)"),
-    "amount": ("amount_wide", "成交金额(元)"),
+    "open": ("open_wide", "open"),
+    "close": ("close_wide", "close"),
+    "high": ("high_wide", "high"),
+    "low": ("low_wide", "low"),
+    "volume": ("volume_wide", "volume"),
+    "vwap": ("vwap_wide", "average_price"),
+    "returns": ("returns_wide", "pct_change"),
+    "cap": ("cap_wide", "total_market_value"),
+    "amount": ("amount_wide", "amount"),
 }
 INDUSTRY_INPUTS = {
-    "sector": ("sector_wide", "申万一级行业"),
-    "industry": ("industry_wide", "申万二级行业"),
-    "subindustry": ("subindustry_wide", "申万三级行业"),
+    "sector": ("sector_wide", {"scheme_code": None, "level": 1}),
+    "industry": ("industry_wide", {"scheme_code": None, "level": 2}),
+    "subindustry": ("subindustry_wide", {"scheme_code": None, "level": 3}),
 }
 INPUT_ORDER = tuple(MARKET_INPUTS) + tuple(INDUSTRY_INPUTS)
 
@@ -179,7 +179,7 @@ class AlphaDefinition:
     name: str
     formula: str
     inputs: Mapping[str, str]
-    industry_inputs: Mapping[str, str]
+    industry_inputs: Mapping[str, dict]
     required_history_bars: int
     compute: Callable[[dict[str, pd.DataFrame], Mapping[str, Any] | None], pd.DataFrame]
     parameters: Mapping[str, "AlphaParameter"]
@@ -793,7 +793,7 @@ ALPHA_PARAMETER_SPECS = {
 }
 
 
-def _input_specs(formula: str) -> tuple[dict[str, str], dict[str, str]]:
+def _input_specs(formula: str) -> tuple[dict[str, str], dict[str, dict]]:
     market = {}
     industry = {}
     for variable, (argument, metric) in MARKET_INPUTS.items():

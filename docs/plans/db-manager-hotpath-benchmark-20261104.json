@@ -1,0 +1,117 @@
+{
+  "date": "2026-11-04",
+  "normalization": {
+    "sample": "one archived date cohort from task 93142cda35b744d193a5388f7c780762",
+    "mode": "light",
+    "benchmark_scope": "in-memory canonical conversion; excludes Parquet writing and database writes",
+    "repetitions": 1,
+    "rows": 152658,
+    "exact_output_match": true,
+    "before": {
+      "seconds": 143.7379,
+      "child": "089904ac3f684416af6776dfccede8fd",
+      "rejects": 0,
+      "reject_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "tables": {
+        "fund_nav_daily": {
+          "rows": 25481,
+          "sha256": "fa8a00f7a83b3b723592f79a8e76b34c8f1723f821f8bb100976c9ab54f20130"
+        },
+        "fund_nav_observation": {
+          "rows": 25481,
+          "sha256": "fc1f249e04798ed55c359c8757750de3cfde22cf60160f06bed12dedc8b0950e"
+        },
+        "corporate_action": {
+          "rows": 7755,
+          "sha256": "fca83f57e3dfb6e356ab728e36bde6b7f39421667ec3ca33175f1da353e5299e"
+        },
+        "fund_shares_daily": {
+          "rows": 1787,
+          "sha256": "fb9bb310c532d91693a98251f4d1d4d185a55d3b69c2e3154e2ac93234f08859"
+        },
+        "market_daily_raw": {
+          "rows": 18073,
+          "sha256": "fe17269f34e80fa8dc47d9f1842972d5c44b8c12d40979ac381836125fb9f5d4"
+        },
+        "stock_quote_supplement_daily": {
+          "rows": 5578,
+          "sha256": "1c122de6cb536b6328c0f87a24cc8a968fc86641e6692e6b32a1c62b31e025dd"
+        },
+        "trade_status_daily": {
+          "rows": 50430,
+          "sha256": "5811ca515cfc97b9140eea8114722a8828acde70c559693c7f723a6ec6e9accf"
+        },
+        "market_daily_post_adjusted": {
+          "rows": 18073,
+          "sha256": "0372976b1af343e8a9594798650e7be10f0744766be96617b8d134000e08e6b6"
+        }
+      }
+    },
+    "after": {
+      "seconds": 36.2612,
+      "child": "089904ac3f684416af6776dfccede8fd",
+      "rejects": 0,
+      "reject_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "tables": {
+        "fund_nav_daily": {
+          "rows": 25481,
+          "sha256": "fa8a00f7a83b3b723592f79a8e76b34c8f1723f821f8bb100976c9ab54f20130"
+        },
+        "fund_nav_observation": {
+          "rows": 25481,
+          "sha256": "fc1f249e04798ed55c359c8757750de3cfde22cf60160f06bed12dedc8b0950e"
+        },
+        "corporate_action": {
+          "rows": 7755,
+          "sha256": "fca83f57e3dfb6e356ab728e36bde6b7f39421667ec3ca33175f1da353e5299e"
+        },
+        "fund_shares_daily": {
+          "rows": 1787,
+          "sha256": "fb9bb310c532d91693a98251f4d1d4d185a55d3b69c2e3154e2ac93234f08859"
+        },
+        "market_daily_raw": {
+          "rows": 18073,
+          "sha256": "fe17269f34e80fa8dc47d9f1842972d5c44b8c12d40979ac381836125fb9f5d4"
+        },
+        "stock_quote_supplement_daily": {
+          "rows": 5578,
+          "sha256": "1c122de6cb536b6328c0f87a24cc8a968fc86641e6692e6b32a1c62b31e025dd"
+        },
+        "market_daily_post_adjusted": {
+          "rows": 18073,
+          "sha256": "0372976b1af343e8a9594798650e7be10f0744766be96617b8d134000e08e6b6"
+        },
+        "trade_status_daily": {
+          "rows": 50430,
+          "sha256": "5811ca515cfc97b9140eea8114722a8828acde70c559693c7f723a6ec6e9accf"
+        }
+      }
+    }
+  },
+  "write_preconditions": {
+    "sample": "synthetic 5000-row market_daily_raw refresh_source intent",
+    "repetitions": 3,
+    "exact_output_match": true,
+    "before": {
+      "rows": 5000,
+      "median_seconds": 0.5026721409958554,
+      "samples": [
+        0.5026721409958554,
+        0.5082521970034577,
+        0.4870058469969081
+      ],
+      "result_sha256": "4076a7be4e7fbb592f872b8306bfc89e114defd9d1b5bd65181a36fad0091e17"
+    },
+    "after": {
+      "rows": 5000,
+      "median_seconds": 0.20960821500921156,
+      "samples": [
+        0.22283484500076156,
+        0.20960821500921156,
+        0.17456820399092976
+      ],
+      "result_sha256": "4076a7be4e7fbb592f872b8306bfc89e114defd9d1b5bd65181a36fad0091e17"
+    }
+  },
+  "end_to_end_performance_acceptance_complete": false
+}

@@ -7,9 +7,9 @@ meta:
   strategy_type: timing
 factor_spec:
   inputs:
-    low_wide: 最低价(元)
-    volume_wide: 成交量(股)
-    returns_wide: 涨跌幅(%)
+    low_wide: low
+    volume_wide: volume
+    returns_wide: pct_change
   industry_inputs: {}
   compute_kwargs:
     low_minimum_window: 5
@@ -28,12 +28,13 @@ factor_spec:
       side: short
       max_weight: 1.0
   direction: positive
-  table_name: daily_market
+  table_name: market_daily_post_adjusted
+  query_filters: {asset_type: stock}
   index_code: 000906.SH
   use_industry: false
   use_mktcap: false
-  industry_scheme: 申万一级行业
-  backtest_metric: 收盘价(元)
+  industry_scheme: {scheme_code: null, level: 1}
+  backtest_metric: close
   required_history_bars: 240
   mask_inputs_by_pit: true
 weight:

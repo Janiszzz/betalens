@@ -1,12 +1,20 @@
 """Shared typed comparison for every canonical target and audit hash."""
 from datetime import date, datetime, timezone
 from decimal import Decimal, localcontext, ROUND_HALF_UP
+from functools import lru_cache
 
 from .integer_contract import validate_int64
 from .util import digest
 
 PROVENANCE = {'ingested_at','schema_version','source_id','downloaded_at','available_at','availability_basis','import_task_id','source_name',
               'source_endpoint','source_row_no','source_record_hash','mapping_version','data_quality_status'}
+
+
+@lru_cache(maxsize=128)
+def numeric_bounds(precision,scale):
+    with localcontext() as context:
+        context.prec=80
+        return Decimal(10)**(precision-scale),Decimal(10)**(-scale)
 
 
 def typed(spec, row, keys_only=False):
@@ -24,11 +32,12 @@ def typed(spec, row, keys_only=False):
         elif kind == 'numeric':
             with localcontext() as context:
                 context.prec = 80
-                number = Decimal(str(value))
+                number = value if isinstance(value,Decimal) else Decimal(str(value))
                 precision=field.get('precision',38); scale=field.get('scale',12)
-                if not number.is_finite() or abs(number) >= Decimal(10)**(precision-scale):
+                limit,quantum=numeric_bounds(precision,scale)
+                if not number.is_finite() or abs(number) >= limit:
                     raise ValueError(f'{name}: 超出 Decimal(38,12) 范围')
-                result[name] = number.quantize(Decimal(10)**(-scale))
+                result[name] = number.quantize(quantum)
         elif kind == 'integer':
             result[name] = validate_int64(value, name)
         else:
@@ -38,6 +47,24 @@ def typed(spec, row, keys_only=False):
     import re
     for name in ('security_code','previous_code','index_code'):
         value=result.get(name)
+        if spec.name=='etf_profile' and name=='index_code' and value is not None:
+            # This is the tracked benchmark, including QDII foreign indices.
+            # Keep the provider's qualified identifier; ETF security_code and
+            # all other tables retain the domestic instrument contract.
+            # Gold ETF benchmarks include case-sensitive Au99.99.SGE; dots
+            # within the native symbol are meaningful and must not be stripped.
+            if len(value)>64 or not re.fullmatch(r'[A-Za-z0-9_!]+(?:[.\-][A-Za-z0-9_!]+)*\.[A-Z][A-Z0-9]{0,11}',value):
+                raise ValueError('index_code: ETF跟踪指数需要有效的带后缀源标识')
+            continue
+        if spec.name=='index_membership' and name=='security_code' and value is not None:
+            # Index constituents can be HK shares or native foreign symbols
+            # (00700.HK, BABA, BRK.B, 6758, 035720). Preserve it exactly;
+            # it is not evidence that the security is an A-share instrument.
+            qualified=re.fullmatch(r'[A-Z0-9_!]+\.[A-Z][A-Z0-9]{0,11}',value)
+            symbol=re.fullmatch(r'[A-Z0-9]+(?:[.\-][A-Z0-9]+)*',value)
+            if len(value)>64 or not (qualified or symbol):
+                raise ValueError('security_code: 指数成分需要有效的源证券标识')
+            continue
         if value is not None and not re.fullmatch(r'[A-Z0-9_!]+\.(SH|SZ|BJ|SI|CI|CSI|CNI|OF|WI|IB)',value):
             raise ValueError(f'{name}: 需要带境内市场后缀的标准证券代码，不能丢失前导零')
     if result.get('asset_type') is not None and result['asset_type'] not in {'stock','fund','index'}:
@@ -59,12 +86,21 @@ def quote_close_precision_matches(spec, column, first, second):
 
 
 def row_hash(spec, row):
-    return digest({k:v for k,v in typed(spec,row).items() if k!="ingested_at"})
+    return typed_row_hash(typed(spec,row))
+
+
+def typed_row_hash(row):
+    """Hash a row already validated against the current table contract."""
+    return digest({k:v for k,v in row.items() if k!='ingested_at'})
+
+
+def typed_row_key(spec,row):
+    return digest([row.get(key) for key in spec.keys])
 
 
 def row_key(spec, row):
     normalized = typed(spec, row, keys_only=True)
-    return digest([normalized.get(key) for key in spec.keys])
+    return typed_row_key(spec,normalized)
 
 
 def compare(spec, rows, existing, mode):
@@ -96,7 +132,7 @@ def compare(spec, rows, existing, mode):
             conflict_fields=[k for k in business if incoming.get(k) is not None and before.get(k) is not None and incoming[k]!=before[k]]
             if conflict_fields:
                 counts['conflicts']+=1
-                conflicts.append({'row_key':row_key(spec,incoming),'before':before,'incoming':incoming,'fields':conflict_fields})
+                conflicts.append({'row_key':identity,'before':before,'incoming':incoming,'fields':conflict_fields})
             if not atomic_nav:
                 for name in business:
                     if (mode == 'fill_missing' and before.get(name) is not None) or (incoming.get(name) is None and before.get(name) is not None):
@@ -124,5 +160,9 @@ def content_hash(spec,row):
     Import IDs and download/ingestion provenance can legitimately differ after
     a PG-only task followed by a CH-only task. Rollback still uses row_hash.
     """
+    return typed_content_hash(typed(spec,row))
+
+
+def typed_content_hash(row):
     ignored=PROVENANCE-{'available_at','availability_basis','data_quality_status'}
-    return digest({k:v for k,v in typed(spec,row).items() if k not in ignored})
+    return digest({k:v for k,v in row.items() if k not in ignored})

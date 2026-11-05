@@ -5,6 +5,7 @@ import json
 import os
 from datetime import date, datetime, timezone
 from decimal import Decimal
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -44,11 +45,17 @@ def atomic_json(path: Path, value: Any) -> None:
     tmp.replace(path)
 
 
-def parse_date(value: Any) -> date:
-    text = str(value)
-    if len(text) == 8 and text.isdigit():
-        return datetime.strptime(text, "%Y%m%d").date()
+@lru_cache(maxsize=8192)
+def _parse_date_text(text: str) -> date:
+    if len(text) == 8 and text.isascii() and text.isdigit():
+        # date validates month/day/leap years without strptime's regex work.
+        return date(int(text[:4]), int(text[4:6]), int(text[6:]))
     return date.fromisoformat(text[:10])
+
+
+def parse_date(value: Any) -> date:
+    if isinstance(value,date) and not isinstance(value,datetime):return value
+    return _parse_date_text(str(value))
 
 
 def identifier(value: str) -> str:

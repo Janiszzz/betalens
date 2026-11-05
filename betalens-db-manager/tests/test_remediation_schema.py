@@ -218,7 +218,12 @@ def test_optional_int64_boundary_values_round_trip_in_both_targets(live_manager)
         rows=[typed(spec,{'code':code,'number':str(value),'import_task_id':job}) for code,value in expected.items()]
         for name,target in [('postgres',service.pg),('clickhouse',service.ch)]:
             manifest=target.compare(spec,rows,'refresh_source')
-            service.state.stage_commit(job,name,spec.name,manifest)
-            target.commit_rows(job,name,spec,rows,'refresh_source',manifest)
-            service.state.finish_commit(job,name,spec.name)
+            from betalens_db_manager.pipeline_writer import pg_apply,ch_apply
+            from betalens_db_manager.pipeline_cache import save_journal
+            from betalens_db_manager.pipeline_store import PipelineStore
+            store=PipelineStore(service.state)
+            image=save_journal(service.settings.state_dir/name,spec,manifest)
+            store.prepare(job,'integers',name,image)
+            result=pg_apply(target,spec,manifest) if name=='postgres' else ch_apply(target,service.state,job,'integers',spec,manifest)
+            store.acknowledge(job,'integers',name,result)
             assert {r['code']:r['number'] for r in target.query(spec.name)['rows']}==expected

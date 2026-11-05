@@ -17,10 +17,10 @@ from psycopg2.extras import execute_values
 import pytest
 import requests
 
-from betalens.datafeed import Datafeed, get_absolute_trade_days, trade_days_offset, PITUnavailableError
+from betalens.datafeed import Datafeed, get_absolute_trade_days, trade_periods_offset, PITUnavailableError
 from betalens.datafeed.contracts import json_value
 from betalens.datafeed.pool import close_all_pools
-from datafeed_support import market_reader, reference_reader, calendar_scope, quote, NAME_TYPES, FIN_TYPES, evidence
+from datafeed_support import market_reader, reference_reader, calendar_scope, industry_scope, quote, NAME_TYPES, FIN_TYPES, evidence
 
 
 def live_config():
@@ -113,6 +113,12 @@ def live():
                 [("2024-01-01", 0), ("2024-01-02", 1), ("2024-01-03", 1), ("2024-01-04", 1)]], "publish")])
     memory.tables.update(cal.tables)
     memory.types.update(cal.types)
+    scopes = [industry_scope('SW2014', level, '2020-01-01', '2024-01-03', '2024-01-01') for level in (1, 2, 3)]
+    scopes += [industry_scope('SW2021', level) for level in (1, 2, 3)]
+    industries = reference_reader('industry', [('industry', scopes, 'publish')])
+    memory.types.update(industries.types)
+    for table, rows in industries.tables.items():
+        memory.tables.setdefault(table, []).extend(rows)
     memory.types["security_name_history"] = NAME_TYPES
     memory.tables["security_name_history"] = [{"security_code": "A", "name": "Historical", "start_date": date(2020, 1, 1), "end_date": None, **evidence()}]
     memory.types["security_dim"] = {"security_code": "text", "name": "text", "asset_type": "text"}
@@ -146,7 +152,7 @@ def test_live_calendar_manifests_and_local_offset(live):
     configs, _, _ = live
     for backend, config in configs.items():
         assert get_absolute_trade_days("2024-01-01", "2024-01-04", "D", backend=backend, db_config=config, as_of="2024-01-04") == [date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 4)]
-        assert trade_days_offset("2024-01-02 10:00", 1, backend=backend, db_config=config, as_of="2024-01-04") == pd.Timestamp("2024-01-03 10:00")
+        assert trade_periods_offset("2024-01-02 10:00", 1, backend=backend, db_config=config, as_of="2024-01-04") == pd.Timestamp("2024-01-03 10:00")
         with pytest.raises(PITUnavailableError):
             get_absolute_trade_days("2024-01-01", "2024-01-05", "D", backend=backend, db_config=config)
 
@@ -163,7 +169,7 @@ def test_live_financial_revision_and_raw_adjustment(live):
     assert results["postgres"]["revenue"].tolist() == [100, 200]
 
 
-def test_live_pg_connection_recovery_readonly_and_legacy_cursor(live):
+def test_live_pg_connection_recovery_readonly_and_subscription(live):
     configs, _, _ = live
     config = configs["postgres"]
     from betalens.datafeed.query import query_nearest_before
@@ -171,9 +177,7 @@ def test_live_pg_connection_recovery_readonly_and_legacy_cursor(live):
         with pytest.raises(psycopg2.errors.ReadOnlySqlTransaction):
             data._reader.cursor.execute(f'CREATE TABLE "{config["schema"]}".forbidden (x integer)')
         data._reader.conn.rollback()
-        with pytest.warns(DeprecationWarning):
-            cur = data.cursor
-        got = query_nearest_before(cur, "market_daily_post_adjusted", ["A"], ["2024-01-03 15:00"], "close")
+        got = query_nearest_before(data, "market_daily_post_adjusted", ["A"], ["2024-01-03 15:00"], "close")
         assert got["close"].iloc[0] == 20
     with Datafeed("market_daily_post_adjusted", config) as again:
         assert again.get_latest_date(metric="close") == pd.Timestamp("2024-01-03 15:00")
@@ -202,19 +206,13 @@ def test_live_selected_default_path_and_missing_candidates(live):
             pd.testing.assert_frame_equal(actual, expected)
 
 
-def test_live_borrowed_pg_cursor_does_not_commit_or_change_caller_settings(live):
-    from betalens.datafeed.readers import PostgresReader
+def test_live_raw_cursor_is_rejected(live):
     from betalens.datafeed.query import query_nearest_before
     configs, _, _ = live
-    config = configs["postgres"]
-    with psycopg2.connect(**{k: v for k, v in config.items() if k in {"host", "port", "dbname", "user", "password"}}) as conn:
-        conn.autocommit = True
-        before = (conn.readonly, conn.autocommit, conn.isolation_level)
-        with conn.cursor() as cur:
-            reader = PostgresReader(cursor=cur, schema=config["schema"])
-            result = query_nearest_before(reader, "market_daily_post_adjusted", ["A"], ["2024-01-03 15:00"], "close")
-            assert result["close"].iloc[0] == 20
-            assert before == (conn.readonly, conn.autocommit, conn.isolation_level)
+    with Datafeed("market_daily_post_adjusted", configs["postgres"]) as data:
+        with pytest.raises(TypeError, match="游标"):
+            query_nearest_before(data._reader.cursor, "market_daily_post_adjusted", ["A"], ["2024-01-03"], "close")
+        assert not hasattr(data, "cursor") and not hasattr(data, "run_query")
 
 
 def test_live_clickhouse_duplicate_parts_are_deduplicated(live):
@@ -250,8 +248,29 @@ def test_live_explicit_field_filters_match_sql_python_and_backends(live, table, 
 def test_live_calendar_rejects_shse_as_an_sse_alias(live):
     configs, _, _ = live
     for backend, config in configs.items():
-        with pytest.raises(PITUnavailableError, match="SHSE"):
+        with pytest.raises(ValueError, match="exchange"):
             get_absolute_trade_days("2024-01-02", "2024-01-02", "D", exchange="SHSE",
                                     backend=backend, db_config=config)
-        with pytest.raises(IndexError):
-            trade_days_offset("2024-01-02", 1, exchange="SHSE", backend=backend, db_config=config)
+        with pytest.raises(ValueError, match="exchange"):
+            trade_periods_offset("2024-01-02", 1, exchange="SHSE", backend=backend, db_config=config)
+
+
+def test_live_shanghai_filters_numeric_parameters_and_industry_versions(live):
+    from datetime import datetime
+    from decimal import Decimal
+    configs, _, _ = live
+    frames = {}
+    for backend, config in configs.items():
+        frames[backend] = []
+        with Datafeed('market_daily_post_adjusted', config, backend=backend) as data:
+            for at in (datetime(2024, 1, 2, 15), '2024-01-02T07:00:00Z', '2024-01-02T15:00:00+08:00'):
+                result = data.query_time_range(metric='close', filters={'available_at': at, 'close': Decimal('10')})
+                assert result.value.tolist() == [10]
+                frames[backend].append(result)
+        with Datafeed('stock_industry_membership_versions', config, backend=backend) as data:
+            for level in (1, 2, 3):
+                result = data.query_industry(['A'], ['2024-01-02', '2024-01-04'], level=level)
+                assert result.ind_name.tolist() == [f'SW2014-L{level}', f'SW2021-L{level}']
+                frames[backend].append(result)
+    for pg, ch in zip(frames['postgres'], frames['clickhouse']):
+        pd.testing.assert_frame_equal(pg, ch, check_exact=True)

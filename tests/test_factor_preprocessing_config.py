@@ -22,15 +22,15 @@ import factor_template  # noqa: E402
 def _config(*, use_industry: bool, **preprocessing):
     return {
         "factor_spec": {
-            "inputs": {"close_wide": "收盘价(元)"},
+            "inputs": {"close_wide": "close"},
             "compute_kwargs": {},
             "direction": "positive",
-            "table_name": "daily_market",
+            "table_name": "market_daily_post_adjusted",
             "index_code": "000906.SH",
             "use_industry": use_industry,
             "use_mktcap": False,
-            "industry_scheme": "申万一级行业",
-            "backtest_metric": "收盘价(元)",
+            "industry_scheme": {"scheme_code": None, "level": 1},
+            "backtest_metric": "close",
             **preprocessing,
         },
         "weight": {
@@ -176,3 +176,14 @@ def test_mining_config_overrides_factor_preprocessing():
     assert spec.factor_spec.winsorize_method == "none"
     assert spec.factor_spec.standardize_method == "rank"
     assert spec.factor_spec.neutralize is False
+
+
+def test_subscription_configuration_requires_physical_fields_and_structured_industry():
+    config = _config(use_industry=True)
+    config['factor_spec']['inputs']['close_wide'] = '收盘价(元)'
+    with pytest.raises(ConfigError, match='物理表字段'):
+        factor_spec_options(config, 'factor.yaml')
+    config = _config(use_industry=True)
+    config['factor_spec']['industry_scheme'] = '申万一级行业'
+    with pytest.raises(ConfigError, match='不接受旧名称'):
+        factor_spec_options(config, 'factor.yaml')

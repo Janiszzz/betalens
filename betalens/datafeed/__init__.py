@@ -1,6 +1,6 @@
 """Lightweight datafeed package exports used by the factor pipeline."""
 
-from .core import Datafeed, get_absolute_trade_days, trade_days_offset
+from .core import Datafeed, get_absolute_trade_days, trade_periods_offset
 from .industry import get_industry_members, query_industry
 from .validation import FillStrategy
 from .contracts import DatafeedError, SchemaError, PITUnavailableError, VersionConflictError
@@ -14,7 +14,7 @@ __all__ = [
     "PITUnavailableError",
     "VersionConflictError",
     "get_absolute_trade_days",
-    "trade_days_offset",
+    "trade_periods_offset",
     "get_industry_members",
     "query_industry",
     "get_index_universe",

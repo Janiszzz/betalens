@@ -8,14 +8,14 @@ from .datafeed import (
     Datafeed,
     FillStrategy,
     get_absolute_trade_days,
-    trade_days_offset,
+    trade_periods_offset,
 )
 
 __all__ = [
     "Datafeed",
     "FillStrategy",
     "get_absolute_trade_days",
-    "trade_days_offset",
+    "trade_periods_offset",
     "BacktestBase",
     "BacktestDataError",
     "DateMismatchError",

@@ -8,7 +8,7 @@ import warnings
 import pandas as pd
 
 # 候选表（按优先级），覆盖股票/指数/基金/债券
-_DEFAULT_TABLES = ["daily_market", "daily_index", "daily_fund", "daily_bond"]
+_DEFAULT_TABLES = ["security_dim"]
 
 # 进程内缓存：code -> name
 _NAME_CACHE: dict = {}

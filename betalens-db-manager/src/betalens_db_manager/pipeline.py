@@ -13,6 +13,7 @@ from .pipeline_options import light_normalization
 from .pipeline_store import PipelineStore
 from .target_lanes import target_lanes,lane_values
 from .util import digest,dumps,now,parse_date,atomic_json
+from .resource_budget import BUDGET,shared_slot
 
 
 def cohort_key(root,history_buckets,bulk):
@@ -46,7 +47,8 @@ def memory_guard(request,root):
     stop=threading.Event();limit=request['memory_budget_bytes']//request['normalization_workers']
     def watch():
         while not stop.wait(.1):
-            used=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss*1024
+            try:used=int(Path('/proc/self/statm').read_text().split()[1])*os.sysconf('SC_PAGE_SIZE')
+            except (OSError,ValueError,IndexError):used=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss*1024
             if used>limit:
                 atomic_json(root/'memory-limit.json',{'limit_bytes':limit,'peak_bytes':used,'reason':'转换进程达到内存预算，请缩小日期范围或降低并行数'})
                 os._exit(70)
@@ -55,12 +57,27 @@ def memory_guard(request,root):
     finally:stop.set();thread.join()
 
 
-NORMALIZATION_POLICY_VERSION='normalization-v2-bang-nav-null-close-precision'
+NORMALIZATION_POLICY_VERSION='normalization-v2-industry-parent-etf-benchmark-20261104'
+NORMALIZATION_IMPLEMENTATION='verified-parent-and-archive-closure-20261104'
+
+
+_normalization_service=None
 
 
 def normalize_child(settings,job):
+    with shared_slot(settings.state_dir,'cpu',BUDGET.cpu_workers):
+        return _normalize_child(settings,job)
+
+
+def _normalize_child(settings,job):
+    global _normalization_service
     from .manager import DatabaseManagerService
-    service=DatabaseManagerService(settings);service.state=LightState(service.state)
+    import os
+    key=(os.getpid(),repr(settings))
+    if _normalization_service is None or _normalization_service[0]!=key:
+        service=DatabaseManagerService(settings);service.state=LightState(service.state)
+        _normalization_service=(key,service)
+    else:service=_normalization_service[1]
     item=service._job(job,True);root=service.settings.state_dir/'pipeline'/job
     cache_key=digest([NORMALIZATION_POLICY_VERSION,[[s['id'],s['sha'],s['status']] for s in item['slices']],item['plan']['mapping_version'],item['plan']['canonical_contracts'],item['plan']['processor_version'],item['plan']['request']])
     index=root/'normalized.json'
@@ -74,7 +91,10 @@ def normalize_child(settings,job):
     started=time.monotonic()
     with memory_guard(item['plan']['request'],root),registry_context(service.registry),catalog_snapshot(service.registry),light_normalization():
         tables,rejects=service._build_canonical(item)
-        result={'cache_key':cache_key,'normalization_policy':NORMALIZATION_POLICY_VERSION,'tables':{},'rejected':len(rejects),'reject_sample':rejects[:100]}
+        result={'cache_key':cache_key,'normalization_policy':NORMALIZATION_POLICY_VERSION,'normalization_implementation':NORMALIZATION_IMPLEMENTATION,'tables':{},'rejected':len(rejects),'reject_sample':rejects[:100]}
+        reasons=collections.Counter((r.get('dataset'),r.get('code'),r.get('reason')) for r in rejects)
+        result['reject_summary']=[{'dataset':dataset,'code':code,'reason':reason,'count':count}
+                                  for (dataset,code,reason),count in reasons.most_common()]
         for name,rows in tables.items():
             spec=service.registry.spec(name);records=[]
             # Typed Arrow batches cap bytes as well as rows without repeatedly serializing row dictionaries.
@@ -85,11 +105,11 @@ def normalize_child(settings,job):
                 pending=[rows[offset:offset+limit]]
                 while pending:
                     block=pending.pop(0)
-                    size=pa.Table.from_pylist(block,schema=schema(spec)).nbytes
+                    table=pa.Table.from_pylist(block,schema=schema(spec));size=table.nbytes
                     if size>byte_limit and len(block)>1:
                         middle=len(block)//2;pending[:0]=[block[:middle],block[middle:]];continue
                     if size>byte_limit:raise ValueError('单行超过本地批次字节上限')
-                    records.append(write_rows(root/name/(str(len(records))+'.parquet'),spec,block))
+                    records.append(write_rows(root/name/(str(len(records))+'.parquet'),spec,table))
             result['tables'][name]=records
     result['normalization_seconds']=round(time.monotonic()-started,4)
     atomic_json(index,result);return result
@@ -192,7 +212,18 @@ class Pipeline:
         return errors
 
     def backlog(self,job,item=None,units=None):
-        targets=(item if item is not None else self.s.state.job(job))['plan']['request']['targets']
+        progress=self.s.state.ledger_get('pipeline_progress',job)
+        if progress and progress.get('independent_producer'):return progress['buffered_source_bytes']
+        targets=item['plan']['request']['targets'] if item is not None else self.s.state.job_header(job)['request']['targets']
+        if units is None:
+            with self.s.state.connect() as conn:
+                return conn.execute('''SELECT coalesce(sum(json_extract(n.payload,'$.source_bytes')),0) FROM pipeline_units n
+                    WHERE n.job=? AND n.kind='normalize' AND EXISTS (
+                        SELECT 1 FROM json_each(?) t WHERE NOT EXISTS (
+                            SELECT 1 FROM pipeline_units s WHERE s.job=n.job AND s.kind='stored' AND s.status='completed'
+                            AND json_extract(s.payload,'$.target')=t.value
+                            AND json_extract(s.payload,'$.child_id')=(
+                                SELECT json_extract(value,'$.child_id') FROM ledger WHERE table_name='pipeline_child' AND row_key=n.job||':'||n.id)))''',(job,dumps(targets))).fetchone()[0]
         children={v['bucket']:v['child_id'] for v in self.s.state.ledger_rows('pipeline_child',job)}
         units=units if units is not None else self.store.units(job);stored={(u['payload'].get('child_id'),u['payload'].get('target')) for u in units if u['kind']=='stored' and u['status']=='completed'}
         return sum(u['payload'].get('source_bytes',0) for u in units if u['kind']=='normalize' and not all((children.get(u['id']),t) in stored for t in targets))
@@ -220,17 +251,22 @@ class Pipeline:
         if unit['status']=='completed' and unit['result'] and unit['result'].get('child_id'):return unit['result']['child_id']
         # Child creation is journalled before processing; cache and receipts survive parent restarts.
         saved=self.s.state.ledger_get('pipeline_child',item['id']+':'+key)
-        plan=deepcopy(item['plan']);plan['pipeline_parent']=item['id'];plan['pipeline_bucket']=key
-        parts=self.s.state.job(item['id'])['slices'];selected=[]
-        preparer=TaskDownloader(self.s,item)
+        plan={**item['plan'],'request':deepcopy(item['plan']['request'])};plan['pipeline_parent']=item['id'];plan['pipeline_bucket']=key
+        selected=[]
+        preparer=TaskDownloader(self.s,{**item,'slices':[]})
         root_ids={TaskDownloader.key(preparer.prepared(r)[0]) for r in roots}
-        dependency_ids={p['id'] for p in parts if p['dataset'] in {'stock_basic','fund_basic','index_basic','trade_cal'} or p['request'].get('dependency_only')}
-        queue=list(root_ids|dependency_ids);by={p['id']:p for p in parts};selected_ids=set()
+        dependencies=self.s.state.slices(item['id'],dependencies=True)
+        dependency_ids={p['id'] for p in dependencies}
+        queue=list(root_ids|dependency_ids);selected_ids=set()
         while queue:
-            ident=queue.pop();p=by.get(ident)
-            if not p:continue
-            if ident in selected_ids:continue
-            selected_ids.add(ident);selected.append(p);queue.extend(TaskDownloader.key(c) for c in (p.get('result') or {}).get('children',[]))
+            identifiers=[v for v in queue[:128] if v not in selected_ids];del queue[:128]
+            for p in self.s.state.slices(item['id'],identifiers):
+                if p['id'] in selected_ids:continue
+                selected_ids.add(p['id']);selected.append(p)
+                # Split children can become paged requests (e.g. a single-day
+                # index_weight query). Copy the same prepared identity that
+                # acquisition and archive validation use, including limit/offset.
+                queue.extend(TaskDownloader.key(preparer.prepared(c)[0]) for c in (p.get('result') or {}).get('children',[]))
         endpoint_pairs={(r['source_id'],r['endpoint']) for r in roots}
         names=[name for name,m in plan['mapping_snapshots'].items() if any((b['source_id'],b['endpoint']) in endpoint_pairs for b in m['bindings'])]
         if not names:names=list(plan['request']['tables'])
@@ -262,12 +298,16 @@ class Pipeline:
         return write_cohorts(self,parent,items,target)
 
     def run(self,job,commit=False):
+        self.s.state.ensure_execution(job)
         try:return self._run(job,commit)
         except BaseException as exc:
             item=self.s.state.job(job)
             if item['plan'].get('pipeline_version')==2 and item['status'] not in {'completed','rolled_back','partially_rolled_back'}:
                 self.s.state.update_job(job,status='interrupted' if isinstance(exc,InterruptedError) else 'paused',error=self.s.safe_error(exc))
             raise
+        finally:
+            downloader=getattr(self,'_downloader',None)
+            if downloader is not None:downloader.close();self._downloader=None
 
     def _run(self,job,commit=False):
         item=self.s._job(job,True)
@@ -275,11 +315,14 @@ class Pipeline:
         if item['status'] in {'rolled_back','partially_rolled_back','completed'}:raise ValueError('结束或回退的任务不可重新启动')
         if item['plan'].get('pipeline_parent'):raise ValueError('内部批次只能由父任务调度')
         if item['plan'].get('revision')=='reference-v1':return self._run_reference(item,commit)
+        if item['plan'].get('revision')=='file-v2':
+            from .pipeline_file import run_file
+            return run_file(self,item,commit)
         self.s.state.update_job(job,status='running',cancel=0,error=None);self.store.recover(job)
         req={**item['plan']['request']}
         if commit:req['auto_commit']=True
         self.s.source.active_job=job;self.s.source.requests_per_minute=req['requests_per_minute'];self.s.source.retrieval_policies=item['plan']['retrieval_policies']
-        downloader=TaskDownloader(self.s,item);roots=[];initial_errors=[]
+        downloader=TaskDownloader(self.s,item);self._downloader=downloader;roots=[];initial_errors=[]
         for root in item['plan']['requests']:
             if root['strategy']=='universe_expansion':
                 asset='fund_all' if root['endpoint']=='fund_nav' else 'index' if root['endpoint'].startswith('index_') else 'stock'
@@ -299,7 +342,7 @@ class Pipeline:
         # Trading-date requests use the actual source calendar, including holidays, never a guessed weekday mask.
         open_days=set()
         from .source import read_archive
-        for p in self.s.state.job(job)['slices']:
+        for p in self.s.state.slices(job,dependencies=True):
             if p['dataset']=='trade_cal' and p['status']=='downloaded':
                 data=read_archive(Path(p['archive']),p['sha']);fields=data['fields']
                 if {'cal_date','is_open'}<=set(fields):open_days.update(str(v[fields.index('cal_date')]) for v in data['items'] if str(v[fields.index('is_open')])=='1')
@@ -318,6 +361,7 @@ class Pipeline:
         if initial_errors:raise ValueError('来源清单不完整，无法冻结任务总量；请修复来源后恢复任务')
         freeze(self.s,item,groups,downloader)
         errors=initial_errors;futures=[];write_futures=[];failed_targets=set();guard=threading.Lock()
+        self.failed_targets=failed_targets;downloads=None;child_groups={}
         from .pipeline_batching import WriteLane
         def target_work(items,target):
             if target in failed_targets:return [{'status':'blocked','target':target} for _ in items]
@@ -326,15 +370,23 @@ class Pipeline:
                 for (child,_),result in zip(items,results):
                     marker='stored:'+child+':'+target
                     self.store.put(job,marker,'stored',{'child_id':child,'target':target});self.store.finish(job,marker,result)
+                    downloads.written(child_groups[child],target)
                 return results
             except BaseException:
                 with guard:failed_targets.add(target)
                 raise
         executors={t:WriteLane(lambda items,target=t:target_work(items,target),max_wait=req['commit_batch_max_wait_seconds'],
                                row_limit=req['commit_batch_rows'],name='write-'+t) for t in req['targets']}
+        from .pipeline_download import DownloadBuffer
+        scheduled={key:[r for r in cohort if TaskDownloader.key(downloader.prepared(r)[0]) not in deps] for key,cohort in groups.items()}
         try:
-            with ProcessPoolExecutor(max_workers=req['normalization_workers'],mp_context=multiprocessing.get_context('spawn')) as pool:
+            with ProcessPoolExecutor(max_workers=req['normalization_workers'],mp_context=multiprocessing.get_context('spawn')) as pool, DownloadBuffer(self,downloader,scheduled,req) as downloads:
                 def drain(wait=False):
+                    for future in list(write_futures):
+                        if future.done():
+                            write_futures.remove(future)
+                            try:future.result()
+                            except Exception as exc:errors.append({'stage':'write','error':self.s.safe_error(exc)})
                     for key,child,future in list(futures):
                         # Preserve cohort order even if a later conversion finishes first.
                         if not wait and not future.done():break
@@ -342,32 +394,28 @@ class Pipeline:
                         try:
                             result=future.result()
                             self.store.finish(job,key,{**result,'child_id':child},error='转换拒收，等待重试' if result['rejected'] else None)
-                            if result['rejected']:errors.append({'bucket':key,'error':'存在转换拒收，本转换批次未写入','rejected':result['rejected']})
+                            if result['rejected']:
+                                errors.append({'bucket':key,'error':'存在转换拒收，本转换批次未写入','rejected':result['rejected']});downloads.release(key)
                             if req['auto_commit'] and not result['rejected']:
                                 for target in req['targets']:write_futures.append(executors[target].submit(child,result))
                         except Exception as exc:
-                            message=self.s.safe_error(exc);errors.append({'bucket':key,'error':message});self.store.finish(job,key,error=message)
-                for key,cohort in groups.items():
+                            message=self.s.safe_error(exc);errors.append({'bucket':key,'error':message});self.store.finish(job,key,error=message);downloads.release(key)
+                for key,failures in downloads:
+                    cohort=groups[key]
                     self.s.state.check_cancel(job);drain()
+                    while len(futures)>=BUDGET.pending_normalizations:
+                        self.s.state.check_cancel(job);drain();time.sleep(.05)
                     if shutil.disk_usage(self.s.settings.state_dir).free<req['min_free_bytes']:raise RuntimeError('剩余磁盘不足，保存检查点后暂停')
-                    # Futures only carry IDs; archived payloads stay on disk so CPU does not serialize HTTP.
-                    throttled=self.backlog(job)>req['backlog_high_bytes']
-                    while throttled and self.backlog(job)>req['backlog_low_bytes']:
-                        if failed_targets:raise RuntimeError('目标库失败且积压达到上限，已保存检查点，请恢复失败目标后继续')
-                        if not req['auto_commit']:raise RuntimeError('待处理积压达到上限，请提交或分段执行')
-                        self.s.state.check_cancel(job);drain();time.sleep(.1)
-                    pending=[r for r in cohort if TaskDownloader.key(downloader.prepared(r)[0]) not in deps]
-                    failures=downloader.run(pending,workers=req['download_workers']) or []
                     if failures:errors.extend(failures)
-                    child=self._child(item,key,cohort);unit=self.store.get(job,key)
+                    child=self._child(item,key,cohort);child_groups[child]=key;unit=self.store.get(job,key)
                     if unit['status']=='completed':
                         result=unit['result']
+                        if result.get('rejected'):downloads.release(key)
                         if req['auto_commit'] and not result.get('rejected'):
                             for target in req['targets']:write_futures.append(executors[target].submit(child,result))
                         continue
                     token=self.store.claim(job,key)
                     if token:futures.append((key,child,pool.submit(normalize_child,self.s.settings,child)))
-                self.s.state.ledger_put('pipeline_progress',job,{'task_id':job,'download_status':'completed' if not errors else 'partial','downloaded_at':now()})
                 drain(True)
             for executor in executors.values():executor.close()
             for future in write_futures:
@@ -376,6 +424,7 @@ class Pipeline:
         except BaseException as exc:
             self.s.state.update_job(job,status='interrupted' if isinstance(exc,InterruptedError) else 'paused',error=self.s.safe_error(exc));raise
         finally:
+            downloader.close()
             for executor in executors.values():executor.close()
             for executor in executors.values():executor.join()
         if req['auto_commit']:errors.extend(self.reconcile(job))
@@ -392,29 +441,23 @@ class Pipeline:
         return self.detail(job)
 
     def commit(self,job):
+        self.s.state.ensure_execution(job)
         item=self.s._job(job,True)
         if item['plan']['request']['auto_commit']:raise ValueError('该任务已启用自动提交，请使用恢复入口')
         if item['status'] not in {'ready_to_commit','previewed','partial','paused','interrupted'}:raise ValueError('尚无可提交的标准化缓存')
         return self.run(job,commit=True)
 
     def _run_reference(self,item,commit=False):
-        from .reference_service import ReferenceWorkflow
-        workflow=ReferenceWorkflow(self.s);job=item['id'];self.s.state.update_job(job,cancel=0)
-        if item['status'] in {'interrupted','cancelled','paused'}:self.s.state.update_job(job,status='planned')
-        workflow.download(job);preview=workflow.preview(job)
-        if preview['blocking'] or preview['rejected']:return self.detail(job)
-        if item['plan']['request']['auto_commit'] or commit:workflow.commit(job,preview['token'])
-        if self.s.state.job(job)['status']=='completed' and item['plan']['request']['post_check_rules']:
-            from .pipeline_validation import ValidationRunner
-            ValidationRunner(self.s).run(job,{'rules':item['plan']['request']['post_check_rules']})
-        return self.detail(job)
+        from .pipeline_reference import run_reference
+        return run_reference(self,item,commit)
 
     def rollback(self,job,targets=None):
+        self.s.state.ensure_execution(job)
         item=self.s._job(job);targets=targets or item['plan']['request']['targets']
         if not isinstance(targets,list) or not targets or set(targets)-set(item['plan']['request']['targets']):raise ValueError('回退目标无效')
         if item['plan']['revision']=='reference-v1':
             from .reference_service import ReferenceWorkflow
-            return ReferenceWorkflow(self.s).rollback(job,targets)
+            return ReferenceWorkflow(self.s).revoke(job,targets)
         from .pipeline_writer import pg_apply,ch_apply
         from .comparison import row_hash
         originals=[r for r in self.store.receipts(job) if not r['batch'].startswith('rollback:')]

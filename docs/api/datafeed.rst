@@ -12,7 +12,9 @@ Datafeed API
 范围、日期、名称和交易日接口支持 ``as_of``。
 时序和日期接口支持 ``filters={字段: 标量值}``；四种 nearest 在参数字典中传 ``filters``。
 财报必须显式指定 ``statement_type/report_type``；日历默认 ``exchange="SSE"``，无 SHSE 转换。
-``run_query/cursor/conn`` 及公开 SQL 构造函数只是待退役兼容入口，不属于严格 PIT 保证。
+``run_query/cursor/conn``、旧 SQL 构造函数和 ConfigManager 已移除。
+独立查询函数仅接受 Datafeed 订阅实例；行业使用 ``scheme_code/level``。
+半年度为 ``H``；偏移接口为 ``trade_periods_offset``，offset 表示交易周期数。
 
 .. automodule:: betalens.datafeed
    :members:

@@ -47,12 +47,13 @@ YAML 结构
      logic: 逻辑
    factor_spec:
      inputs:
-       close_wide: 收盘价(元)
+       close_wide: close
      industry_inputs: {}
      compute_kwargs:
        window: 4
      direction: positive
-     table_name: daily_market
+     table_name: market_daily_post_adjusted
+     query_filters: {asset_type: stock}
      index_code: 000906.SH
      use_industry: false
      use_mktcap: false
@@ -60,8 +61,8 @@ YAML 结构
      winsorize_n: 3.0
      standardize_method: none
      neutralize: false
-     industry_scheme: 申万一级行业
-     backtest_metric: 收盘价(元)
+     industry_scheme: {scheme_code: null, level: 1}
+     backtest_metric: close
      required_history_bars: 0
      mask_inputs_by_pit: false
    weight:
@@ -136,12 +137,12 @@ FactorSpec
 
 * ``name``：因子名和输出前缀。
 * ``inputs``：``{算子参数名: 数据库 metric}``。
-* ``industry_inputs``：可选的 ``{算子参数名: PIT 行业分类体系}``；用于公式内部的行业中性化。
+* ``industry_inputs``：可选的 ``{算子参数名: {scheme_code: null, level: 3}}``；用于公式内部的行业中性化。
 * ``compute``：宽表算子函数。
 * ``required_history_bars``：公式累计需要的交易日历史根数；未显式设置 ``warmup_days`` 时用于自动推断取数起点。
 * ``mask_inputs_by_pit``：为 ``true`` 时，在公式计算前逐交易日按 ``index_code`` 的 PIT 成分掩码过滤所有输入。
 * ``direction``：``positive`` 高分组做多，``negative`` 低分组做多。
-* ``table_name``：输入数据表，常用 ``daily_market``。
+* ``table_name``：输入数据表，常用 ``market_daily_post_adjusted``。
 * ``index_code``：PIT 指数成分过滤。
 * ``winsorize_method``：截尾方法，支持 ``none``、``mad``、``percentile``、``std``；``winsorize_n`` 为对应阈值。
 * ``standardize_method``：标准化方法，支持 ``none``、``zscore``、``rank``、``minmax``。

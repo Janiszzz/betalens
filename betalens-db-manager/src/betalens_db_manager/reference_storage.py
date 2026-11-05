@@ -219,21 +219,29 @@ class ReferenceStore:
                 return cur.fetchone() is not None
         return self.db.execute('EXISTS TABLE ' + self.db.table(name)) == '1'
 
-    def _rows(self, spec, conn=None, revision_id=None):
+    def _rows(self, spec, conn=None, revision_id=None, selection=None):
+        if selection is not None:
+            column,values=selection;values=list(dict.fromkeys(values))
+            if column not in {f['name'] for f in spec.fields}:raise ValueError('未知参考范围列')
+            if not values:return []
+            if len(values)>1000:
+                return [row for start in range(0,len(values),1000) for row in self._rows(spec,conn,revision_id,(column,values[start:start+1000]))]
         if not self._exists(spec.name, conn):
             return []
         if self.target == 'postgres':
             if conn is None:
                 with self.db.connect(readonly=True) as read:
-                    return self._rows(spec, read, revision_id)
+                    return self._rows(spec, read, revision_id,selection)
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 query = sql.SQL('SELECT {} FROM {}').format(sql.SQL(',').join(sql.Identifier(f['name']) for f in spec.fields), self._relation(spec.name))
                 if revision_id is not None:
                     query += sql.SQL(' WHERE revision_id=%s')
-                cur.execute(query, (revision_id,) if revision_id is not None else None)
+                elif selection is not None:query+=sql.SQL(' WHERE {}=ANY(%s)').format(sql.Identifier(column))
+                cur.execute(query, (revision_id,) if revision_id is not None else (values,) if selection is not None else None)
                 rows = list(cur.fetchall())
         else:
             where = ' WHERE revision_id=' + self.db._literal(revision_id) if revision_id is not None else ''
+            if selection is not None and revision_id is None:where=' WHERE `'+column+'` IN ('+','.join(self.db._literal(v) for v in values)+')'
             names = ','.join('`' + f['name'] + '`' for f in spec.fields)
             rows = self.db._json_rows(self.db.execute(f'SELECT {names} FROM {self.db.table(spec.name)} FINAL{where} FORMAT JSONEachRow'))
             # JSONEachRow omits the timezone suffix even for DateTime64(...,
@@ -262,11 +270,15 @@ class ReferenceStore:
                 self.db.execute(f'INSERT INTO {self.db.table(spec.name)} FORMAT JSONEachRow',
                                 '\n'.join(dumps(row) for row in normalized[offset:offset + 1000]) + '\n')
 
-    def _control(self, conn=None):
+    def _control(self, conn=None,scope_ids=None,revision_ids=None):
+        if scope_ids is not None:
+            selected=self._rows(METADATA['reference_scope'],conn,selection=('scope_id',scope_ids))
+            revision_ids={r['revision_id'] for r in selected}
         def payloads(name):
             spec = METADATA[name]
             result = []
-            for row in self._rows(spec, conn):
+            rows=self._rows(spec,conn) if revision_ids is None else self._rows(spec,conn,selection=('revision_id',revision_ids))
+            for row in rows:
                 payload = json.loads(row['payload'])
                 expected = _normal(spec, {**{f['name']: payload.get(f['name']) for f in spec.fields if f['name'] != 'payload'},
                                          'payload': row['payload']})
@@ -298,9 +310,19 @@ class ReferenceStore:
     def heads(self, scope_ids):
         ids = list(scope_ids)
         with self._read() as conn:
-            revisions, scopes, events = self._control(conn)
+            revisions, scopes, events = self._control(conn,scope_ids=ids)
             current, _ = self._valid_heads(revisions, scopes, events, conn)
         return {scope_id: current.get(scope_id) for scope_id in ids}
+
+    def task_revisions(self,task):
+        spec=METADATA['reference_revision'];result=[]
+        with self._read() as conn:
+            for row in self._rows(spec,conn,selection=('import_task_id',[task])):
+                payload=json.loads(row['payload'])
+                expected=_normal(spec,{**{f['name']:payload.get(f['name']) for f in spec.fields if f['name']!='payload'},'payload':row['payload']})
+                if row!=expected:raise ValueError('目标库不可变清单字段与载荷不一致: reference_revision')
+                result.append(payload)
+        return result
 
     def _valid_heads(self, revisions, scopes, events, conn=None):
         published = {e['revision_id'] for e in events if e['event_type'] == 'publish'}
@@ -428,7 +450,7 @@ class ReferenceStore:
         return manifest
 
     def _verify(self, revision_id, conn=None, control=None):
-        revisions, scopes, events = control if control is not None else self._control(conn)
+        revisions, scopes, events = control if control is not None else self._control(conn,revision_ids=[revision_id])
         revision = next((r for r in revisions if r['revision_id'] == revision_id), None)
         if revision is None:
             raise ValueError('修订不存在: ' + revision_id)
@@ -441,8 +463,11 @@ class ReferenceStore:
         manifest = {k: v for k, v in revision.items() if k != 'manifest_hash'}
         if digest({'revision': manifest, 'scopes': sorted(scope_docs, key=lambda s: s['scope_id'])}) != revision['manifest_hash']:
             errors.append('修订清单哈希不匹配')
+        from collections import defaultdict
+        by_scope=defaultdict(list)
+        for row in rows:by_scope[row['scope_id']].append(row)
         for scope in scope_docs:
-            actual = [r for r in rows if r['scope_id'] == scope['scope_id']]
+            actual = by_scope[scope['scope_id']]
             actual_keys, actual_hash = _keys(actual), _content(actual)
             good = len(actual) == int(scope['row_count']) and actual_keys == scope['key_hash'] and actual_hash == scope['content_hash']
             results.append({'scope_id': scope['scope_id'], 'verified': good,
@@ -527,25 +552,30 @@ class ReferenceStore:
             event = self._append_event(revision, events, 'revoke', rollback_task_id, conn)
         return dict(event, target=self.target, status='revoked')
 
-    def snapshot(self, audit=False):
+    def snapshot(self, audit=False,scope_ids=None):
         with self._read() as conn:
-            return self._snapshot(audit, conn)
+            return self._snapshot(audit, conn,scope_ids)
 
-    def _snapshot(self, audit=False, conn=None):
-        revisions, scopes, events = self._control(conn)
+    def _snapshot(self, audit=False, conn=None,scope_ids=None):
+        revisions, scopes, events = self._control(conn,scope_ids=scope_ids)
         current, verification = self._valid_heads(revisions, scopes, events, conn)
         invalid = {v['revision_id'] for v in verification if not v['verified']}
         if not audit:
             scopes = [s for s in scopes if current.get(s['scope_id']) == s['revision_id']]
             visible_ids = {s['revision_id'] for s in scopes}
             revisions = [r for r in revisions if r['revision_id'] in visible_ids]
+        if scope_ids is not None:
+            wanted=set(scope_ids)
+            scopes=[s for s in scopes if s['scope_id'] in wanted]
+            current={k:v for k,v in current.items() if k in wanted}
         selected = {(s['revision_id'], s['scope_id']) for s in scopes}
         rows = []
         for module, name in MODULE_TABLE.items():
             if not any(r['module'] == module for r in revisions):
                 continue
-            rows.extend(dict(row, module=module) for row in self._rows(TABLES[name], conn)
-                        if audit or (row['revision_id'], row['scope_id']) in selected)
+            ids=[r['revision_id'] for r in revisions if r['module']==module]
+            rows.extend(dict(row, module=module) for row in self._rows(TABLES[name], conn,selection=('revision_id',ids))
+                        if (audit and scope_ids is None) or (row['revision_id'], row['scope_id']) in selected)
         return {'target': self.target, 'revisions': revisions, 'scopes': scopes,
                 'rows': sorted(rows, key=lambda r: (int(r['ingestion_seq']), r['scope_id'], r['record_id'])),
                 'events': events, 'heads': current, 'verification': verification,

@@ -230,10 +230,20 @@ class MappingStore:
             return validate_int64(value,field['name'])
         return str(value)
 
-    def map_row(self,spec,raw,binding,*,processor=False):
-        registered=validate_binding(spec.name,binding)
-        fields={f['name']:f for f in spec.fields};result={};evidence=[]
-        for rule in sorted(binding.get('fields',[]),key=lambda r:r.get('priority',0)):
+    def map_row(self,spec,raw,binding,*,processor=False,collect_evidence=True):
+        from .normalization_context import CURRENT
+        inputs=CURRENT.get()
+        key=(spec.hash,id(binding))
+        compiled=inputs.binding_plans.get(key) if inputs is not None else None
+        if compiled is None:
+            registered=validate_binding(spec.name,binding)
+            fields={f['name']:f for f in spec.fields}
+            rules=tuple(sorted(binding.get('fields',[]),key=lambda r:r.get('priority',0)))
+            compiled=(binding,registered,fields,rules)
+            if inputs is not None:inputs.binding_plans[key]=compiled
+        _,registered,fields,rules=compiled
+        result={};evidence=[]
+        for rule in rules:
             if rule.get('builtin'):
                 if not processor or registered is None:raise ValueError('内置映射必须由注册处理器执行')
                 if rule.get('required') and raw.get(rule['source_field']) in (None,''):raise ValueError('必需源字段为空：'+rule['source_field'])
@@ -245,7 +255,7 @@ class MappingStore:
             if rule.get('required') and converted is None:raise ValueError('必需源字段转换后为空：'+source)
             prior=result.get(column)
             if prior is None:result[column]=converted
-            evidence.append({'column':column,'source_field':source,'raw_value':raw.get(source),'converted_value':converted,'target_unit':fields[column].get('unit',''),'source_id':binding['source_id'],'endpoint':binding['endpoint'],'selected':prior is None and converted is not None,'conflict':prior is not None and converted is not None and prior!=converted})
+            if collect_evidence:evidence.append({'column':column,'source_field':source,'raw_value':raw.get(source),'converted_value':converted,'target_unit':fields[column].get('unit',''),'source_id':binding['source_id'],'endpoint':binding['endpoint'],'selected':prior is None and converted is not None,'conflict':prior is not None and converted is not None and prior!=converted})
         return result,evidence
 
 

@@ -81,11 +81,12 @@ class Settings:
         return digest([self.pg_host, self.pg_port, self.pg_database, self.pg_schema, self.ch_url, self.ch_database])
 
     def public(self) -> dict:
+        from .resource_budget import BUDGET
         return {"postgres": {"host": self.pg_host, "port": self.pg_port, "database": self.pg_database,
                              "user": self.pg_user, "schema": self.pg_schema},
                 "clickhouse": {"url": self.ch_url, "database": self.ch_database, "user": self.ch_user},
                 "config_dir": str(self.config_dir), "env_file":str(self.env_file or self.config_dir/"credentials.env"), "state_dir": str(self.state_dir), "archive_dir":str(self.archive_dir or self.state_dir/'archive'), "postgres_password_configured":bool(self.pg_password), "clickhouse_password_configured":bool(self.ch_password), "token_configured": bool(self.token),
-                "wind_configured": False,
+                "wind_configured": False,"resource_profile":BUDGET.public(),
                 "wind_credentials_configured":bool(os.environ.get('WIND_API_KEY') or os.environ.get('WIND_USER')),
                 "requests_per_minute": self.requests_per_minute,"clickhouse_writer_mode":self.ch_writer_mode, "fingerprint": self.fingerprint}
 

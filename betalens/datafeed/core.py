@@ -1,64 +1,31 @@
 """Read-only, source-neutral business subscriptions for PostgreSQL/ClickHouse."""
 from __future__ import annotations
 
-import warnings
-import logging
 from datetime import datetime
 
 import pandas as pd
 
 from . import query
 from .config import load_subscription_config
-from .contracts import frame, local_time, timestamp, PITUnavailableError, VersionConflictError
+from .contracts import frame, local_time, timestamp, integer, PITUnavailableError, VersionConflictError
 from .readers import PostgresReader, ClickHouseReader, identifier, require_columns
 from .reference import calendar_days, calendar_rows, load_reference
 
 
 class Datafeed:
-    def __init__(self, table_name, db_config=None, log_dir=None, *, backend=None,
+    def __init__(self, table_name, db_config=None, *, backend=None,
                  config_file=None):
-        del log_dir  # Kept for call compatibility; no per-instance file logging.
         self.sheet = identifier(table_name)
         config = load_subscription_config(db_config, config_file=config_file, backend=backend)
         self.backend = config["backend"]
-        self.logger = logging.getLogger("betalens.datafeed")
         self._reader = PostgresReader(config) if self.backend == "postgres" else ClickHouseReader(config)
         self._closed = False
-
-    @property
-    def cursor(self):
-        warnings.warn("Datafeed.cursor 已弃用；请使用结构化查询方法。", DeprecationWarning, stacklevel=2)
-        if self.backend != "postgres":
-            raise NotImplementedError("ClickHouse 不提供 PostgreSQL 游标；独立函数可直接传入 Datafeed")
-        return self._reader.cursor
-
-    @property
-    def conn(self):
-        warnings.warn("Datafeed.conn 已弃用。", DeprecationWarning, stacklevel=2)
-        if self.backend != "postgres":
-            raise NotImplementedError("ClickHouse 不提供 PostgreSQL connection")
-        return self._reader.conn
 
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc, traceback):
         self.close()
-
-    def run_query(self, conditions=None, params=None, select_columns="*"):
-        """Deprecated PG-only escape hatch; not a PIT business interface.
-
-        The physical relation must actually exist. No compatibility view
-        is created and this method never participates in structured queries.
-        """
-        warnings.warn("run_query 已弃用且不保证 PIT，请使用结构化查询。", DeprecationWarning, stacklevel=2)
-        if self.backend != "postgres":
-            raise NotImplementedError("run_query 仅保留 PostgreSQL 兼容入口")
-        sql, bound = query.build_query(self.sheet, conditions, params, select_columns)
-        with self._reader.snapshot():
-            self._reader.cursor.execute(sql, bound)
-            rows = self._reader.cursor.fetchall()
-        return pd.DataFrame(rows)
 
     def query_time_range(self, codes=None, start_date=None, end_date=None, metric=None, limit=None, *, as_of=None, filters=None):
         return query.query_time_range(self, self.sheet, codes, start_date, end_date, metric, limit, as_of=as_of, filters=filters)
@@ -89,13 +56,13 @@ class Datafeed:
     def get_available_dates(self, code, metric, start_date=None, end_date=None, *, as_of=None, filters=None):
         return query.get_available_dates(self, self.sheet, code, metric, start_date, end_date, as_of=as_of, filters=filters)
 
-    def query_industry(self, codes, dates, scheme="申万一级行业", *, exact=False):
+    def query_industry(self, codes, dates, scheme_code=None, *, level=1):
         from .industry import query_industry
-        return query_industry(self, codes, dates, scheme, self.sheet, exact)
+        return query_industry(self, codes, dates, scheme_code, self.sheet, level=level)
 
-    def get_industry_members(self, industry, date, scheme="申万一级行业", *, by="name", exact=False):
+    def get_industry_members(self, industry, date, scheme_code=None, *, by="name", level=1):
         from .industry import get_industry_members
-        return get_industry_members(self, industry, date, scheme, self.sheet, by, exact)
+        return get_industry_members(self, industry, date, scheme_code, self.sheet, by=by, level=level)
 
     def get_index_universe(self, index_code, date):
         from .universe import get_index_universe
@@ -110,6 +77,7 @@ class Datafeed:
         return get_index_universe_date(self, index_code, date, table_name=self.sheet)
 
     def query_names(self, codes, *, as_of=None):
+        cutoff = timestamp(as_of) if as_of is not None else None
         codes = list(dict.fromkeys(query._codes(codes, required=True)))
         if not codes:
             return frame([], ["code", "name"])
@@ -117,7 +85,7 @@ class Datafeed:
             if as_of is not None:
                 require_columns(self._reader, "security_name_history", {"name": "text"})
                 history = query._name_rows(self._reader, codes)
-                records = [{"code": code, "name": query.historical_name(history, code, timestamp(as_of))} for code in codes]
+                records = [{"code": code, "name": query.historical_name(history, code, cutoff)} for code in codes]
             else:
                 require_columns(self._reader, "security_dim", {"security_code": "text", "name": "text"})
                 rows = self._reader.rows("security_dim", ["security_code", "name"], [("security_code", "IN", codes)])
@@ -144,11 +112,11 @@ class Datafeed:
 
 
 def _period_days(days, period):
-    key = str(period).upper()
-    if key not in {"D", "W", "M", "Q", "H", "S", "Y"}:
+    key = period
+    if not isinstance(key, str) or key not in {"D", "W", "M", "Q", "H", "Y"}:
         raise ValueError(f"不支持的 period: {period}")
     values = pd.Series(pd.to_datetime(days), dtype="datetime64[ns]")
-    if key in {"H", "S"}:
+    if key == "H":
         groups = values.dt.year * 2 + (values.dt.month - 1) // 6
         values = values.groupby(groups).last()
     elif key != "D":
@@ -159,18 +127,25 @@ def _period_days(days, period):
 def get_absolute_trade_days(begin_date, end_date, period, exchange="SSE", *,
                             backend=None, config_file=None, db_config=None, as_of=None):
     _period_days([], period)
+    begin_date, end_date = timestamp(begin_date), timestamp(end_date)
+    if exchange not in {"SSE", "SZSE", "BSE"}:
+        raise ValueError("exchange 必须是 SSE/SZSE/BSE")
+    if begin_date > end_date:
+        raise ValueError("开始日期不能晚于结束日期")
     with Datafeed("trade_calendar_versions", db_config, backend=backend, config_file=config_file) as data:
         with data._reader.snapshot():
             days = calendar_days(data._reader, begin_date, end_date, exchange, as_of)
     return _period_days(days, period)
 
 
-def trade_days_offset(begin_datetime, offset, period="D", *, exchange="SSE",
+def trade_periods_offset(begin_datetime, offset, period="D", *, exchange="SSE",
                       backend=None, config_file=None, db_config=None, as_of=None):
-    if isinstance(offset, bool) or int(offset) != offset:
-        raise ValueError("offset 必须是整数")
+    """Shift by trading period ends; offset counts periods, not natural days."""
+    if exchange not in {"SSE", "SZSE", "BSE"}:
+        raise ValueError("exchange 必须是 SSE/SZSE/BSE")
+    offset = integer(offset, "offset")
+    _period_days([], period)
     original = local_time(timestamp(begin_datetime))
-    exchange = exchange.upper()
     cutoff = timestamp(as_of) if as_of is not None else pd.Timestamp.now(tz="UTC")
     with Datafeed("trade_calendar_versions", db_config, backend=backend, config_file=config_file) as data:
         with data._reader.snapshot():
@@ -185,8 +160,8 @@ def trade_days_offset(begin_datetime, offset, period="D", *, exchange="SSE",
     selected = index[target]
     # A missing natural day could change an offset even if the target exists.
     first, last = min(original.normalize(), selected), max(original.normalize(), selected)
-    key = str(period).upper()
-    if key in {"H", "S"}:
+    key = period
+    if key == "H":
         first = first.replace(month=1 if first.month <= 6 else 7, day=1)
         last = last.replace(month=6 if last.month <= 6 else 12, day=1) + pd.offsets.MonthEnd()
     elif key != "D":

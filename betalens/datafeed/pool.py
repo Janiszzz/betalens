@@ -11,6 +11,7 @@ from psycopg2.extensions import connection as Connection
 from psycopg2.pool import ThreadedConnectionPool
 
 from .config import load_subscription_config
+from .contracts import integer
 
 
 _CONNECTION_KEYS = ("dbname", "user", "password", "host", "port")
@@ -20,8 +21,10 @@ _POOLS_LOCK = threading.RLock()
 
 def _clean_config(config: dict[str, Any] | None) -> dict[str, Any]:
     raw = dict(config) if config is not None else load_subscription_config(backend="postgres")
+    if any(not isinstance(raw.get(key), str) or not raw[key].strip() for key in ("host", "dbname", "user")):
+        raise ValueError("连接池必须使用完整新版 PostgreSQL 配置")
     cleaned = {key: raw[key] for key in _CONNECTION_KEYS if key in raw}
-    cleaned["connect_timeout"] = int(raw.get("connect_timeout", 5))
+    cleaned["connect_timeout"] = integer(raw.get("connect_timeout", 5), "connect_timeout", minimum=1)
     return cleaned
 
 
@@ -36,10 +39,12 @@ class ReadOnlyConnectionPool:
         statement_timeout_ms: int = 120_000,
     ) -> None:
         self.db_config = _clean_config(db_config)
-        self.statement_timeout_ms = int(statement_timeout_ms)
+        self.statement_timeout_ms = integer(statement_timeout_ms, "statement_timeout_ms", minimum=1)
+        min_connections = integer(min_connections, "min_connections", minimum=1)
+        max_connections = integer(max_connections, "max_connections", minimum=min_connections)
         self._pool = ThreadedConnectionPool(
-            max(1, int(min_connections)),
-            max(int(min_connections), int(max_connections)),
+            min_connections,
+            max_connections,
             **self.db_config,
         )
 
@@ -89,6 +94,9 @@ def get_read_pool(
     statement_timeout_ms: int = 120_000,
 ) -> ReadOnlyConnectionPool:
     cleaned = _clean_config(db_config)
+    min_connections = integer(min_connections, "min_connections", minimum=1)
+    max_connections = integer(max_connections, "max_connections", minimum=min_connections)
+    statement_timeout_ms = integer(statement_timeout_ms, "statement_timeout_ms", minimum=1)
     key = tuple(
         sorted((name, str(value)) for name, value in cleaned.items())
         + [

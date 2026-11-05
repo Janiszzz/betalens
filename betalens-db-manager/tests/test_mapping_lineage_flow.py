@@ -17,6 +17,8 @@ from betalens_db_manager.comparison import content_hash
 from betalens_db_manager.downloader import TaskDownloader
 from betalens_db_manager.util import atomic_json, dumps, now
 from test_manager import live_manager, manager
+from betalens_db_manager.pipeline import Pipeline
+from betalens_db_manager.pipeline_validation import ValidationRunner
 
 
 def cache_requests(service, job, responses):
@@ -148,24 +150,27 @@ def test_dual_target_column_proof_distinguishes_zero_null_fallback_and_retained_
     service = live_manager
     url, payloads = lineage_api
     configure_lineage(service, url)
-    request = dict(tables=['lineage_prices'], start_date='2026-10-16', end_date='2026-10-16')
-    seed = service.plan(request); service.download(seed['id']); preview = service.preview(seed['id'])
-    assert not preview['blocking'] and not preview['rejected'], preview
+    request = dict(auto_commit=False,tables=['lineage_prices'], start_date='2026-10-16', end_date='2026-10-16')
+    seed = service.plan(request); preview = Pipeline(service).run(seed['id'])
+    assert preview['status']=='ready_to_commit',preview.get('error')
     assert not query(service, 'postgres', 'lineage_prices') and not query(service, 'clickhouse', 'lineage_prices')
-    result = service.commit(seed['id'], preview['token']); assert result['status'] == 'completed', result.get('error')
+    result = Pipeline(service).commit(seed['id']); assert result['status'] == 'completed', result.get('error')
     payloads['primary'] = ['0', None, '99000', None]
     payloads['backup'] = ['20000', None, '88000', '7000']
-    job = service.plan(request); service.download(job['id']); preview = service.preview(job['id'])
-    assert not preview['blocking'] and not preview['rejected'], preview
+    job = service.plan(request); preview = Pipeline(service).run(job['id'])
+    assert preview['status']=='ready_to_commit',preview.get('error')
+    child=next(u['result']['child_id'] for u in preview['pipeline']['units'] if u['kind']=='normalize')
+    service._build_canonical(service.state.job(child))
     for target in ('postgres', 'clickhouse'):
         before = query(service, target, 'lineage_prices')[0]
         assert before['price'] is None and before['preserved_metric'] == Decimal('5')
-    traces = service.state.ledger_get('task_column_lineage', job['id'] + ':lineage_prices')['rows']
+    traces = service.state.ledger_get('task_column_lineage', child + ':lineage_prices')['rows']
     trace = next(iter(traces.values()))
     assert trace['price']['selected'] and trace['price']['origins'] == ['lineage_vendor:primary:price_milli']
     assert trace['fallback_metric']['origins'] == ['lineage_vendor:backup:fallback_milli']
-    result = service.commit(job['id'], preview['token']); assert result['status'] == 'completed', result.get('error')
-    proofs = service.state.ledger_rows('field_verification', job['id'])
+    result = Pipeline(service).commit(job['id']); assert result['status'] == 'completed', result.get('error')
+    ValidationRunner(service).run(job['id'],{'rules':['readback']})
+    proofs = service.state.ledger_rows('field_verification', child)
     for target in ('postgres', 'clickhouse'):
         current = query(service, target, 'lineage_prices')[0]
         assert current['price'] == Decimal('0') and current['null_metric'] is None
@@ -176,18 +181,18 @@ def test_dual_target_column_proof_distinguishes_zero_null_fallback_and_retained_
         assert columns['fallback_metric']['verified_origins'] == {'lineage_vendor:backup:fallback_milli': 1}
         assert columns['null_metric']['status'] != 'verified_stored'
         assert columns['preserved_metric']['status'] != 'verified_stored' and columns['preserved_metric']['preserved_count'] == 1
-    fields = service.field_audit(job['id'])
+    fields = service.field_audit(child)
     selected = next(f for f in fields if f['endpoint'] == 'primary' and f['source_field'] == 'price_milli')
     unselected = next(f for f in fields if f['endpoint'] == 'backup' and f['source_field'] == 'price_milli')
     source_null = next(f for f in fields if f['endpoint'] == 'primary' and f['source_field'] == 'null_milli')
     assert selected['status'] == 'verified_stored' and {p['target'] for p in selected['evidence']} == {'postgres', 'clickhouse'}
     assert unselected['status'] != 'verified_stored' and source_null['status'] != 'verified_stored'
     assert any(log['event'] == 'http_response' for log in service.state.logs(job['id']))
-    rolled = service.rollback(job['id']); assert all(r['status'] == 'completed' for r in rolled['results']), rolled
+    rolled = Pipeline(service).rollback(job['id']); assert rolled['status']=='rolled_back',rolled
     for target in ('postgres', 'clickhouse'):
         restored = query(service, target, 'lineage_prices')[0]
         assert restored['price'] is None and restored['preserved_metric'] == Decimal('5')
-    assert all(r['status'] == 'completed' for r in service.rollback(seed['id'])['results'])
+    assert Pipeline(service).rollback(seed['id'])['status']=='rolled_back'
     assert not query(service, 'postgres', 'lineage_prices') and not query(service, 'clickhouse', 'lineage_prices')
 
 
@@ -203,7 +208,7 @@ def supplement_archive(service, targets=None):
     def response(endpoint, params):
         raw = sources.get(endpoint)
         return [raw] if raw and not params.get('offset') and params.get('ts_code', raw['ts_code']) == raw['ts_code'] else []
-    job = service.plan(dict(tables=['etf_profile', 'stock_quote_supplement_daily'], codes=['510300.SH', '000001.SZ'],
+    job = service.plan(dict(auto_commit=False,tables=['etf_profile', 'stock_quote_supplement_daily'], codes=['510300.SH', '000001.SZ'],
                             start_date='2026-10-16', end_date='2026-10-16', targets=targets or ['postgres']))
     return cache_requests(service, job, response), sources
 
@@ -233,11 +238,11 @@ def test_new_direct_tables_store_typed_values_in_both_targets_and_rollback(live_
             result = service.schema.apply(service.schema.plan(name)['token'])
             assert result['status'] == 'completed', result
     job, _ = supplement_archive(service, targets=['postgres', 'clickhouse'])
-    preview = service.preview(job['id'])
-    assert not preview['blocking'] and not preview['rejected'], preview
+    preview = Pipeline(service).run(job['id'])
+    assert preview['status']=='ready_to_commit',preview.get('error')
     for target in ('postgres', 'clickhouse'):
         assert all(not query(service, target, name) for name in tables)
-    result = service.commit(job['id'], preview['token'])
+    result = Pipeline(service).commit(job['id'])
     assert result['status'] == 'completed', result.get('error')
     for target in ('postgres', 'clickhouse'):
         etf = query(service, target, 'etf_profile')[0]
@@ -247,9 +252,10 @@ def test_new_direct_tables_store_typed_values_in_both_targets_and_rollback(live_
         assert supplement['total_share'] == Decimal('15.125') and supplement['float_share'] == Decimal('10.5')
         assert supplement['avg_price'] == Decimal('1.25') and supplement['trade_date'] == date(2026, 10, 16)
         assert not service.schema.inspect('market_daily_raw', target)['exists']
-    proofs = service.state.ledger_rows('field_verification', job['id'])
+    report=ValidationRunner(service).run(job['id'],{'rules':['readback']})
+    proofs=[row for group in report.get('field_audit',[]) for row in group['columns']]
     assert {p['target'] for p in proofs if p['table'] == 'stock_quote_supplement_daily' and p['column'] == 'total_share' and p['status'] == 'verified_stored'} == {'postgres', 'clickhouse'}
-    rolled = service.rollback(job['id'])
-    assert all(r['status'] == 'completed' for r in rolled['results']), rolled
+    rolled = Pipeline(service).rollback(job['id'])
+    assert rolled['status']=='rolled_back',rolled
     for target in ('postgres', 'clickhouse'):
         assert all(not query(service, target, name) for name in tables)

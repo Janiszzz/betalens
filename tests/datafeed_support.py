@@ -23,7 +23,7 @@ REF_TYPES = {"revision_id": "text", "scope_id": "text", "record_id": "text",
 REF_BUSINESS = {
     "calendar": {"exchange": "text", "trade_date": "date", "is_open": "integer"},
     "industry": {"security_code": "text", "scheme_code": "text", "level": "integer",
-                 "industry_code": "text", "industry_name": "text", "valid_from": "date", "valid_to": "date", "boundary_basis": "text"},
+                 "industry_code": "text", "industry_name": "text", "classification_version": "text", "membership_status": "text", "valid_from": "date", "valid_to": "date", "boundary_basis": "text"},
     "suspension": {"security_code": "text", "trade_date": "date", "suspend_type": "text",
                    "parse_status": "text", "start_at": "timestamp", "end_at": "timestamp"},
 }
@@ -148,3 +148,14 @@ def calendar_scope(day="2024-01-02", opened=1, available="2024-01-01"):
     return {"scope_id": "SSE:" + day, "selector": {"exchange": "SSE", "trade_date": day},
             "complete": True, "evidence": {"availability": evidence(available)},
             "rows": [{"exchange": "SSE", "trade_date": day, "is_open": opened, **evidence(available)}]}
+
+
+def industry_scope(scheme="SW2021", level=1, first="2024-01-03", last=None, available="2024-01-03", code="A"):
+    return {"scope_id": f"{code}:{scheme}:{level}",
+            "selector": {"security_code": code, "scheme_code": scheme, "level": level},
+            "complete": True,
+            "evidence": {"availability": evidence(available), "classification_version_basis": "versioned_dictionary_code_match"},
+            "rows": [{"security_code": code, "scheme_code": scheme, "classification_version": scheme,
+                      "level": level, "industry_code": f"{level:02d}", "industry_name": f"{scheme}-L{level}",
+                      "membership_status": "mapped", "valid_from": first, "valid_to": last,
+                      "boundary_basis": "verified_left_closed_right_open", **evidence(available)}]}

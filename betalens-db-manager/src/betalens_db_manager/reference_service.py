@@ -98,6 +98,10 @@ class ReferenceWorkflow:
         return item
 
     def plan(self,request):
+        from .pipeline_options import options
+        from .execution_policy import LegacyPipelineError
+        if request.get('pipeline_version',2)!=2:raise LegacyPipelineError('旧执行管线已移除，请使用 pipeline_version=2')
+        request={**request,**options(request)}
         request=normalize_request(request);sid=request['source_id']
         if sid not in self.s.sources.values:raise ValueError('未登记订阅源')
         roots=[]
@@ -138,7 +142,8 @@ class ReferenceWorkflow:
             optimized=[]
             for root in roots:
                 if root['endpoint'] in {'trade_cal','suspend_d','stock_basic'}:
-                    for params in params_for(root['endpoint'],compact_request,{}):
+                    custom={k:v for k,v in root['parameters'].items() if k not in {'start_date','end_date','trade_date'}}
+                    for params in params_for(root['endpoint'],compact_request,custom):
                         candidate={**root,'parameters':params}
                         if candidate not in optimized:optimized.append(candidate)
                 elif root not in optimized:optimized.append(root)
@@ -173,35 +178,12 @@ class ReferenceWorkflow:
         else:
             row.update(status='completed',finished_at=now());self.s.state.ledger_put('reference_attempt',attempt,row)
 
-    def download(self,job):
-        from .downloader import TaskDownloader
-        item=self.job(job)
-        if item['status'] in {'completed','rolled_back'}:return item
-        if item['status'] in {'interrupted','cancelled'}:
-            raise ValueError('中断任务不得直接续写旧版本；请创建关联的新任务并重新审计')
-        self.s.state.update_job(job,status='downloading',error=None)
-        source=self.s.source;source.active_job=job
-        source.requests_per_minute=item['plan']['request'].get('requests_per_minute',self.s.settings.requests_per_minute)
-        source.retrieval_policies=item['plan']['retrieval_policies']
-        if item['plan'].get('pipeline_version')==2:
-            failures=TaskDownloader(self.s,item).run(item['plan']['requests'],workers=item['plan']['request']['download_workers'])
-            self.s.state.update_job(job,status='partial' if failures else 'downloaded')
-            return self.s.state.job(job)
-        with self.attempt(job,'download'):
-            for root in item['plan']['requests']:
-                self.s.state.check_cancel(job)
-                try:TaskDownloader(self.s,item).run([root])
-                except InterruptedError:raise
-                except Exception as exc:
-                    reason=self.s.safe_error(exc)
-                    prepared=TaskDownloader(self.s,item).prepared(root)[0]
-                    key=TaskDownloader.key(prepared)
-                    self.s.state.slice(job,key,root['endpoint'],prepared,status='failed',result={'reason':reason,'complete':False})
-                    self.s.state.log(job,'reference_request_failed',endpoint=root['endpoint'],parameters=root['parameters'],error=reason)
-            self.s.state.update_job(job,status='downloaded')
-        return self.s.state.job(job)
 
     def bundles(self,item):
+        from .normalization_context import normalization_inputs
+        with normalization_inputs(item):return self._bundles(item)
+
+    def _bundles(self,item):
         from .downloader import TaskDownloader
         from .response_validation import validate_archives
         parts={p['id']:p for p in item['slices']};bundles=[]
@@ -218,10 +200,10 @@ class ReferenceWorkflow:
                 if part['status']!='split':relevant.append(part)
                 for child in result.get('children',[]):visit(child)
             visit(root)
-            scoped=deepcopy(item);scoped['plan']['requests']=[root]
+            scoped={**item,'plan':{**item['plan'],'requests':[root]}}
             # Response validation walks every supplied slice before walking
             # roots. An unrelated failed endpoint must not poison this module.
-            scoped['slices']=[p for p in item['slices'] if p['id'] in visited]
+            scoped['slices']=[parts[k] for k in sorted(visited) if k in parts]
             errors=validate_archives(self.s,scoped)
             unavailable=[p for p in relevant if p['status']=='unavailable']
             complete=not errors and not unavailable and bool(relevant)
@@ -247,7 +229,8 @@ class ReferenceWorkflow:
                             'reason':'；'.join(reasons),'archive_sha':hashes,'retrieval_errors':errors})
         return bundles
 
-    def preview(self,job):
+    def build_cache(self,job):
+        self.s.state.ensure_execution(job)
         from .reference_domains import build_scopes
         item=self.job(job)
         if item['status'] in {'planned','downloading'}:raise ValueError('请先完成拉取')
@@ -260,36 +243,48 @@ class ReferenceWorkflow:
         atomic_json(path,cache)
         target_heads={};checks=[];changes=[]
         usable=[scope for scope in scopes if scope['complete']]
-        for target in item['plan']['request']['targets']:
-            try:
-                store=self.store(target);target_heads[target]=store.heads([s['scope_id'] for s in usable])
-                previous=store.snapshot()
-                for scope in scopes:
-                    fields=[f['name'] for f in TABLES[MODULE_TABLE[scope['module']]].fields if f['name'] not in {f['name'] for f in COMMON}]
-                    before=[{k:r.get(k) for k in fields} for r in previous['rows'] if r['scope_id']==scope['scope_id']]
-                    after=[{k:r.get(k) for k in fields} for r in scope['rows']]
-                    content=lambda rows:sorted(dumps(row) for row in rows)
-                    changes.append({'target':target,'module':scope['module'],'scope_id':scope['scope_id'],
-                        'selector':scope['selector'],'complete':scope['complete'],'reasons':scope.get('reasons',[]),
-                        'before_revision':target_heads[target].get(scope['scope_id']),
-                        'operation':'no_business_change' if content(before)==content(after) else 'replace_scope' if target_heads[target].get(scope['scope_id']) else 'new_scope',
-                        'before':before,'after':after,'rows':len(after)})
-                checks.append({'target':target,'status':'ready','scope_count':len(usable)})
-            except Exception as exc:
-                checks.append({'target':target,'status':'unavailable','reason':self.s.safe_error(exc)})
-        raw=[{'endpoint':b['endpoint'],'parameters':b['parameters'],**r} for b in bundles for r in b['rows']]
-        normalized=[{'module':s['module'],'scope_id':s['scope_id'],**r} for s in scopes for r in s['rows']]
+        from .target_lanes import target_lanes
+        def preview_target(target):
+            from collections import defaultdict
+            from .resource_budget import BUDGET,shared_slot
+            with shared_slot(self.s.settings.state_dir,'read-'+target,BUDGET.readonly_per_target):
+                previous=self.store(target).snapshot(scope_ids=[s['scope_id'] for s in scopes])
+            heads={s['scope_id']:previous['heads'].get(s['scope_id']) for s in usable}
+            by_scope=defaultdict(list)
+            for row in previous['rows']:by_scope[row['scope_id']].append(row)
+            differences=[]
+            for scope in scopes:
+                fields=[f['name'] for f in TABLES[MODULE_TABLE[scope['module']]].fields if f['name'] not in {f['name'] for f in COMMON}]
+                before=[{k:r.get(k) for k in fields} for r in by_scope[scope['scope_id']]]
+                after=[{k:r.get(k) for k in fields} for r in scope['rows']]
+                content=lambda rows:sorted(dumps(row) for row in rows)
+                differences.append({'target':target,'module':scope['module'],'scope_id':scope['scope_id'],
+                    'selector':scope['selector'],'complete':scope['complete'],'reasons':scope.get('reasons',[]),
+                    'before_revision':heads.get(scope['scope_id']),
+                    'operation':'no_business_change' if content(before)==content(after) else 'replace_scope' if heads.get(scope['scope_id']) else 'new_scope',
+                    'before':before,'after':after,'rows':len(after)})
+            return heads,differences
+        for outcome in target_lanes(item['plan']['request']['targets'],preview_target):
+            if outcome.error is not None:
+                checks.append({'target':outcome.target,'status':'unavailable','reason':self.s.safe_error(outcome.error)})
+            else:
+                heads,differences=outcome.value;target_heads[outcome.target]=heads;changes.extend(differences)
+                checks.append({'target':outcome.target,'status':'ready','scope_count':len(usable)})
+        from itertools import islice
+        raw=list(islice(({'endpoint':b['endpoint'],'parameters':b['parameters'],**r} for b in bundles for r in b['rows']),200))
+        normalized=list(islice(({'module':s['module'],'scope_id':s['scope_id'],**r} for s in scopes for r in s['rows']),200))
+        row_count=sum(len(s['rows']) for s in scopes)
         result={'job':job,'cache_path':str(path),'cache_hash':cache_hash,'mapping_version':VERSION,
                 'contract_hash':CONTRACT_HASH,'archives':[[p['id'],p['sha'],p['status']] for p in item['slices']],
                 'target_heads':target_heads,'targets':item['plan']['request']['targets'],'checks':checks,
                 'raw_sample':raw[:200],'normalized_sample':normalized[:200],'changes':changes,
                 'source_report':[{k:b[k] for k in ('endpoint','parameters','complete','reason','archive_sha')}|{'rows':len(b['rows'])} for b in bundles],
                 'rejected':sum(not s['complete'] for s in scopes),'blocking':not usable,
-                'scope_count':len(scopes),'row_count':len(normalized)}
+                'scope_count':len(scopes),'row_count':row_count}
         result['token']=digest(result)
         self.s.state.update_job(job,status='blocked' if result['blocking'] else 'previewed',preview=result)
         self.s.state.ledger_put('reference_audit',job,{'task_id':job,'cache_hash':cache_hash,'scopes':scopes,'created_at':now()})
-        self.s.state.log(job,'reference_audit_ready',scope_count=len(scopes),row_count=len(normalized),rejected=result['rejected'])
+        self.s.state.log(job,'reference_audit_ready',scope_count=len(scopes),row_count=row_count,rejected=result['rejected'])
         return result
 
     def _confirmed(self,job,token):
@@ -306,7 +301,8 @@ class ReferenceWorkflow:
         if digest(self.bundles(item))!=digest(cache['bundles']):raise ValueError('归档或下载证明已变化，请重新审计')
         return item,cache
 
-    def commit(self,job,token,accept_partial=False):
+    def publish_cache(self,job,token,accept_partial=False):
+        self.s.state.ensure_execution(job)
         # Each target operation owns the existing publication/write lock. Do
         # not nest a second flock on the same path in this orchestration layer.
         with nullcontext():
@@ -315,7 +311,8 @@ class ReferenceWorkflow:
             self.s.state.update_job(job,status='committing',error=None)
             results=[]
             with self.attempt(job,'commit') as attempt:
-                for target in item['plan']['request']['targets']:
+                def publish_target(target):
+                    results=[]
                     for module in item['plan']['request']['modules']:
                         scopes=[s for s in cache['scopes'] if s['module']==module and s['complete']]
                         key=job+':'+target+':'+module
@@ -351,16 +348,20 @@ class ReferenceWorkflow:
                             row.update(status='failed',reason=self.s.safe_error(exc))
                             self.s.state.log(job,'reference_publication_failed',target=target,module=module,error=row['reason'])
                         results.append(row);self.s.state.ledger_put('reference_result',key,row)
+                    return results
+                from .target_lanes import target_lanes,lane_values
+                results=[r for result in lane_values(target_lanes(item['plan']['request']['targets'],publish_target)) for r in result]
             status='completed' if all(r['status']=='published' for r in results) and not item['preview']['rejected'] else 'partial'
             self.s.state.ledger_put('reference_task_result',job,{'task_id':job,'status':status,'results':results,'finished_at':now()})
             self.s.state.update_job(job,status=status)
             return self.detail(job)
 
-    def rollback(self,job,targets=None):
+    def revoke(self,job,targets=None):
+        self.s.state.ensure_execution(job)
         item=self.job(job)
         targets=targets or item['plan']['request']['targets']
         if not isinstance(targets,list) or set(targets)-set(item['plan']['request']['targets']):raise ValueError('撤销目标库不属于原任务')
-        rollback=self.s.state.create_job({'revision':'reference-rollback-v1','source_task_id':job,'request':{'targets':targets}},self.s.settings.fingerprint)
+        rollback=self.s.state.create_job({'pipeline_version':2,'revision':'reference-rollback-v2','pipeline_parent':job,'source_task_id':job,'request':{**item['plan']['request'],'targets':targets}},self.s.settings.fingerprint)
         results=[]
         with self.attempt(rollback['id'],'rollback'):
             for revision in self.s.state.ledger_rows('reference_revision',job):
@@ -379,6 +380,7 @@ class ReferenceWorkflow:
         return {'rollback_task_id':rollback['id'],'status':status,'results':results}
 
     def retry(self,job):
+        self.s.state.ensure_execution(job)
         item=self.job(job);request={**item['plan']['request'],'parent_task_id':job}
         return self.plan(request)
 
@@ -462,7 +464,7 @@ class ReferenceWorkflow:
                         for key in copied:conn.execute('DELETE FROM slices WHERE job=? AND id=?',(job,key))
             report.append(note)
         item['plan'].update(baseline_source_task_ids=list(dict.fromkeys(source_task_ids)),baseline_report=report)
-        with self.s.state.connect() as conn:conn.execute('UPDATE jobs SET plan=? WHERE id=?',(dumps(item['plan']),job))
+        self.s.state.replace_plan(job,item['plan'])
         self.s.state.update_job(job,status='downloaded')
         self.s.state.log(job,'reference_baseline_prepared',sources=source_task_ids,report=report,automatic_publication=False)
         return self.s.state.job(job)

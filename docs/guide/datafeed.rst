@@ -1,312 +1,194 @@
 数据订阅模块
 ============
 
-``betalens.datafeed`` 是独立的只读订阅层，支持 PostgreSQL 和 ClickHouse。
-数据库建立、字段配置、来源接入、写入、审计和发布由 ``betalens-db-manager`` 负责。
-新查询仅支持当前统一宽表与参考版本表，不探测或回退到旧长表、旧规范化表和兼容视图。
+``betalens.datafeed`` 是 PostgreSQL / ClickHouse 的只读订阅层。
+数据库配置持久化、DDL、导入、审计和可信发布由 db-manager 负责。
+订阅接口直接查询物理表和字段，共用严格 PIT 与固定 DataFrame 返回规则。
 
-.. important::
+连接配置
+--------
 
-   实现严格 PIT 查询，与实际数据具备历史可知性证据，是两个验收条件。
-   当前参考处理器的 ``available_at`` 为空，部分财报时间只是推定，指数成分缺少完整快照证明。
-   因此连接和表结构正确，也可能得到缺失值或 ``PITUnavailableError``。
-   不允许用业务日期、下载时间或当前值补造历史证据。
+配置模板为 ``betalens/datafeed/config.example.json``。
+文件只接受 ``backend/postgres/clickhouse``；配置不使用旧 database、logging 或 adjustment 节。
+只读加载器为 ``load_subscription_config``；旧 ConfigManager、全局配置和读写配置 API 已删除。
 
-连接与价格口径
---------------
+优先级：显式构造参数／db_config > 环境变量 > 所选文件。
+文件选择为 config_file > BETALENS_CONFIG > 用户配置目录 betalens/config.json。
+Windows 使用 APPDATA，Linux 使用 XDG_CONFIG_HOME，未设置时为 ~/.config。
+不再回退模块内 config.local.json/config.json，也不连接内置默认库。
+显式文件不存在、格式错误、未知配置键或必需连接字段缺失均报错。
+每个实例固定其配置，文件修改仅影响新实例。
 
-独立订阅 JSON 模板在 ``betalens/datafeed/config.example.json``。
-指定 ``config_file`` 或 ``BETALENS_CONFIG``，也可使用用户配置目录。
-构造参数／``db_config`` 高于环境变量，环境变量高于文件。
-旧 PG ``database`` 配置节和 ``BETALENS_DB_*`` 变量仍可读取；配置错误直接报错，不连接默认库。
-完整规则见模块目录的 ``CONFIG_README.md``。
+PG 环境变量为 ``BETALENS_PG_HOST/PORT/DATABASE/SCHEMA/USER/PASSWORD``；
+CH 为 ``BETALENS_CH_URL/DATABASE/USER/PASSWORD``，后端为 BETALENS_BACKEND。
+旧 BETALENS_DB_* 不再接受；私有配置文件不会被程序自动改写。
+无文件时可使用完整 db_config 或对应新版环境变量。
 
 .. code-block:: python
 
    from betalens.datafeed import Datafeed
 
-   with Datafeed("market_daily_raw", config_file="/path/to/subscription.json",
-                 backend="clickhouse") as data:
-       prices = data.query_time_range(
-           codes=["000001.SZ"], start_date="2024-01-01", end_date="2024-01-31",
-           metric="close", filters={"asset_type": "stock"}, as_of="2024-01-31 16:00:00",
+   with Datafeed("market_daily_post_adjusted", backend="clickhouse",
+                 config_file="/path/to/subscription.json") as data:
+       result = data.query_time_range(
+           codes=["000001.SZ"], metric="close",
+           start_date="2024-01-01", end_date="2024-01-31",
+           filters={"asset_type": "stock"}, as_of="2024-01-31 16:00:00",
        )
 
-``backend`` 支持 ``postgres`` 和 ``clickhouse``，默认从配置读取，未设置为 PostgreSQL。
-价格口径直接由表名决定：``market_daily_post_adjusted`` 为后复权，``market_daily_raw`` 为未复权。
-指数原生点位请使用 ``market_daily_raw`` 并指定 ``filters={"asset_type": "index"}``。
-不再提供 ``adjustment`` 参数或配置项，不隐式切换任何表。
-单次查询使用固定配置，新实例读取最新配置。管理服务无需在线。
+PG 使用连接池与只读 REPEATABLE READ 事务；CH 使用 HTTP 参数绑定、readonly=1 和 FINAL。
+CH 无跨请求事务，参考查询先固定发布事件，再核验不可变清单。
+连接、超时、版本冲突均抛出异常，不自动切换后端。
+订阅接口已移除 logger/log_dir、run_query、cursor、conn 和旧 SQL 构造／输入组合函数。
+独立查询函数的 source 参数接受 Datafeed；不再接受原生 PG 游标。
 
-.. note::
+物理表、字段与筛选
+------------------
 
-   直接以后复权价格计算成交手数是现有回测引擎的缺陷，
-   不能通过“复权计量”将其合理化。本次没有修改回测、factor 或 mining 的业务实现。
-   回测使用未复权价格进行成交、手数和权重换算，以及查询失败后按正常交易继续等问题，
-   均为后续修复项；本模块通过测试不代表整个研究链路已经满足 PIT。
+``table_name`` 是实际表名，``metric`` 是实际数值字段；registry 已删除。
+不保留逻辑数据集、中文指标及 prev_close 等别名；前收盘价直接使用 previous_close。
+metric 必须明确指定；数值保持数据库原生单位，不转换元／万元、股／手或报告期／TTM。
 
-直接指定表与字段
-----------------
+* 后复权行情：market_daily_post_adjusted。
+* 未复权及指数原生点位：market_daily_raw。
+* 财报：fundamental_periodic，必须同时指定 statement_type/report_type。
+* 行业专用查询：stock_industry_membership_versions。
+* 交易状态专用查询：stock_suspension_intervals_versions。
+* 日历：trade_calendar_versions。
+* 指数完整成分：index_membership。
 
-``table_name`` 是实际数据库表名，``metric`` 是实际数值列名。
-已删除 ``registry.py``，不保留 ``daily_market/fundamentals`` 等逻辑数据集、
-中文指标、``prev_close`` 等字段别名，也不通过指标推断资产类型或报表口径。
-例如前收盘价直接使用 ``previous_close``，收入直接使用 ``fundamental_periodic.revenue``。
-缺表、缺字段明确报错；``metric=None`` 报错，调用方必须明确选择字段。
-
-* 行情：``market_daily_raw`` 或 ``market_daily_post_adjusted``。
-  ``filters={"asset_type": "stock"}`` 限定股票；不传此条件时不替调用方筛选资产类型。
-* 财报：``fundamental_periodic``，必须在 ``filters`` 中同时指定实际的
-  ``statement_type`` 与 ``report_type``，例如 ``income/1`` 或 ``fina_indicator/unspecified``。
-* 行业专用接口：``stock_industry_membership_versions``。
-* 交易状态专用接口：``stock_suspension_intervals_versions``，联合范围证据计算状态。
-* 本地日历：``trade_calendar_versions``。
-* 指数成分专用接口：``index_membership``，必须提供完整快照证据。
-
-``filters`` 为字段名到非空标量的字典，仅表示相等条件；与 codes、时间范围共同筛选，
-字段名经校验，值通过数据库参数绑定，不接受 SQL 片段。
-普通数值时序查询要求表具备 ``security_code/event_date/available_at/availability_basis/data_quality_status``；
-数值列直接由实际结构校验，无需增加注册项。参考版本表及完整成分集合必须走专用接口，
-不能通过通用数值查询绕过发布、完整范围核验。
-
-同一公告时刻发布多个报告期时选择最新报告期；不同可得时刻的旧报告修订仍是独立观测，
-nearest 保持按可得时间匹配，不暗改为按报告期末匹配。
-
-字段值保持数据库原生单位；有 ``meta_column`` 条目时在 ``remark.unit`` 中提供单位，
-没有条目时为 ``None``，不通过中文别名猜单位，不自动执行股／手、元／万元或报告期／TTM 转换。
-
-固定输出合同
-------------
-
-* nearest：``code/input_ts/datetime/diff_hours/{metric}/name``。
-* 范围查询：``datetime/code/name/metric/value/remark``。
-* 交易状态：``code/datetime/value/status_text/name``，``value`` 为 pandas ``Int8``，允许 ``NA``。
-* 行业：保留 ``code/query_date/effective_dt/sec_name/industry_value/remark/ind_name/ind_code/scheme``。
-* 指数单日返回代码列表，面板返回 ``{date: set[str]}``，交易日返回 ``list[date]``。
-
-两个后端输出相同列顺序、dtype、缺失值和稳定排序。数值指标为 ``float64``；
-字符串及 remark 为 ``object``，时间列为上海本地无时区 ``datetime64[ns]``。
-内部以 UTC 比较，无时区用户输入按上海时间解释，数据库 timestamp 按 UTC 读取。
-空结果保留完整字段和类型。nearest 保留输入顺序与重复输入，范围查询按时间倒序、代码和指标排序。
-
-时序输出的 ``datetime`` 是有证据的可得时间，不是报告期或下载时间；
-``remark`` 提供业务日期、报告期、版本、实际表名、原生单位及资产／报表类型。
-
-查询边界
---------
+filters 是物理字段到非空标量的字典，仅表示相等条件。
+值按目标字段类型校验并绑定，支持的时间条件遵循下面的上海输入规则。
+不指定 asset_type 时不会替调用方筛选资产；因子 YAML 使用明确的 query_filters。
+普通时序表要求 security_code/event_date/available_at/availability_basis/data_quality_status。
+参考域和成分集合必须使用专用接口，不能经普通数值查询绕过完整范围证明。
 
 .. code-block:: python
 
    with Datafeed("fundamental_periodic") as data:
-       values = data.query_nearest_before({
-           "codes": ["000001.SZ"], "datetimes": ["2024-04-30 15:00:00"],
+       result = data.query_nearest_before({
+           "codes": ["000001.SZ"], "datetimes": ["2024-04-30 18:00:00"],
            "metric": "revenue", "time_tolerance": 24 * 365,
            "filters": {"statement_type": "income", "report_type": "1"},
        })
 
-before 包含输入时点，after 严格晚于输入时点。区间 before 为闭区间，
-区间 after 为开区间；容差单位为小时，与区间取交集。
-范围查询的纯日期结束值包含整天，带时间的结束值包含该时刻。
-``as_of`` 进一步限制历史可知性；省略时范围查询返回范围内可证明的可得时间序列。
-
-after 查询用于后续结果观察，其结果在输入时点尚不可知，不能当作该时点的因子信息。
-无证据或超出容差的 nearest 输入仍保留一行缺失结果。
-
-严格 PIT 与可信范围
--------------------
-
-普通时序记录必须有 ``available_at``，且 ``data_quality_status`` 为 ``accepted/verified``。
-``availability_basis`` 只接受内容版本级证明：
-
-* ``source_version_publication_time``：来源证明该内容版本在此时刻公开。
-* ``verified_historical_version``：经核验的历史版本及可得时间。
-
-这些标记是生产者需提供证据的合同，不是让使用者给旧数据改标签即可通过。
-``unknown/assumed/download`` 等依据及只有事件公开时间但没有内容版本证明的记录，均不放行。
-行情已被覆盖的旧版本不能由查询端恢复；整行时间证明必须覆盖该行中查询字段及复权因子。
-
-参考域先读取目标库发布事件，再核验修订头、范围清单、内容／键哈希和行数。
-未发布和已撤销版本不可见。每次按整范围选择历史时点可知的最新完整快照，
-不跨版本拼值、不将新版本空值从旧版本补回。
-
-完整范围必须在已有 ``reference_scope.payload.evidence`` 中带 ``availability`` 对象，
-其中 ``available_at/availability_basis`` 证明整个快照在当时可知；每条非空记录也必须满足行级证明。
-当前管理器没有提供该历史证明，故默认无法用于严格 PIT。
-零事件停牌范围同样需要范围级证明，上市范围和日历依赖也必须有历史可知证据。
-这是管理端待补合同，datafeed 不生成或写入这些证据。
-
-交易状态：``1`` 为已证实上市、开市且该时点未报告停牌，``0`` 为已证实停牌，
-``-1`` 为有证据的未上市，其他情况为 ``NA``。
-``1`` 不承诺涨跌停、委托限制等所有成交条件均已检查。
-纯日期状态查询按该日 00:00 解释；日内状态请传完整时间，不能擅自按盘后信息还原盘前状态。
-
-指数成分当前表缺少完整性证据，接口明确报错。查询端预留可选的
-``snapshot_complete``、``snapshot_member_count`` 整数字段合同；只有全部成分在时点可知、
-完整标记为 1 且数量吻合才能返回。当前物理表不因此自动增列。
-空成分快照缺乏可表示的范围证明时仍报错，不能用“没有行”代替空集合。
-
-交易日与名称
-------------
-
-``get_absolute_trade_days`` 和 ``trade_days_offset`` 只读本地可信日历，不访问 AkShare 或其他在线日历。
-支持 ``D/W/M/Q/H/S/Y``；``H`` 与 ``S`` 均指自然半年度最后交易日。
-交易所参数默认 ``SSE``；不再将 ``SHSE`` 转换为 ``SSE``。
-传入 ``SHSE`` 时只查询该字面值，不会回退到上交所日历；缺失交易所或自然日不能推断为休市。
-偏移保留原输入时间，非交易日起点先定位不早于该日的交易周期，再应用 offset。
-
-``query_names(codes)`` 查询当前展示名称；传 ``as_of`` 查询历史名称。
-历史查询没有对应证据时留空，不补当前名称。
-独立查询函数可传入 ``Datafeed``；PG 旧游标入口保留，CH 不模拟 PG 游标。
-
-错误与结构调整
+行业版本与分级
 --------------
 
-``SchemaError`` 表示缺表、缺必需字段或逻辑类型不符；``VersionConflictError`` 表示版本冲突或发布内容核验失败；
-``PITUnavailableError`` 表示无法用原返回容器表达缺失的完整覆盖证据。
-不存在的数值字段使用 ``SchemaError``，参数错误使用 ``ValueError``；
-专用接口不支持的表或绕过完整范围验证的请求使用 ``NotImplementedError``。
-记录级证据不足返回缺失，而非填充、推定或自动切换后端。
+行业查询使用 scheme_code 和 level，level 仅接受整数 1、2、3。
+精确版本示例为 SW2014、SW2021、CITICS；中文复合名称、exact 开关和 CITIC 拼写兼容已移除。
+未指定 scheme_code 时只考虑申万，按观察时点的可信完整范围、内容可得性、
+classification_version、有效区间与版本字典证据选出唯一可知版本。
+缺少版本证据时报 PITUnavailableError；多个有效申万版本重叠时报 VersionConflictError。
+不按当前年份、下载先后、最大版本号或中信数据替代缺失证据。
 
-新增无关列不影响固定业务输出。结构缓存仅在当前实例内使用；
-数据库字段调整后新建实例。索引、DDL 和数据修复仍由 db-manager 执行。
-两个目标独立发布，因此实际数据覆盖可能不同，结构一致并不代表已同步。
+每条记录的 classification_version 必须与 scheme_code 一致。
+同一公司、版本、层级在同一观察时点至多有一条有效归属；区间重叠报错。
+缺少 membership_status、版本或边界证据时不能默认为 mapped；未知记录不从旧版本回填。
+默认版本选择共用所有层级的版本证据，使逐级查询不会各自选到不同年份分类。
 
-其他别名与转换：待审批清单
---------------------------
+.. code-block:: python
 
-以下仅盘点并保留。用户已批准的表／指标映射及 ``SHSE → SSE`` 已移除；
-下列项目需逐项批准后修改，不与非订阅 API 的迁移审批混为一谈。
+   with Datafeed("stock_industry_membership_versions") as data:
+       level1 = data.query_industry(["000001.SZ"], ["2024-04-30 10:00"], level=1)
+       level3 = data.query_industry(["000001.SZ"], ["2024-04-30 10:00"], level=3)
+       specified = data.query_industry(
+           ["000001.SZ"], ["2024-04-30 10:00"], scheme_code="SW2021", level=2,
+       )
 
-.. list-table:: 2026-10-30 盘点（datafeed 范围）
-   :header-rows: 1
-   :widths: 6 34 32 28
+因子 YAML 的行业选择也是结构化字段，无需解析中文名称：
 
-   * - 编号
-     - 现有转换
-     - 删除后的建议行为
-     - 影响
-   * - A
-     - ``industry._scheme`` 将“申万／中信一二三级行业”拆为体系代码和层级；全角括号转半角。
-     - 显式传 ``scheme_code`` 与 ``level``，不再解析中文名称。
-     - 因子中性化和 mining 的 ``industry_scheme`` 调用需要另行适配。
-   * - B
-     - 未注明版本的申万同时匹配 ``SW2014/SW2021``；中信同时匹配 ``CITICS/CITIC``。
-     - 必须使用数据库中的精确体系代码，不合并版本或拼写。
-     - 旧查询可能变为参数错误或无匹配；需明确研究使用的行业版本。
-   * - C
-     - ``_scheme_label`` 将代码译为中文；行业代码提取数字并转换为 ``industry_value`` 浮点数；数字 industry 输入自动按 value 查找。
-     - 使用原始 ``scheme_code/industry_code``；反查完全由显式 ``by`` 决定。
-     - 会改变行业输出合同及按数值查询的调用；原始代码的前缀／前导零不再丢失。
-   * - D
-     - 周期 ``H/S`` 均为半年度；period 和 exchange 输入自动转大写。
-     - 半年度只保留 ``H``；参数使用精确大写值。
-     - ``S``、``d``、``sse`` 等旧输入需修改；默认 SSE 不受影响。
-   * - E
-     - 订阅配置将旧 ``database`` 节作为 ``postgres`` 节；仍回退模块内 ``config.local.json/config.json``。
-     - 只读取明确的 ``postgres/clickhouse`` 节与独立订阅配置来源。
-     - 旧本地配置需要人工迁移；不改写凭据文件。
-   * - F
-     - 业务输出将 ``security_code/available_at`` 整理为 ``code/datetime``，行业还有 ``sec_name/ind_code/ind_name``。
-     - 如批准，另行设计原字段输出合同。
-     - 属于既定固定返回结构，建议保留；直接删除会影响所有消费者。
+.. code-block:: yaml
 
-``readers.logical_type`` 的 PG/CH 类型统一、UTC／上海时区处理、缺失值和 dtype 规范化，
-以及 ``reference`` 中实际发布 module 值与版本表的对应关系，属于双库执行和 PIT 核验合同，
-不是外部查询别名，继续保留。状态接口的“交易状态”和指数接口的“universe”是派生输出的固定标签，
-未用于查找或替换数据库字段。
+   factor_spec:
+     table_name: market_daily_post_adjusted
+     query_filters: {asset_type: stock}
+     inputs: {close_wide: close}
+     industry_scheme: {scheme_code: null, level: 1}
+     industry_inputs:
+       subindustry_wide: {scheme_code: null, level: 3}
+     backtest_metric: close
 
-补充检查：待修复清单（2026-10-30）
-----------------------------------
-
-本次只检查和登记，不改变接口、不删除兼容。以下包含上表 A—F 的具体化条目。
-检查范围为 datafeed 及仓库内直接调用方；使用隔离的内存样本和临时配置复核，
-没有连接生产数据库。SQL 参数问题已在 SQL 生成层复核，未据此声称所有真实后端均已执行验证。
-
-.. list-table:: 配置入口
-   :header-rows: 1
-   :widths: 9 46 45
-
-   * - 编号
-     - 现状与位置
-     - 待审批修复
-   * - R01
-     - ``config.py:ConfigManager/get_config/get_database_config`` 与新 loader 并存。旧入口读取新 postgres 配置节时，database 节仍会合入默认 datafeed 库；文件错误会回退默认配置。get_config 只接受首次路径。
-     - 统一只读加载入口；旧读写 API 和全局配置状态按迁移审批处理。新 Datafeed 本身没有调用这条默认回退路径，不能混为一谈。
-   * - R02
-     - ``load_subscription_config`` 仍读取旧 database 节，并回退模块内 config.local.json/config.json；两套加载器对 XDG_CONFIG_HOME 的处理也不同。对应 E。
-     - 明确唯一配置格式、查找顺序；删除旧兼容前列出调用方和需迁移配置，不自动改写用户凭据。
-   * - R03
-     - 未知配置键未报错；statment_timeout_ms 拼错后实际仍使用 120000。int 强制转换把 connect_timeout=1.9 截为 1。pool 清理连接参数时还会丢弃非白名单键。
-     - 校验配置键、类型和后端适用范围；拒绝拼写错误、小数和布尔整数，不静默忽略或截断。CH 不应接受看似生效的 PG 连接池配置。
-
-.. list-table:: 参数含义与校验
-   :header-rows: 1
-   :widths: 9 46 45
-
-   * - R04
-     - ``core._require`` 只检查必需键存在；nearest 的未知键被忽略。time_tolernace=1 的样本返回了距输入 681 小时的值，正确 time_tolerance=1 返回缺失。
-     - 优先拒绝未知键和错误容器；审批后改为显式关键字参数，不新增请求实体。容差名明确为 tolerance_hours。
-   * - R05
-     - ``query._query_fields/readers.select_sql`` 只检查 filters 值是标量，绑定类型主要按 Python 类型判断。CH 把 float 绑成 String、bool 绑成 Int64 的字符串 True；无时区 datetime 被按 UTC 处理。
-     - 按实际数据库字段类型验证和绑定；用户时间统一先按上海时区解释，不能调用 stored=True 路径。拒绝不支持的类型组合。
-   * - R06
-     - ``contracts.timestamp/date_only`` 使用宽松 Timestamp 解析和字符串长度判断整日。2024-01-03 与 20240103 的结束边界不同，整数 20240103 被解释为纳秒。limit=1.0 通过整数校验后在 iloc 切片报 TypeError。
-     - 规定明确的日期／时间输入格式；整数日期不推断，日期和时刻的端点规则分开。统一 limit、offset、timeout、tolerance 的数值校验。
-   * - R07
-     - ``metric`` 在时序查询中已经表示物理列，但签名仍允许 None；在交易状态和指数接口中仅接受固定标签“交易状态”和“universe”。
-     - 数值接口明确为必填 column；专用接口移除无选择意义的 metric 参数，避免同名参数承担不同职责。
-   * - R08
-     - log_dir 被丢弃；独立查询的 logger 未使用；cursor 实际可为 Datafeed、reader 或 PG 游标。query_names 不使用实例 table_name，而固定查 security_dim/security_name_history。
-     - 删除无效参数前审批；数据源参数命名明确。名称查询与绑定数值表的接口分开，避免用多个行情表重复尝试同一名称查询。
-   * - R09
-     - start_date/end_date 和 get_latest_date/get_available_dates 实际指 available_at；并非 trade_date 或 period_end。as_of=None 在名称、日历、范围查询中的默认行为不同。codes 与 datetimes 是笛卡尔积，limit 是全局条数。
-     - 明确 available_start/end、观察时点、业务日期和报告期；容器语义、全局 limit 和无 as_of 行为写入签名说明。若新增业务日期筛选，仍单独执行 PIT 截点约束。
-   * - R10
-     - ``industry._scheme/_industry_frame/get_industry_members`` 解析复合中文体系、括号和层级；中信一级行业（2021）的年份被忽略。exact 只约束未指定版本的申万；数字输入可覆盖 by 的选择。对应 A—C。
-     - 使用明确 scheme_code/level/industry_code，精确查询不再依赖 exact 模糊开关或参数值类型猜测。中文显示名与查询键分开。
-   * - R11
-     - ``remark`` 为无固定子结构的 object 字典，存放业务日期、报告期、版本、单位；行业同时在 remark 和独立列存相同字段。status_text 混合状态显示和缺失原因，industry_value 从代码提取数字后转 float。
-     - 审批返回合同后，将常用业务字段显式列出或至少固定 remark 子结构；保留原始字符串代码，缺失原因提供固定 reason_code，显示文字不作为程序判断键。
-   * - R12
-     - ``universe.get_index_universe_panel`` 接受完整时刻，但输出键截为 date。同一天 10:00、15:00 分别查询可得到 A、B，合并查询却只剩 B。
-     - 日期接口拒绝带时间输入，或另定以完整观察时点为键的返回合同；不得静默覆盖日内请求。现有返回类型变更需批准。
-   * - R13
-     - ``contracts.proven`` 缺少 data_quality_status 时默认 accepted；``industry._industry_frame`` 缺少 membership_status 时默认 mapped。前者在证据字典样本中已复现；普通行是否受影响取决于其必需字段校验。
-     - 明确哪些状态必须存在；缺失时返回未知或证据错误，不以成功状态补缺。与管理端证据合同一起确认。
-   * - R17
-     - ``core._period_days/trade_days_offset`` 同时接受 H/S 并自动大写；offset 在非 D 周期下表示周期数，函数名却称 trade_days。对应 D。
-     - 统一周期枚举；明确采样周期与交易日偏移的不同含义，删除别名需批准。
-
-.. list-table:: 结构解析与后续依赖
-   :header-rows: 1
-   :widths: 9 46 45
-
-   * - R14
-     - ``readers.logical_type`` 按子串识别类型。Array(Int64) 被识别为 integer、Array(String) 为 text；不同 Decimal 精度都归为 numeric。
-     - 双库类型规范化继续保留，但只解析已支持的标量类型和包装；数组／复合类型明确拒绝。需要精度合同的字段保留精度与小数位校验。
-   * - R15
-     - ``reference._documents/known_scopes/suspension_status`` 解析 payload.selector/evidence 的多层 JSON，部分字段直接索引；结构错误可能变成 KeyError。_documents 检查所有实际列，新增非合同列也可能阻断。
-     - 为发布与证据 JSON 明确版本、必需字段、类型和统一错误；业务视图与哈希规范化分开。不能为减少解析而删除发布、撤销、完整范围或哈希核验；合同调整需与 db-manager 协调。
-   * - R16
-     - ``query.build_nearest_query/build_nearest_in_range_query`` 仍生成旧长表 code/datetime/metric/value SQL；run_query/cursor/conn 仍是 PG 兼容入口，不受双库业务合同保证。
-     - 原有迁移清单继续待批准；旧构造函数不得看作新库查询实现。仓库内本次未发现这些旧构造函数的业务调用，不代表外部导入无人使用。
-   * - R18
-     - backtest 默认 daily_market/收盘价(元)，factor 默认 fundamentals/trade_status，mining、行业中性化和模板仍使用旧表名／行业参数；analyst.naming 仍按多个旧行情表循环取名称。
-     - 后续单独适配调用方及文档、测试。不能因存在旧调用而在 datafeed 恢复映射；本轮不修改这些业务模块，也不混入复权成交手数问题的修复。
-
-优先处理会改变查询结果或隐瞒输入错误的 R03—R06、R12—R14。
-配置退役、接口重命名及输出结构调整仍需审批；UTC／上海时区转换、双库结果类型统一、
-严格 PIT 和完整范围验证必须保留。
-
-迁移清单（尚未实施）
+时间输入、端点与日历
 --------------------
 
-* ``FillStrategy`` 及 validation 的空值、日期、去重、修复函数：建议迁入轻量通用预处理模块。
-* ``pivot_to_wide/align_to_dates``：建议同归通用预处理。
-* ``calculate_returns``：建议迁入分析模块。
-* ``ConfigManager.save/set/__setitem__``：配置写入建议归管理端；新查询运行时仅使用只读加载。
-* ``run_query/cursor/conn``：继续弃用，不属于固定格式或严格 PIT 保证；尚未删除。
-* 公开 SQL 构造及输入组合函数：建议转内部实现；当前导入路径仍保留。
+用户无时区 datetime 按 Asia/Shanghai 解释；带时区输入尊重其偏移并转 UTC。
+数据库返回的无时区 timestamp 按 UTC 存储解释，不能再次当成上海时间输入。
+例如上海 15:00 与同日 07:00Z 查询同一时刻，filters、nearest、范围和 as_of 规则一致。
+旧时间输出列保持上海本地无时区 datetime64[ns]。
+
+字符串仅接受 YYYY-MM-DD 或 ISO 日期时间，精度最多微秒；不接受 YYYYMMDD、
+数字日期、相对日期或按字符串长度猜测的格式。date 对象表示整日，datetime 表示明确时刻。
+范围的纯日期结束值包含整天，带时间的结束值包含该时刻。
+start_date/end_date 当前筛选 available_at；业务日和报告期仍分别是 event_date/period_end。
+get_available_dates/get_latest_date 返回有证据的可得时刻。
+
+before 包含锚点；after 严格晚于锚点。区间 before 为闭区间，区间 after 为开区间。
+time_tolerance 单位为小时，与区间取交集；bool、小数 limit/offset 等错误输入明确拒绝。
+nearest 的 codes × datetimes 为笛卡尔积，保留重复输入；范围 limit 为全局条数。
+after 的结果在输入时点尚不可知，仅用于后续观察。
+
+``get_absolute_trade_days`` 和 ``trade_periods_offset`` 只读本地可信日历。
+周期严格为 D/W/M/Q/H/Y；半年度统一为 H，表示自然半年最后交易日。
+旧 S、自动大小写转换及 trade_days_offset 名称已移除。
+trade_periods_offset 的 offset 表示交易周期数，period=D 时才是交易日数；保留输入时间。
+exchange 使用精确 SSE/SZSE/BSE，默认 SSE；不保留 SHSE 别名。
+缺自然日、范围证据不足及超出覆盖范围时不会推定休市或使用在线日历。
+
+指数面板 get_index_universe_panel 的键为 date，因此仅接受 YYYY-MM-DD 或 date。
+传入 datetime（含午夜 Timestamp）明确报错，防止两个日内观察结果覆盖同一日期键。
+日内观察使用 get_index_universe 或 get_index_universe_date 的单时点接口。
+
+严格 PIT 与返回合同
+-------------------
+
+普通记录必须同时具备 available_at、明确的 accepted/verified 质量状态，
+以及 source_version_publication_time 或 verified_historical_version 的内容版本证明。
+缺少质量状态不再默认 accepted。业务日期、下载、入库时间和推定时间不能替代可得时间。
+行情的内容证明必须覆盖所查字段和复权因子；财报修订不能按哈希或下载先后排序。
+同一可得时刻发布多个报告期时选择最新报告期；旧报告的后续修订仍是独立观测。
+
+参考域先排除未发布／撤销版本，再核验修订清单、范围、内容／键哈希与行数。
+完整范围及非空记录均需历史可得性证明；范围按整体选择，不跨版本拼值。
+指数缺少 snapshot_complete/snapshot_member_count 完整性证据时明确报错；
+空快照缺少独立范围表示时同样不能解释为已知空集合。datafeed 不增列或补造证据。
+
+交易状态为已证实的 1/0/-1 或 NA；无停牌行不能自动解释为正常。
+停牌区间左闭右开；纯日期观察按当日 00:00 解释。
+query_names 未传 as_of 时查询当前展示名称，传入时只返回有证据的历史名称，缺失不回填当前名。
+
+* nearest：code/input_ts/datetime/diff_hours/{metric}/name。
+* 范围：datetime/code/name/metric/value/remark。
+* 交易状态：code/datetime/value/status_text/name，value 为可空 Int8。
+* 行业：code/query_date/effective_dt/sec_name/industry_value/remark/ind_name/ind_code/scheme。
+* 指数单日为代码列表，面板为 {date: set[str]}，日历为 list[date]。
+
+两库统一列序、float64 数值、缺失值、时间与稳定排序，空结果保留完整结构。
+remark 包含业务日期、报告期、版本、表名、原生单位及报表类型。
+PG/CH 类型只解析明确支持的标量及 Nullable/LowCardinality 包装，数组、复合和未知必需类型报错。
+Decimal 原始精度保留在执行层；meta_column 明确声明 precision/scale 时交叉核验，
+条件值超出实际精度时拒绝截断。无单位或精度条目时不猜测语义。
+
+SchemaError 表示缺表／字段、类型或精度合同错误；VersionConflictError 表示版本冲突；
+PITUnavailableError 表示完整覆盖或默认行业版本证据不足；参数错误为 ValueError。
+新增无关列不会改变普通时序返回结构；结构调整后新建实例。
+参考发布 JSON 的完整合同和错误统一仍是 R15 的待办，不能因此放松哈希验证。
+
+实施状态与后续事项
+------------------
+
+已实施 B/D/E、R01/R02、R05/R06、R08 的订阅日志参数清理、R10/R12/R13/R14/R16/R17，
+并将 R18 的仓库内调用、因子配置及 Dashboard 默认字段改为新表字段。
+配置写入和旧原生 SQL 兼容入口已经删除。
+
+其余接口改名、nearest 参数字典的严格未知键校验（R04）、metric 固定标签清理（R07）、
+时间参数命名调整（R09）、remark／行业数值代码及完整输出合同调整（R11/F）、参考 JSON 合同（R15）
+仍待后续批准。FillStrategy、validation、pivot_to_wide/align_to_dates 和 calculate_returns
+尚留原导入路径，通用预处理／分析模块迁移未在本轮实施。
+
+直接以后复权价格计算成交手数仍是回测引擎缺陷。本轮下游修改用于新查询合同接入，
+成交价格、手数及权重换算另行修复；查询失败后按正常交易继续等问题也不在本轮修复。
+严格 PIT 程序正确与生产数据证据齐备分别验收，测试通过不等于整个回测链路已满足 PIT。
 
 验证与性能
 ----------
@@ -386,11 +268,6 @@ CH 在至少 5000 个不同证券且仅一个不同查询时点时使用 SQL。�
 上述性能数据是去除 registry 前的初始实验，查询匹配算法未因此重新测定。
 当前接口直接读取物理字段及其原生单位，不再维护订阅端的字段单位映射。
 传输字节数为解码结果重新编码 JSON 的估算，不是网络抓包统计。
-
-本轮额外运行了现有回测、事件研究、因子分组、预处理与 mining 测试。
-``test_failed_run_updates_manifest_and_audit_log`` 未模拟交易日历，会尝试真实研究数据库连接；
-在当前缺少研究配置的环境中失败，使用修改前 datafeed 复测也在该位置失败。
-此测试环境依赖单独记录，没有修改 mining 的业务实现或其既有测试。
 
 本机只读样本核对（2026-10-29）：000001.SZ、2026-10-12 至 2026-10-14，
 两库后复权收盘价接口均返回具有固定列的空表；这不能区分尚无记录与记录不满足 PIT 证据，

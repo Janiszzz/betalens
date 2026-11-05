@@ -77,6 +77,7 @@ def pg_apply(db,spec,comparison):
 
 def _ch_check(db,spec,stage,deleted=False,table=None,rows=None):
     from .clickhouse_keys import scoped_filter
+    from .resource_budget import BUDGET
     keys=','.join('`'+k+'`' for k in spec.keys)
     target=db.table(table or spec.name)
     predicate=scoped_filter(db,spec,rows or [],stage,table=table)
@@ -86,7 +87,7 @@ def _ch_check(db,spec,stage,deleted=False,table=None,rows=None):
     else:
         join=' AND '.join('t.`'+k+'`=s.`'+k+'`' for k in spec.keys)
         match=' AND '.join(f'ifNull(t.`{n}`=s.`{n}`,isNull(t.`{n}`) AND isNull(s.`{n}`))' for n in columns(spec))
-        observed=db._json_rows(db.execute(f'SELECT count() AS joined,countIf(isNull(t.`{spec.keys[0]}`) OR NOT ({match})) AS bad FROM {stage} AS s LEFT JOIN {source} AS t ON {join} SETTINGS join_use_nulls=1,max_threads=4 FORMAT JSONEachRow'))[0]
+        observed=db._json_rows(db.execute(f'SELECT count() AS joined,countIf(isNull(t.`{spec.keys[0]}`) OR NOT ({match})) AS bad FROM {stage} AS s LEFT JOIN {source} AS t ON {join} SETTINGS join_use_nulls=1,max_threads={BUDGET.ch_threads} FORMAT JSONEachRow'))[0]
         expected=int(db.execute(f'SELECT count() FROM {stage} FINAL'))
         if int(observed['joined'])!=expected:raise ValueError(spec.name+': 批次键集合不一致')
         n=int(observed['bad'])

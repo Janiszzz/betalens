@@ -12,14 +12,55 @@ from .reference import load_reference, known_scopes
 DEFAULT_TABLE = "stock_industry_membership_versions"
 
 
-def _scheme(scheme):
-    text = scheme.replace("（", "(").replace("）", ")")
-    found = re.fullmatch(r"(申万|中信)(一|二|三)级行业(?:\((2014|2021)\))?", text)
-    if not found:
-        raise NotImplementedError("未登记行业体系: " + scheme)
-    family, level, version = found.groups()
-    codes = ["CITICS", "CITIC"] if family == "中信" else (["SW" + version] if version else ["SW2014", "SW2021"])
-    return codes, {"一": 1, "二": 2, "三": 3}[level]
+def _parameters(scheme_code, level):
+    from .contracts import integer
+    level = integer(level, "level", minimum=1)
+    if level not in {1, 2, 3}:
+        raise ValueError("level 必须是 1、2 或 3")
+    if scheme_code is not None and not re.fullmatch(r"SW[0-9]{4}|CITICS", scheme_code):
+        raise ValueError("scheme_code 必须是精确版本代码，如 SW2014/SW2021/CITICS；省略时只选择申万")
+    return level
+
+
+def _active(row, day):
+    return (row.get("valid_from") is not None and row["valid_from"] <= day
+            and (row.get("valid_to") is None or day < row["valid_to"]))
+
+
+def _version_scopes(scopes, at, scheme_code):
+    result = [scope for scope in known_scopes(scopes, at)
+              if scope["selector"].get("scheme_code") == scheme_code or
+              (scheme_code is None and re.fullmatch(r"SW[0-9]{4}", scope["selector"].get("scheme_code", "")))]
+    for scope in result:
+        selector = scope["selector"]
+        for row in scope["rows"]:
+            if any(row.get(key) != selector.get(key) for key in ("security_code", "scheme_code", "level")):
+                raise VersionConflictError("行业记录与完整范围选择器不一致")
+            if row.get("classification_version") is not None and row["classification_version"] != row["scheme_code"]:
+                raise VersionConflictError("行业年份版本与 scheme_code 不一致")
+    return [scope for scope in result if all(row.get("classification_version") for row in scope["rows"])]
+
+
+def _select_scheme(scopes, at, scheme_code):
+    if scheme_code is not None:
+        return scheme_code
+    day = local_time(at).date().isoformat()
+    candidates = set()
+    for scope in scopes:
+        scheme = scope["selector"].get("scheme_code", "")
+        if not re.fullmatch(r"SW[0-9]{4}", scheme):
+            continue
+        if scope.get("evidence", {}).get("classification_version_basis") != "versioned_dictionary_code_match":
+            continue
+        if any(_active(row, day) and row.get("membership_status") == "mapped"
+               and row.get("boundary_basis") in {"source_effective_interval", "source_in_date_open_end", "verified_left_closed_right_open"}
+               for row in scope["rows"]):
+            candidates.add(scheme)
+    if not candidates:
+        raise PITUnavailableError("查询时点缺少已发布、历史可知且有效的申万版本证据")
+    if len(candidates) != 1:
+        raise VersionConflictError("查询时点存在多个有效申万版本，请提供更完整的版本边界证据或显式指定 scheme_code")
+    return candidates.pop()
 
 
 def _scheme_label(code, level):
@@ -29,10 +70,7 @@ def _scheme_label(code, level):
     return "申万" + label + "（" + code[2:] + "）" if code.startswith("SW") else "中信" + label
 
 
-def _industry_frame(reader, scopes, codes, dates, scheme, exact):
-    schemes, level = _scheme(scheme)
-    if exact and len(schemes) > 1 and schemes[0].startswith("SW"):
-        raise ValueError("exact=True 时请明确行业版本，例如 申万一级行业（2021）")
+def _industry_frame(reader, scopes, codes, dates, scheme_code, level):
     names = _name_rows(reader, codes) if codes and dates else {}
     snapshots = {}
     for date in dates:
@@ -40,9 +78,11 @@ def _industry_frame(reader, scopes, codes, dates, scheme, exact):
         if at in snapshots:
             continue
         by_code = {}
-        for scope in known_scopes(scopes, at):
+        known = _version_scopes(scopes, at, scheme_code)
+        selected = _select_scheme(known, at, scheme_code)
+        for scope in known:
             selector = scope["selector"]
-            if selector.get("scheme_code") in schemes and selector.get("level") == level:
+            if selector.get("scheme_code") == selected and selector.get("level") == level:
                 by_code.setdefault(selector["security_code"], []).extend(scope["rows"])
         snapshots[at] = by_code
     records = []
@@ -50,11 +90,12 @@ def _industry_frame(reader, scopes, codes, dates, scheme, exact):
         for date in dates:
             at = timestamp(date)
             day = local_time(at).date().isoformat()
-            candidates = [r for r in snapshots[at].get(code, [])
-                          if r.get("valid_from") and r["valid_from"] <= day
-                          and (r.get("valid_to") is None or day < r["valid_to"])
-                          and r.get("boundary_basis") in {"source_effective_interval", "source_in_date_open_end", "verified_left_closed_right_open"}
-                          and r.get("membership_status", "mapped") == "mapped"]
+            active = [r for r in snapshots[at].get(code, []) if not r.get("valid_from") or _active(r, day)]
+            unknown = any(not r.get("valid_from") or not r.get("industry_code")
+                          or r.get("membership_status") != "mapped"
+                          or r.get("boundary_basis") not in {"source_effective_interval", "source_in_date_open_end", "verified_left_closed_right_open"}
+                          for r in active)
+            candidates = [] if unknown else active
             if len(candidates) > 1:
                 raise VersionConflictError(f"行业区间或分类版本重叠: {code}/{date}；请指定版本")
             hit = candidates[0] if candidates else {}
@@ -70,31 +111,36 @@ def _industry_frame(reader, scopes, codes, dates, scheme, exact):
     return frame(records, INDUSTRY_COLUMNS, numeric=("industry_value",), times=("query_date", "effective_dt"))
 
 
-def query_industry(cursor, codes, dates, scheme="申万一级行业", table_name=DEFAULT_TABLE,
-                   exact=False, logger=None):
+def query_industry(source, codes, dates, scheme_code=None, table_name=DEFAULT_TABLE, *, level=1):
     if table_name != DEFAULT_TABLE:
         raise NotImplementedError("行业查询仅支持 stock_industry_membership_versions")
+    level = _parameters(scheme_code, level)
     codes = _codes(codes, required=True)
     dates = [dates] if isinstance(dates, str) else list(dates)
-    reader = get_reader(cursor)
+    dates = [timestamp(value) for value in dates]
+    if not codes or not dates:
+        return frame([], INDUSTRY_COLUMNS, numeric=("industry_value",), times=("query_date", "effective_dt"))
+    reader = get_reader(source)
     with reader.snapshot():
-        scopes = load_reference(reader, "industry", codes=codes) if codes and dates else []
-        return _industry_frame(reader, scopes, codes, dates, scheme, exact)
+        # Auto selection sees the same version evidence across stocks/levels.
+        scopes = load_reference(reader, "industry", codes=None if scheme_code is None else codes) if codes and dates else []
+        return _industry_frame(reader, scopes, codes, dates, scheme_code, level)
 
 
-def get_industry_members(cursor, industry, date, scheme="申万一级行业", table_name=DEFAULT_TABLE,
-                         by="name", exact=False, logger=None):
+def get_industry_members(source, industry, date, scheme_code=None, table_name=DEFAULT_TABLE,
+                         *, by="name", level=1):
     if table_name != DEFAULT_TABLE:
         raise NotImplementedError("行业查询仅支持 stock_industry_membership_versions")
+    level = _parameters(scheme_code, level)
     if by not in {"name", "value", "code"}:
         raise ValueError("by 必须是 name/value/code")
-    reader = get_reader(cursor)
+    reader = get_reader(source)
     with reader.snapshot():
         scopes = load_reference(reader, "industry")
         codes = sorted({s["selector"]["security_code"] for s in scopes})
-        result = _industry_frame(reader, scopes, codes, [date], scheme, exact)
+        result = _industry_frame(reader, scopes, codes, [date], scheme_code, level)
     if not codes or result.ind_code.isna().any():
         raise PITUnavailableError("行业反查存在未知归属，不能解释为完整成分集合")
-    column = "industry_value" if by == "value" or isinstance(industry, (int, float)) else "ind_code" if by == "code" else "ind_name"
+    column = "industry_value" if by == "value" else "ind_code" if by == "code" else "ind_name"
     columns = ["code", "sec_name", "industry_value", "remark", "ind_name", "ind_code", "scheme"]
     return result.loc[result[column] == industry, columns].reset_index(drop=True)

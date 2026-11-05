@@ -1,0 +1,79 @@
+{
+  "measured_at": "2026-11-04",
+  "sample_child": "089904ac3f684416af6776dfccede8fd",
+  "scope": "Read-only replay of real archived responses; temporary state/cache; no business DB writes",
+  "rows": 152658,
+  "full_output_hashes_equal": true,
+  "pure_conversion": {
+    "before_seconds": [
+      32.6308,
+      31.6394
+    ],
+    "after_seconds": [
+      14.4593,
+      14.6338
+    ],
+    "mean_before": 32.1351,
+    "mean_after": 14.54655,
+    "speedup": 2.209121750518164
+  },
+  "conversion_with_parquet": {
+    "before_seconds": 34.2643,
+    "after_seconds": 16.7083,
+    "speedup": 2.0507352633122458
+  },
+  "outputs": {
+    "child": "089904ac3f684416af6776dfccede8fd",
+    "rejects": 0,
+    "reject_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "tables": {
+      "fund_nav_daily": {
+        "rows": 25481,
+        "sha256": "fa8a00f7a83b3b723592f79a8e76b34c8f1723f821f8bb100976c9ab54f20130"
+      },
+      "fund_nav_observation": {
+        "rows": 25481,
+        "sha256": "fc1f249e04798ed55c359c8757750de3cfde22cf60160f06bed12dedc8b0950e"
+      },
+      "corporate_action": {
+        "rows": 7755,
+        "sha256": "fca83f57e3dfb6e356ab728e36bde6b7f39421667ec3ca33175f1da353e5299e"
+      },
+      "fund_shares_daily": {
+        "rows": 1787,
+        "sha256": "fb9bb310c532d91693a98251f4d1d4d185a55d3b69c2e3154e2ac93234f08859"
+      },
+      "market_daily_raw": {
+        "rows": 18073,
+        "sha256": "fe17269f34e80fa8dc47d9f1842972d5c44b8c12d40979ac381836125fb9f5d4"
+      },
+      "stock_quote_supplement_daily": {
+        "rows": 5578,
+        "sha256": "1c122de6cb536b6328c0f87a24cc8a968fc86641e6692e6b32a1c62b31e025dd"
+      },
+      "market_daily_post_adjusted": {
+        "rows": 18073,
+        "sha256": "0372976b1af343e8a9594798650e7be10f0744766be96617b8d134000e08e6b6"
+      },
+      "trade_status_daily": {
+        "rows": 50430,
+        "sha256": "5811ca515cfc97b9140eea8114722a8828acde70c559693c7f723a6ec6e9accf"
+      }
+    }
+  },
+  "validation": {
+    "regression": "44 passed, 3 skipped",
+    "isolated_pg_ch_integration": "7 passed (overlaps with regression group)"
+  },
+  "normalization_implementation": "mapping-hoist-date-cache-20261104",
+  "code_sha256": {
+    "manager.py": "ecd51f8b7adb6e4c6b2813fe909e2c0d12a6491db3e181bd000351a430d35d7b",
+    "util.py": "8d9ee5928a5afb46d572131ba24cc36c171a4ceea23e9b0f82715c7e628fa25f",
+    "pipeline.py": "d366c817be5ec889bb8b252dbe09ae866cdffd968cabed947cca58967bf3b325"
+  },
+  "limitations": [
+    "One actual 152658-row cohort; timing is local and excludes network and production target writes.",
+    "First pure baseline was concurrent with a profiler; sequential repeat and full-stage measurements corroborate the result.",
+    "3 normalization processes and existing 90% shared WSL resource budget unchanged."
+  ]
+}

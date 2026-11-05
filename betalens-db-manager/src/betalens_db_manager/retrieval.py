@@ -59,6 +59,12 @@ def tushare_policy(endpoint, points=None):
                           basis='runtime_advancing_pages_verified_20261028',limit_basis='requested_page_size_not_official_cap' if endpoint=='fund_nav' else result['limit_basis'])
         if endpoint=='index_daily':result['scope_basis']='runtime_global_trade_date_verified_20261028'
         if endpoint in CODE_BATCHES:result.update(code_batch_size=CODE_BATCHES[endpoint],batch_basis='documented_or_runtime_verified_multi_code_20261028')
+        if endpoint in {'index_member_all','ci_index_member'}:
+            result.update(version='2026-11-04.1',max_security_fanout=12000,
+                          fanout_basis='complete_stock_universe_with_bounded_admission')
+        if endpoint=='index_weight':
+            result.update(version='2026-11-04.1',single_day_offset_probe=True,
+                          single_day_probe_basis='runtime_verified_20261104_and_per_chain_empty_terminal_required')
     return result
 
 

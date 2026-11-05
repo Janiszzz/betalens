@@ -82,7 +82,11 @@ class ClickHouse:
                 identifier(name)
                 params[name+'_format']=table['format'];params[name+'_structure']=table['structure']
                 body['files'][name]=(name,table['data'],'application/octet-stream')
-        response = requests.post(self.settings.ch_url, params=params, **body,
+        from .connections import http_session
+        from .resource_budget import BUDGET
+        params.update(max_threads=BUDGET.ch_threads)
+        if not mutation:params['max_memory_usage']=BUDGET.ch_read_memory_bytes
+        response = http_session().post(self.settings.ch_url, params=params, **body,
                                  auth=(self.settings.ch_user, self.settings.ch_password), timeout=timeout)
         if response.status_code != 200:
             from .security import safe_error
@@ -154,10 +158,10 @@ class ClickHouse:
     def _json_rows(self, text: str) -> list[dict]:
         return [json.loads(line, parse_float=Decimal) for line in text.splitlines() if line.strip()]
 
-    def _find_existing(self, spec: CanonicalTable, rows: list[dict]) -> dict[tuple, dict]:
+    def _find_existing(self, spec: CanonicalTable, rows: list[dict], fields=None) -> dict[tuple, dict]:
         if not rows: return {}
         from .clickhouse_keys import find_existing
-        return find_existing(self,spec,rows)
+        return find_existing(self,spec,rows,fields)
 
     @staticmethod
     def _literal(value):
@@ -170,31 +174,6 @@ class ClickHouse:
         existing = self._find_existing(spec, rows)
         return compare_rows(spec, rows, list(existing.values()), mode)
 
-    def commit_rows(self, task_id: str, target: str, spec: CanonicalTable, rows: list[dict], mode: str, signature: str) -> dict:
-        with self.write_window('commit:'+task_id):
-            return self._commit_rows(task_id,target,spec,rows,mode,signature)
-
-    def _commit_rows(self,task_id,target,spec,rows,mode,signature):
-        if isinstance(signature,dict):
-            from .commit_protocol import manifest_rows,remaining_changes
-            comparison=signature
-            live=self._find_existing(spec,manifest_rows(comparison))
-            changes=remaining_changes(spec,comparison,list(live.values()))
-        else:
-            comparison = self.compare(spec, rows, mode)
-            if comparison["signature"] != signature: raise ValueError("预览后的 ClickHouse 数据已经变化，请重新预览")
-            changes = comparison["changes"]
-        if not changes: return comparison["counts"]
-        from collections import defaultdict
-        partitions = defaultdict(list)
-        for change in changes:
-            row = {name: self._parse(change["after"].get(name), next(f["type"] for f in spec.fields if f["name"] == name)) for name in columns(spec)}
-            partition = str(row.get('event_date', 'all'))[:7]
-            partitions[partition].append(dumps(row))
-        for lines in partitions.values():
-            for offset in range(0, len(lines), 5000):
-                self.execute(f"INSERT INTO {self.table(spec.name)} FORMAT JSONEachRow", "\n".join(lines[offset:offset + 5000]) + "\n")
-        return comparison["counts"]
 
     def query(self, name: str, code: str | None = None, start: str | None = None, end: str | None = None, limit: int = 100, after: str | None = None) -> dict:
         spec = canonical(name); conditions = []
@@ -208,9 +187,6 @@ class ClickHouse:
         rows = [typed(spec, row) for row in self._json_rows(self.execute(query))]; size = max(1, min(limit,1000))
         return {"columns": columns(spec), "rows": rows[:size], "next": str(offset + size) if len(rows) > size else None}
 
-    def apply_rollback(self, spec, audits, rollback_task_id):
-        with self.write_window('rollback:'+rollback_task_id):
-            return self._apply_rollback(spec,audits,rollback_task_id)
 
     def table_digest(self,spec,name=None,partitions=None):
         fields=','.join('`'+f['name']+'`' for f in spec.fields)
@@ -218,99 +194,6 @@ class ClickHouse:
         rows=self._json_rows(self.execute(f'SELECT count() AS rows,groupBitXor(cityHash64(tuple({fields}))) AS content FROM {self.table(name or spec.name)} FINAL{where} FORMAT JSONEachRow'))
         return {k:str(v) for k,v in rows[0].items()}
 
-    def cleanup_rollback(self,rollback_task_id,state):
-        for record in state.ledger_rows('ch_operation',rollback_task_id):
-            if record.get('status')=='cleaned':continue
-            with self.write_window('cleanup:'+rollback_task_id):
-                spec=canonical(record['table_name'])
-                if self.table_digest(spec)!=record.get('expected_inverse'):
-                    raise ValueError('目标表已发生后续变化，保留回退备份供核验')
-                table=self.table(record['temporary_table'])
-                if self.execute(f'EXISTS TABLE {table}')=='1':
-                    if self.table_digest(spec,record['temporary_table'])!=record.get('original_digest'):
-                        raise ValueError('回退备份与检查点不符，保留备份等待核验')
-                    self.execute(f'DROP TABLE {table}')
-                state.ledger_put('ch_operation',dumps([rollback_task_id,spec.name]),{**record,'status':'cleaned'})
-
-    def _apply_rollback(self, spec, audits, rollback_task_id):
-        """Rebuild affected partitions in a staging table and atomically exchange.
-
-        Unaffected partitions are copied server-side. Source timestamps and the
-        prior import_task_id are restored exactly; rollback identity lives in
-        the immutable audit records.
-        """
-        import uuid
-        changes=[]; live=self._find_existing(spec,[a['after_value'] for a in audits])
-        for audit in audits:
-            after=audit['after_value']; key=tuple(typed(spec,after).get(k) for k in spec.keys)
-            current=live.get(key)
-            if current is None or row_hash(spec,current)!=audit['after_hash']: raise ValueError('目标行已被后续任务修改，禁止回退')
-            before=audit['before_value']
-            changes.append({'before':typed(spec,current),'after':typed(spec,before) if before else None,'row_key':audit['row_key'],
-                            'before_hash':row_hash(spec,current),'after_hash':row_hash(spec,before) if before else None})
-        temporary=('rollback_'+rollback_task_id[:16]+'_'+spec.name)[:63]
-        temp_table=self.table(temporary)
-        state=getattr(self,'state',None)
-        key=dumps([rollback_task_id,spec.name])
-        old=state.ledger_get('ch_operation',key) if state else None
-        checkpoint=old or {'task_id':rollback_task_id,'target':'clickhouse','table_name':spec.name,'temporary_table':temporary,'status':'prepared','original_digest':self.table_digest(spec)}
-        def record(status):
-            checkpoint['status']=status
-            if state:state.ledger_put('ch_operation',key,checkpoint)
-        if self.execute(f'EXISTS TABLE {temp_table}')=='1':
-            if old and self.table_digest(spec)==old.get('original_digest'):
-                if old.get('expected_inverse') and self.table_digest(spec,temporary)==old['expected_inverse']:
-                    self.execute(f'EXCHANGE TABLES {self.table(spec.name)} AND {temp_table}')
-                    record('exchanged_backup_retained');return changes
-                self.execute(f'DROP TABLE {temp_table}')  # The complete original is still intact.
-            else:
-                from .commit_protocol import NeedsReconciliation
-                raise NeedsReconciliation('回退检查点不符，保留原表及备份等待核验：'+temporary)
-        record('prepared')
-        self.execute(self.ddl(spec).replace(self.table(spec.name),temp_table,1))
-        try:
-            if any(f['name']=='event_date' and not f.get('nullable',True) for f in spec.fields):
-                partitions=sorted({str(a['after_value']['event_date'])[:7].replace('-','') for a in audits})
-                condition='toYYYYMM(event_date) IN ('+','.join(partitions)+')'
-            else: condition='1'
-            fields=','.join('`'+f['name']+'`' for f in spec.fields)
-            unaffected=self._json_rows(self.execute(f'SELECT DISTINCT _partition_id AS partition_id FROM {self.table(spec.name)} FINAL WHERE NOT ({condition}) FORMAT JSONEachRow'))
-            for offset in range(0,len(unaffected),100):
-                selected=','.join(self._literal(p['partition_id']) for p in unaffected[offset:offset+100])
-                self.execute(f'INSERT INTO {temp_table} ({fields}) SELECT {fields} FROM {self.table(spec.name)} FINAL WHERE NOT ({condition}) AND _partition_id IN ({selected})')
-            affected=self._json_rows(self.execute(f'SELECT * FROM {self.table(spec.name)} FINAL WHERE {condition} FORMAT JSONEachRow'))
-            result={row_key(spec,row):row for row in affected}
-            for change in changes:
-                if change['after'] is None: result.pop(change['row_key'],None)
-                else: result[change['row_key']]=change['after']
-            all_rows=list(result.values())
-            for offset in range(0,len(all_rows),1000):
-                lines=[dumps({f['name']:self._parse(row.get(f['name']),f['type']) for f in spec.fields}) for row in all_rows[offset:offset+1000]]
-                self.execute(f'INSERT INTO {temp_table} FORMAT JSONEachRow','\n'.join(lines)+'\n')
-            fresh=self._find_existing(spec,[a['after_value'] for a in audits])
-            if any(row_hash(spec,fresh.get(tuple(typed(spec,a['after_value']).get(k) for k in spec.keys),{}))!=a['after_hash'] for a in audits):
-                raise ValueError('回退发布前目标行发生变化，已放弃发布')
-            record('staged')
-            checkpoint['expected_inverse']=self.table_digest(spec,temporary)
-            record('staged')
-            self.execute(f'EXCHANGE TABLES {self.table(spec.name)} AND {temp_table}')
-            if self.table_digest(spec)!=checkpoint['expected_inverse']:raise ValueError('整表回退发布后内容核验失败')
-            record('exchanged_backup_retained')
-        except BaseException:
-            record('needs_reconciliation')
-            raise
-        # The old table is retained until the durable inverse audit is verified.
-        return changes
-
-    def drop_legacy(self) -> dict:
-        raw = self.execute(f"SELECT name FROM system.tables WHERE database='{self.settings.ch_database}' FORMAT JSONEachRow")
-        names = {json.loads(line)["name"] for line in raw.splitlines() if line.strip()}
-        keep = set(load_canonical_catalog())
-        dropped = []
-        for name in sorted(names - keep):
-            self.execute(f"DROP TABLE IF EXISTS `{identifier(self.settings.ch_database)}`.`{identifier(name)}`")
-            dropped.append(name)
-        return {"dropped": dropped}
 
     def control_write(self, name, rows):
         if name not in CONTROL_DDL: raise ValueError("未登记的管理表")
