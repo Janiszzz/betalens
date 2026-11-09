@@ -15,6 +15,22 @@ import numpy as np
 import pandas as pd
 
 
+def performance_from_returns(returns: pd.Series, annualizer: int = 252) -> dict:
+    r = pd.to_numeric(returns, errors='coerce').dropna()
+    n = len(r)
+    if not n:
+        return dict(sharpe=0., ann_ret=0., ann_vol=0., mdd=0., calmar=0., n_days=0)
+    wealth = (1 + r).cumprod()
+    total = float(wealth.iloc[-1])
+    annual = total ** (annualizer / n) - 1 if total >= 0 else np.nan
+    volatility = float(r.std() * np.sqrt(annualizer)) if n > 1 else 0.
+    peak = wealth.cummax().clip(lower=1.)
+    drawdown = float((1 - wealth / peak).max())
+    sharpe = float(r.mean() / r.std() * np.sqrt(annualizer)) if n > 1 and r.std() != 0 else 0.
+    return dict(sharpe=sharpe, ann_ret=float(annual),
+                ann_vol=volatility, mdd=drawdown, calmar=float(annual / drawdown) if drawdown else 0., n_days=n)
+
+
 # ── 基础工具 ────────────────────────────────────────────────────────────────
 
 def _to_returns(nav: pd.Series) -> pd.Series:
@@ -52,8 +68,8 @@ def total_return(nav: pd.Series) -> float:
 def annualized_return(nav: pd.Series, annualizer: int = 252) -> float:
     """几何年化收益率"""
     nav = nav.sort_index()
-    n = len(nav)
-    if n < 2:
+    n = len(nav) - 1
+    if n < 1:
         return np.nan
     return (nav.iloc[-1] / nav.iloc[0]) ** (annualizer / n) - 1
 
@@ -214,6 +230,26 @@ def turnover(weight: pd.DataFrame, annualizer: int = 252,
     }
 
 
+def turnover_from_trades(rebalance_log: pd.DataFrame, daily_amount: pd.Series,
+                         annualizer: int = 252) -> dict:
+    """Turnover from executed notional; drift and synthetic redemptions are excluded."""
+    index = pd.DatetimeIndex(daily_amount.index).normalize()
+    per_day = pd.Series(0.0, index=index).groupby(level=0).last()
+    if rebalance_log is not None and not rebalance_log.empty:
+        trades = rebalance_log.copy()
+        if "equity_before" in trades:
+            denominator = pd.to_numeric(trades["equity_before"], errors="coerce")
+        else:
+            denominator = pd.Series(pd.to_datetime(trades["datetime"]).dt.normalize()).map(
+                pd.Series(daily_amount.to_numpy(), index=index))
+        rates = pd.to_numeric(trades["value"], errors="coerce") / denominator.replace(0, np.nan)
+        rates.index = pd.DatetimeIndex(pd.to_datetime(trades["datetime"])).normalize()
+        per_day = rates.groupby(level=0).sum().reindex(per_day.index, fill_value=0.0) * .5
+    mean = float(per_day.mean()) if len(per_day) else 0.0
+    return {"per_period": per_day, "avg_oneway": mean, "avg_twoway": mean * 2,
+            "annualized": mean * annualizer}
+
+
 def _avg_period_days(index: pd.DatetimeIndex) -> float:
     if len(index) < 2:
         return 1.0
@@ -305,66 +341,18 @@ def return_contribution(daily_pnl: pd.DataFrame, top: int = 15) -> pd.DataFrame:
     return out.head(top)
 
 
-def trade_pnl(rebalance_log: pd.DataFrame) -> pd.DataFrame:
-    """
-    逐标的盈亏配对统计（基于调仓记录的成交金额变化近似）。
-
-    对每个 code 按调仓日排序，相邻成交金额的差视为已实现/浮动盈亏的代理，
-    汇总成交次数、胜率、平均盈亏。
-
-    Returns:
-        DataFrame: index=code, 列 trades(成交次数)、win_rate(盈利次数占比)、
-                   avg_value(平均成交金额)、total_value(累计成交金额)
-    """
-    if rebalance_log is None or rebalance_log.empty:
-        return pd.DataFrame()
-    rows = []
-    for code, grp in rebalance_log.groupby('code'):
-        grp = grp.sort_values('datetime')
-        diffs = grp['value'].diff().dropna()
-        trades = len(grp)
-        win_rate = (diffs > 0).mean() if len(diffs) else np.nan
-        rows.append({
-            'code': code,
-            'trades': trades,
-            'win_rate': win_rate,
-            'avg_value': grp['value'].mean(),
-            'total_value': grp['value'].sum(),
-        })
-    out = pd.DataFrame(rows).set_index('code')
-    return out.sort_values('total_value', ascending=False)
+def trade_pnl(rebalance_log: pd.DataFrame, synthetic_settlements=None, daily_position_value=None) -> pd.DataFrame:
+    """完整方向持仓周期，合并加减仓、实际费用与再投余份结算。"""
+    from .trades import build_trade_cycles
+    return build_trade_cycles(rebalance_log, synthetic_settlements, daily_position_value)
 
 
-def match_trade_pairs(rebalance_log: pd.DataFrame | None) -> pd.DataFrame:
-    """按证券代码将买卖记录 FIFO 配对并计算单笔收益率。"""
-    columns = ['code', 'buy_date', 'sell_date', 'buy_price', 'sell_price', 'return']
-    if rebalance_log is None or rebalance_log.empty:
-        return pd.DataFrame(columns=columns)
-
-    required = {'code', 'datetime', 'direction', 'price'}
-    if not required.issubset(rebalance_log.columns):
-        return pd.DataFrame(columns=columns)
-
-    records = []
-    for code, group in rebalance_log.groupby('code'):
-        pending = []
-        for _, row in group.sort_values('datetime').iterrows():
-            if row['direction'] == 'buy':
-                pending.append(row)
-            elif row['direction'] == 'sell' and pending:
-                buy_row = pending.pop(0)
-                buy_price = pd.to_numeric(buy_row['price'], errors='coerce')
-                sell_price = pd.to_numeric(row['price'], errors='coerce')
-                if pd.notna(buy_price) and pd.notna(sell_price) and buy_price > 0 and sell_price > 0:
-                    records.append({
-                        'code': str(code),
-                        'buy_date': pd.Timestamp(buy_row['datetime']),
-                        'sell_date': pd.Timestamp(row['datetime']),
-                        'buy_price': float(buy_price),
-                        'sell_price': float(sell_price),
-                        'return': float((sell_price - buy_price) / buy_price),
-                    })
-    return pd.DataFrame(records, columns=columns)
+def match_trade_pairs(rebalance_log: pd.DataFrame | None, synthetic_settlements=None,
+                      daily_position_value=None) -> pd.DataFrame:
+    """返回已平仓的方向持仓周期；旧记录标注 legacy_incomplete。"""
+    from .trades import build_trade_cycles
+    cycles = build_trade_cycles(rebalance_log, synthetic_settlements, daily_position_value)
+    return cycles.loc[cycles.status.eq('closed')].copy()
 
 
 def annual_trade_performance(trade_pairs: pd.DataFrame | None) -> pd.DataFrame:
@@ -372,6 +360,8 @@ def annual_trade_performance(trade_pairs: pd.DataFrame | None) -> pd.DataFrame:
     columns = ['year', 'avg_return', 'win_rate', 'n_trades']
     if trade_pairs is None or trade_pairs.empty:
         return pd.DataFrame(columns=columns)
+    if 'accounting_status' in trade_pairs:
+        trade_pairs = trade_pairs.loc[trade_pairs.accounting_status.eq('complete') & trade_pairs.status.eq('closed')]
     if not {'sell_date', 'return'}.issubset(trade_pairs.columns):
         return pd.DataFrame(columns=columns)
 
@@ -393,9 +383,16 @@ def annual_trade_performance(trade_pairs: pd.DataFrame | None) -> pd.DataFrame:
 def group_nav(
     cost_ret: pd.DataFrame | None,
     factor_values: pd.DataFrame | None,
-    n_quantiles: int,
+    n_quantiles: int, *, close_prices=None, execution_prices=None, schedule=None,
+    metric='close', price_time_map=None,
 ) -> pd.DataFrame:
-    """由调仓区间收益与信号日分组成员计算各组等权净值。"""
+    """研究调仓时等权、区间内漂移的理想分组净值；旧研究表保留兼容分支。"""
+    if schedule is not None:
+        from betalens.factor.research import ideal_group_nav
+        return ideal_group_nav(close_prices, execution_prices, factor_values, schedule, n_quantiles,
+                               metric=metric, price_time_map=price_time_map)[0]
+    if cost_ret is not None and cost_ret.attrs.get('index_role') == 'execution_events':
+        raise ValueError('成交事件收益不能按行号推导分组期限；请传入研究 schedule 和价格')
     if cost_ret is None or cost_ret.empty or factor_values is None or factor_values.empty:
         return pd.DataFrame()
     if n_quantiles < 1:
@@ -499,14 +496,22 @@ def profit_loss_ratio(daily_pnl_total: pd.Series) -> float:
 def monthly_returns_table(nav: pd.Series) -> pd.DataFrame:
     """月度收益矩阵：index=年, columns=月(1-12)+全年"""
     nav = nav.sort_index()
-    monthly = nav.resample('ME').last().pct_change().dropna()
+    monthly_end = nav.resample('ME').last().dropna()
+    monthly_base = monthly_end.shift(1)
+    if len(monthly_base):
+        monthly_base.iloc[0] = nav.iloc[0]
+    monthly = monthly_end.div(monthly_base).sub(1).dropna()
     if monthly.empty:
         return pd.DataFrame()
     df = monthly.to_frame('ret')
     df['year'] = df.index.year
     df['month'] = df.index.month
     table = df.pivot_table(index='year', columns='month', values='ret')
-    yearly = nav.resample('YE').last().pct_change().dropna()
+    yearly_end = nav.resample('YE').last().dropna()
+    yearly_base = yearly_end.shift(1)
+    if len(yearly_base):
+        yearly_base.iloc[0] = nav.iloc[0]
+    yearly = yearly_end.div(yearly_base).sub(1).dropna()
     table['全年'] = [yearly[yearly.index.year == y].iloc[0]
                      if (yearly.index.year == y).any() else np.nan
                      for y in table.index]

@@ -88,7 +88,7 @@ def _backend_name(backend: str) -> str:
 
 
 def _engine_name(engine: str) -> str:
-    return {"vector": "向量回测", "exact": "精确回测"}.get(str(engine).lower(), str(engine))
+    return "统一回测"
 
 
 def _metric_name(metric: str) -> str:
@@ -557,7 +557,7 @@ def _fetch_daily_wide(metric: str, universe: Sequence[str], start: str, end: str
     data = Datafeed(table)
     try:
         with _heartbeat("data.query", table=table, metric=metric):
-            result = data.query_time_range(codes=list(universe), start_date=start, end_date=end, metric=metric, filters=filters)
+            result = data.query_daily_market(codes=list(universe), start_date=start, end_date=end, metrics=[metric], filters=filters)
     finally:
         data.close()
     if result.empty:
@@ -568,9 +568,8 @@ def _fetch_daily_wide(metric: str, universe: Sequence[str], start: str, end: str
             _elapsed(started),
         )
         return pd.DataFrame()
-    result["value"] = pd.to_numeric(result["value"], errors="coerce")
-    result["datetime"] = pd.to_datetime(result["datetime"])
-    wide = result.pivot_table(index="datetime", columns="code", values="value").sort_index()
+    from betalens.datafeed.daily import daily_wide
+    wide = daily_wide(result, metric)
     _LOGGER.info(
         "行情数据查询完成：数据表=%s，字段=%s，原始记录=%d行，宽表=%d行 x %d列，耗时=%s",
         table,
@@ -584,25 +583,8 @@ def _fetch_daily_wide(metric: str, universe: Sequence[str], start: str, end: str
 
 
 def _align_daily_wides(wides: Mapping[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
-    nonempty = [value for value in wides.values() if value is not None and not value.empty]
-    if not nonempty:
-        return dict(wides)
-    latest: dict[pd.Timestamp, pd.Timestamp] = {}
-    for wide in nonempty:
-        for value in pd.DatetimeIndex(wide.index):
-            day = value.normalize()
-            if day not in latest or value > latest[day]:
-                latest[day] = value
-    days = pd.DatetimeIndex(sorted(latest))
-    canonical = pd.DatetimeIndex([latest[day] for day in days])
-    output = {}
-    for name, wide in wides.items():
-        value = wide.copy()
-        value.index = pd.DatetimeIndex(value.index).normalize()
-        value = value.loc[~value.index.duplicated(keep="last")].reindex(days)
-        value.index = canonical
-        output[name] = value
-    return output
+    from .research import align_daily_wides
+    return align_daily_wides(wides)
 
 
 def _fetch_industry_wide(scheme: dict, universe: Sequence[str], dates: Sequence[Any], index: pd.DatetimeIndex) -> pd.DataFrame:
@@ -779,7 +761,7 @@ def _cache_signature(
         if value is not None and str(value).strip()
     })
     payload = {
-        "schema": 5,
+        "schema": 6,
         "dataset_version": cache_config.get("dataset_version", "default"),
         "start": start,
         "end": end,
@@ -862,6 +844,9 @@ def _load_cached_data(manifest_path: str | Path) -> MiningData:
         },
         cache_manifest_path=str(cache.manifest_path),
     )
+    for name, timing in cache.manifest.get('manifest', {}).get('metadata', {}).get('availability', {}).items():
+        if name in loaded.inputs:
+            loaded.inputs[name].attrs['availability_upper'] = timing
     resident = sum(
         _frame_bytes(value)
         for value in [
@@ -1003,7 +988,8 @@ def _fetch_data(
             "industry_by_scheme": industry,
             "pit": pit,
             "universe": universe,
-            "metadata": {"span": [fetch_start, end], "factor": getattr(factor, "name", "factor")},
+            "metadata": {"span": [fetch_start, end], "factor": getattr(factor, "name", "factor"),
+                         "availability": {name: value.attrs.get("availability_upper", {}) for name, value in inputs.items()}},
         }
         _LOGGER.info(
             "缓存数据准备完成：因子输入=%d个，行业数据=%d个，耗时=%s",
@@ -1069,13 +1055,10 @@ def _signal_pairs(start: str, end: str, frequency: str, trade_days: Sequence[Any
     return [(days[lookup[day] - 1], day) for day in rebalances if lookup.get(day, 0) > 0]
 
 
-def _weights_on_rebalance(weights: pd.DataFrame, pairs: Sequence[tuple[Any, Any]]) -> pd.DataFrame:
-    mapping = {pd.Timestamp(signal).normalize(): pd.Timestamp(rebalance).normalize() for signal, rebalance in pairs}
-    normalized = pd.DatetimeIndex(weights.index).normalize()
-    keep = normalized.isin(mapping)
-    output = weights.loc[keep].copy()
-    output.index = pd.DatetimeIndex([mapping[day] + pd.Timedelta(minutes=10) for day in normalized[keep]])
-    return output.sort_index()
+def _weights_on_rebalance(weights: pd.DataFrame, pairs: Sequence[tuple[Any, Any]], wides=None) -> pd.DataFrame:
+    from .research import build_rebalance_schedule, weights_on_schedule
+    schedule = build_rebalance_schedule([p[0] for p in pairs], [p[1] for p in pairs], wides=wides)
+    return weights_on_schedule(weights, schedule)
 
 
 def _wide_to_long(wide: pd.DataFrame, metric: str, signal_dates: Sequence[Any]) -> pd.DataFrame:
@@ -1207,24 +1190,7 @@ def _build_weights(factor_wide: pd.DataFrame, spec: MiningSpec, params: Mapping[
         weights = weights.copy()
         # Hooks operate on signal dates; the backtest consumes rebalance
         # timestamps, matching the cross-sectional pipeline convention.
-        normalized = pd.DatetimeIndex(weights.index).normalize()
-        mapping = {
-            pd.Timestamp(signal).normalize(): pd.Timestamp(rebalance).normalize()
-            for signal, rebalance in pairs
-        }
-        if normalized.isin(mapping).any():
-            keep = normalized.isin(mapping)
-            weights = weights.loc[keep]
-            weights.index = pd.DatetimeIndex([
-                mapping[day] + pd.Timedelta(minutes=10) for day in normalized[keep]
-            ])
-        else:
-            rebalance_days = {pd.Timestamp(rebalance).normalize() for _, rebalance in pairs}
-            keep = normalized.isin(rebalance_days)
-            weights = weights.loc[keep]
-            weights.index = pd.DatetimeIndex([
-                day + pd.Timedelta(minutes=10) for day in normalized[keep]
-            ])
+        weights = _weights_on_rebalance(weights, pairs, data.inputs)
     else:
         value = _filter_pit(_wide_to_long(factor_wide, factor.name, signal_dates), data.pit)
         value = _preprocess(value, factor, signal_dates, data)
@@ -1250,23 +1216,13 @@ def _build_weights(factor_wide: pd.DataFrame, spec: MiningSpec, params: Mapping[
     # are mapped from signal dates to rebalance dates here.
     if getattr(factor, "strategy_type", "cross_sectional") == "timing" or getattr(factor, "weight_mode", "freeplay") in {"event", "timing"}:
         return weights.sort_index()
-    return _weights_on_rebalance(weights, pairs)
+    return _weights_on_rebalance(weights, pairs, data.inputs)
 
 
 def metrics_from_nav(nav: pd.Series | pd.DataFrame) -> dict[str, Any]:
-    if isinstance(nav, pd.DataFrame):
-        value = nav.iloc[:, 0] if nav.shape[1] else pd.Series(dtype=float)
-    else:
-        value = pd.Series(nav)
-    value = pd.Series(value).dropna()
-    returns = value.pct_change().dropna()
-    if len(returns) < 2 or returns.std() == 0:
-        return {"sharpe": 0.0, "ann_ret": 0.0, "ann_vol": 0.0, "mdd": 0.0, "calmar": 0.0, "n_days": int(len(returns))}
-    ann_ret = (1 + returns).prod() ** (252 / len(returns)) - 1
-    ann_vol = returns.std() * math.sqrt(252)
-    wealth = (1 + returns).cumprod()
-    mdd = float((1 - wealth / wealth.cummax()).max())
-    return {"sharpe": round(float(ann_ret / ann_vol), 4), "ann_ret": round(float(ann_ret), 4), "ann_vol": round(float(ann_vol), 4), "mdd": round(mdd, 4), "calmar": round(float(ann_ret / mdd), 4) if mdd > 0 else 0.0, "n_days": int(len(returns))}
+    from betalens.analyst.metrics import performance_from_returns
+    values = (nav.iloc[:, 0] if nav.shape[1] else pd.Series(dtype=float)) if isinstance(nav, pd.DataFrame) else pd.Series(nav)
+    return performance_from_returns(values.dropna().pct_change(fill_method=None).dropna())
 
 
 def _turnover(weights: pd.DataFrame | None) -> float:
@@ -1298,7 +1254,7 @@ def _timing_metrics(weights: pd.DataFrame | None, nav: pd.Series | None) -> dict
     transitions = active.astype(int).diff().fillna(active.astype(int))
     trade_count = int(((transitions == 1)).sum())
     # Approximate trade win/loss from NAV changes over active segments.  This
-    # is deterministic and works for both vector and exact engines.
+    # is deterministic for the unified backtest adapter.
     wins: list[float] = []
     if nav is not None and len(nav):
         nav_series = pd.Series(nav).copy()
@@ -1345,7 +1301,8 @@ def _rank_ic_key(
 def _rank_ic_observations(
     factor: pd.DataFrame,
     price: pd.DataFrame,
-    pair_groups: Sequence[Sequence[tuple[Any, Any]]],
+    pair_groups: Sequence[Sequence[tuple[Any, Any]]], *,
+    metric='close', price_time_map=None, wides=None,
 ) -> dict[tuple[pd.Timestamp, pd.Timestamp, pd.Timestamp], tuple[float, int]]:
     """Calculate every distinct forward-period Rank IC exactly once."""
     factor, price = _daily_last(factor), _daily_last(price)
@@ -1354,13 +1311,24 @@ def _rank_ic_observations(
         for pairs in pair_groups
         for index in range(max(0, len(pairs) - 1))
     )
+    if not keys:
+        return {}
+    from .research import build_rebalance_schedule, forward_return_matrix
+    pairs = list(dict.fromkeys((signal, rebalance) for signal, rebalance, _ in keys))
+    base = build_rebalance_schedule([p[0] for p in pairs], [p[1] for p in pairs], wides=wides)
+    mapping = {(row['signal_date'], row['target_ts'].normalize()): row for row in base.to_dict('records')}
+    periods = pd.DataFrame([dict(mapping[(signal, rebalance)],
+        forward_end_ts=next_rebalance + pd.Timedelta(minutes=10))
+        for signal, rebalance, next_rebalance in keys])
+    forward = forward_return_matrix(price, periods, metric=metric, price_time_map=price_time_map)
     observations = {}
-    for signal, rebalance, next_rebalance in keys:
+    for index, (signal, rebalance, next_rebalance) in enumerate(keys):
         key = (signal, rebalance, next_rebalance)
-        if signal not in factor.index or rebalance not in price.index or next_rebalance not in price.index:
+        if signal not in factor.index:
             observations[key] = (np.nan, 0)
             continue
-        section = pd.concat([factor.loc[signal].rename("signal"), (price.loc[next_rebalance] / price.loc[rebalance] - 1).rename("return")], axis=1).replace([np.inf, -np.inf], np.nan).dropna()
+        eligible = forward.iloc[index].dropna()
+        section = pd.concat([factor.loc[signal].rename('signal'), eligible.rename('return')], axis=1).replace([np.inf, -np.inf], np.nan).dropna()
         observations[key] = (np.nan, int(len(section)))
         if len(section) >= 3 and section.signal.nunique() > 1 and section["return"].nunique() > 1:
             correlation = section.signal.corr(section["return"], method="spearman")
@@ -1441,32 +1409,25 @@ def _rank_ic_audit_rows(
     ]
 
 
-def _vector_nav(weights: pd.DataFrame, price: pd.DataFrame) -> pd.Series:
-    if weights is None or weights.empty or price.empty:
-        return pd.Series(dtype=float)
-    codes = [name for name in weights if name != "cash" and name in price]
-    if not codes:
-        return pd.Series(1.0, index=price.index)
-    values = weights.copy()
-    values.index = pd.DatetimeIndex(values.index).normalize()
-    values = values.reindex(columns=codes).reindex(price.index, method="ffill").shift(1).fillna(0.0)
-    return (1 + (values * price.loc[:, codes].pct_change()).sum(axis=1).fillna(0.0)).cumprod()
+def _evaluate_backtest(weights: pd.DataFrame, data: MiningData, spec: MiningSpec,
+                  amount: float, end_date, risk=None, price_time_map=None,
+                  ftc=0.0, ptc=0.0):
+    """The sole actual-result adapter. Mining inputs remain cached for factor/IC work only."""
+    from betalens.backtest import BacktestBase, validate_risk_config
+
+    validate_risk_config(risk, getattr(spec.factor_spec, "compute_kwargs", {}))
+    engine = BacktestBase(
+        weights, symbol=getattr(spec.factor_spec, "name", "mining"), amount=amount,
+        metric=getattr(spec.factor_spec, "backtest_metric", "close"),
+        table_name="market_daily_post_adjusted", end_date=end_date, risk=risk,
+        price_time_map=price_time_map, ftc=ftc, ptc=ptc, verbose=False,
+    )
+    from betalens.analyst.evaluation import BacktestEvaluation
+    return BacktestEvaluation.from_backtest(engine)
 
 
-def _exact_nav(weights: pd.DataFrame, data: MiningData, spec: MiningSpec, amount: float, tolerance: int) -> pd.Series:
-    from betalens.backtest import BacktestBase
-
-    codes = [name for name in weights if name != "cash"]
-    if not codes:
-        # A timing strategy with no active signal is a valid all-cash path;
-        # keep exact and vector engines consistent instead of reporting an
-        # ``empty nav`` candidate failure.
-        return pd.Series(1.0, index=data.price.index)
-    close = data.price.loc[:, [name for name in codes if name in data.price]]
-    execution = data.execution_price.loc[:, [name for name in codes if name in data.execution_price]]
-    status = data.trade_status.loc[:, [name for name in codes if name in data.trade_status]] if data.trade_status is not None else None
-    engine = BacktestBase(weights, metric=getattr(spec.factor_spec, "backtest_metric", "close"), symbol=getattr(spec.factor_spec, "name", "mining"), amount=amount, time_tolerance=tolerance, table_name=getattr(spec.factor_spec, "table_name", "market_daily_post_adjusted"), verbose=False, preloaded_cost_price=execution, preloaded_close_price=close, preloaded_trade_status=status)
-    return pd.Series(engine.nav)
+def _backtest_nav(*args, **kwargs) -> pd.Series:
+    return _evaluate_backtest(*args, **kwargs).nav
 
 
 def _call_fit(callback: Callable, data: MiningData, params: Mapping[str, Any], window: MiningWindow, context: Mapping[str, Any]):
@@ -1487,10 +1448,15 @@ def _evaluate_candidate(module: str, factor_id: str, params: Mapping[str, Any], 
     if mode not in {"precomputed", "rolling_fit"}:
         raise ValueError(f"unsupported execution_mode={mode}")
     candidate = _candidate_id(factor_id, params)
-    engine = str(evaluation.get("engine", "vector")).lower()
+    removed = {"engine", "time_tolerance"}.intersection(evaluation)
+    if removed:
+        raise ValueError(f"evaluation 已移除 {sorted(removed)}，现在仅提供统一回测接口")
+    engine = "unified"
     amount = float(evaluation.get("initial_amount", 1e8))
     frequency = str(evaluation.get("rebal_freq", "D"))
-    tolerance = int(evaluation.get("time_tolerance", 24))
+    risk = evaluation.get("risk")
+    price_time_map = evaluation.get("price_time_map")
+    ftc, ptc = float(evaluation.get("ftc", 0.0)), float(evaluation.get("ptc", 0.0))
     params_json = json.dumps(params, ensure_ascii=False, sort_keys=True, default=str)
     window_pairs = {
         window.window_id: _signal_pairs(
@@ -1512,7 +1478,7 @@ def _evaluate_candidate(module: str, factor_id: str, params: Mapping[str, Any], 
             len(windows),
             params_json,
         )
-    full_factor = full_weights = full_nav = None
+    full_factor = full_weights = full_nav = full_evaluation = None
     full_rank_ic_observations = {}
     rank_ic_rows = []
     if mode == "precomputed":
@@ -1563,7 +1529,8 @@ def _evaluate_candidate(module: str, factor_id: str, params: Mapping[str, Any], 
         if spec.window_transform is None:
             nav_started = time.perf_counter()
             with _heartbeat("candidate.nav", stage=stage, candidate=candidate, engine=engine):
-                full_nav = _vector_nav(full_weights, data.price) if engine == "vector" else _exact_nav(full_weights, data, spec, amount, tolerance)
+                full_evaluation = _evaluate_backtest(full_weights, data, spec, amount, evaluation["span"][1], risk, price_time_map, ftc, ptc)
+                full_nav = full_evaluation.nav
             if _TASK_LOGS:
                 _LOGGER.info(
                     "%s候选 %s：全程净值回测完成，观测数=%d，耗时=%s",
@@ -1578,7 +1545,8 @@ def _evaluate_candidate(module: str, factor_id: str, params: Mapping[str, Any], 
                 full_rank_ic_observations = _rank_ic_observations(
                     full_factor,
                     data.execution_price,
-                    list(window_pairs.values()),
+                    list(window_pairs.values()), metric=getattr(spec.factor_spec, 'backtest_metric', 'close'),
+                    price_time_map=price_time_map, wides=data.inputs,
                 )
             rank_ic_rows.extend(_rank_ic_audit_rows(
                 full_rank_ic_observations,
@@ -1641,7 +1609,8 @@ def _evaluate_candidate(module: str, factor_id: str, params: Mapping[str, Any], 
                     active_rank_ic_observations = _rank_ic_observations(
                         factor,
                         window_data.execution_price,
-                        [pairs],
+                        [pairs], metric=getattr(active_spec.factor_spec, 'backtest_metric', 'close'),
+                        price_time_map=price_time_map, wides=window_data.inputs,
                     )
                     rank_ic_rows.extend(_rank_ic_audit_rows(
                         active_rank_ic_observations,
@@ -1652,12 +1621,14 @@ def _evaluate_candidate(module: str, factor_id: str, params: Mapping[str, Any], 
                         window_id=window.window_id,
                     ))
                 with _heartbeat("candidate.window_nav", stage=stage, candidate=candidate, window=window.window_id):
-                    nav = _vector_nav(weights, window_data.price) if engine == "vector" else _exact_nav(weights, window_data, active_spec, amount, tolerance)
+                    backtest_result = _evaluate_backtest(weights, window_data, active_spec, amount, window.end, risk, price_time_map, ftc, ptc)
+                    nav = backtest_result.nav
             elif spec.window_transform is not None:
                 transformed = spec.window_transform(weights, window, {"data": data, "spec": spec, "params": params})
                 weights = transformed if transformed is not None else weights
                 with _heartbeat("candidate.window_nav", stage=stage, candidate=candidate, window=window.window_id):
-                    nav = _vector_nav(weights, data.price) if engine == "vector" else _exact_nav(weights, data, spec, amount, tolerance)
+                    backtest_result = _evaluate_backtest(weights, data, spec, amount, window.end, risk, price_time_map, ftc, ptc)
+                    nav = backtest_result.nav
             elif getattr(spec.factor_spec, "strategy_type", "cross_sectional") == "timing":
                 # Rebuild each timing window so stateful signals start cleanly
                 # at the window boundary while retaining historical warmup.
@@ -1671,23 +1642,23 @@ def _evaluate_candidate(module: str, factor_id: str, params: Mapping[str, Any], 
                     frequency,
                 )
                 with _heartbeat("candidate.window_nav", stage=stage, candidate=candidate, window=window.window_id):
-                    nav = _vector_nav(weights, data.price) if engine == "vector" else _exact_nav(weights, data, spec, amount, tolerance)
+                    backtest_result = _evaluate_backtest(weights, data, spec, amount, window.end, risk, price_time_map, ftc, ptc)
+                    nav = backtest_result.nav
             else:
                 nav = full_nav
+                backtest_result = full_evaluation
             if nav is None or len(nav) == 0:
                 raise ValueError("empty nav")
-            index = pd.DatetimeIndex(nav.index)
-            keep = (index.normalize() >= pd.Timestamp(window.start)) & (index.normalize() <= pd.Timestamp(window.end))
-            metrics = metrics_from_nav(pd.Series(nav.to_numpy()[keep], index=index[keep]))
             window_weights = _slice_frame(weights, window.start, window.end)
-            metrics["turnover"] = _turnover(window_weights)
-            if getattr(active_spec.factor_spec, "strategy_type", "cross_sectional") == "timing":
-                window_nav = pd.Series(nav.to_numpy()[keep], index=index[keep])
-                metrics.update(_timing_metrics(window_weights, window_nav))
+            signal_count = _timing_metrics(window_weights, None)['signal_count']
+            metrics = backtest_result.window(window.start, window.end).metrics(signal_count=signal_count)
+            if getattr(active_spec.factor_spec, 'strategy_type', 'cross_sectional') != 'timing':
+                for key in ('trade_count', 'win_rate', 'odds', 'avg_position', 'open_ratio', 'max_gross_exposure', 'signal_count'):
+                    metrics.pop(key, None)
             if factor is not None:
                 if getattr(active_spec.factor_spec, "strategy_type", "cross_sectional") != "timing":
                     metrics.update(_rank_ic_metrics(active_rank_ic_observations, pairs))
-            row = {"factor_id": factor_id, "candidate_id": candidate, "stage": stage, "window_id": window.window_id, "window_start": window.start, "window_end": window.end, "params_json": params_json, **params, **metrics, "error": None}
+            row = {"factor_id": factor_id, "candidate_id": candidate, "stage": stage, "window_id": window.window_id, "window_start": window.start, "window_end": window.end, "params_json": params_json, **params, **metrics, "calculation_version": "backtest-v2-drift-risk", "evaluation_version": "actual-v1", "error": None}
             if report_progress:
                 window_elapsed = time.perf_counter() - windows_started
                 eta = window_elapsed / position * (len(windows) - position)
@@ -1705,7 +1676,7 @@ def _evaluate_candidate(module: str, factor_id: str, params: Mapping[str, Any], 
                     _human_duration(eta),
                 )
         except Exception as exc:
-            row = {"factor_id": factor_id, "candidate_id": candidate, "stage": stage, "window_id": window.window_id, "window_start": window.start, "window_end": window.end, "params_json": params_json, **params, "error": f"{type(exc).__name__}: {exc}"}
+            row = {"factor_id": factor_id, "candidate_id": candidate, "stage": stage, "window_id": window.window_id, "window_start": window.start, "window_end": window.end, "params_json": params_json, **params, "calculation_version": "backtest-v2-drift-risk", "evaluation_version": "actual-v1", "error": f"{type(exc).__name__}: {exc}"}
             _LOGGER.exception(
                 "%s候选 %s：第%d/%d个窗口计算失败，窗口方案=%s，错误=%s",
                 _stage_name(stage),
@@ -2867,6 +2838,12 @@ def _validate_performance_config(performance: Mapping[str, Any]) -> None:
 
 
 def _validate_search_config(parameters: Mapping[str, Any]) -> None:
+    evaluation = parameters.get("evaluation") or {}
+    removed = {"engine", "time_tolerance"}.intersection(evaluation)
+    if removed:
+        raise ValueError(f"evaluation 已移除 {sorted(removed)}，请删除旧引擎和时间容差配置")
+    from betalens.backtest import validate_risk_config
+    validate_risk_config(evaluation.get("risk"))
     preprocessing = parameters.get("preprocessing")
     if preprocessing is not None:
         if not isinstance(preprocessing, Mapping):

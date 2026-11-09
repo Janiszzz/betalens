@@ -56,6 +56,12 @@ def keys(table):
     if table == "reference_scope": return ["revision_id", "scope_id"]
     if table == "reference_publication_event": return ["event_id"]
     if table.endswith("_versions"): return ["revision_id", "scope_id", "record_id"]
+    if table == "industry_scheme_dim": return ["scheme_code"]
+    if table == "industry_dim": return ["scheme_code", "industry_code"]
+    if table == "security_industry_membership": return ["scheme_code", "security_code", "industry_code", "valid_from"]
+    if table == "trade_calendar": return ["exchange", "trade_date"]
+    if table == "trade_status_daily": return ["asset_type", "security_code", "trade_date"]
+    if table == "index_membership": return ["index_code", "security_code", "trade_date"]
     if table == "security_name_history": return ["security_code", "start_date"]
     return ["security_code"]
 
@@ -135,7 +141,7 @@ def test_live_pg_ch_frames_and_precision_match(live):
     configs, _, _ = live
     results = {}
     for backend, config in configs.items():
-        with Datafeed("market_daily_post_adjusted", config, backend=backend) as data:
+        with Datafeed("market_daily_post_adjusted", config, backend=backend, pit_policy="strict") as data:
             results[backend] = [data.query_time_range(["A"], "2024-01-01", "2024-01-04", "close"),
                 data.query_nearest_before({"codes": ["A", "missing", "A"], "datetimes": ["2024-01-03 15:00", "2024-01-01"], "metric": "close"}),
                 data.query_nearest_after({"codes": ["A"], "datetimes": ["2024-01-02 15:00"], "metric": "close"}),
@@ -151,19 +157,19 @@ def test_live_pg_ch_frames_and_precision_match(live):
 def test_live_calendar_manifests_and_local_offset(live):
     configs, _, _ = live
     for backend, config in configs.items():
-        assert get_absolute_trade_days("2024-01-01", "2024-01-04", "D", backend=backend, db_config=config, as_of="2024-01-04") == [date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 4)]
-        assert trade_periods_offset("2024-01-02 10:00", 1, backend=backend, db_config=config, as_of="2024-01-04") == pd.Timestamp("2024-01-03 10:00")
+        assert get_absolute_trade_days("2024-01-01", "2024-01-04", "D", backend=backend, db_config=config, as_of="2024-01-04", table_name="trade_calendar_versions", pit_policy="strict") == [date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 4)]
+        assert trade_periods_offset("2024-01-02 10:00", 1, backend=backend, db_config=config, as_of="2024-01-04", table_name="trade_calendar_versions", pit_policy="strict") == pd.Timestamp("2024-01-03 10:00")
         with pytest.raises(PITUnavailableError):
-            get_absolute_trade_days("2024-01-01", "2024-01-05", "D", backend=backend, db_config=config)
+            get_absolute_trade_days("2024-01-01", "2024-01-05", "D", backend=backend, db_config=config, table_name="trade_calendar_versions", pit_policy="strict")
 
 
 def test_live_financial_revision_and_raw_adjustment(live):
     configs, _, _ = live
     results = {}
     for backend, config in configs.items():
-        with Datafeed("fundamental_periodic", config, backend=backend) as data:
+        with Datafeed("fundamental_periodic", config, backend=backend, pit_policy="strict") as data:
             results[backend] = data.query_nearest_before({"codes": ["A"], "datetimes": ["2024-05-01", "2024-07-01"], "metric": "revenue", "filters": {"statement_type": "income", "report_type": "1"}})
-        with Datafeed("market_daily_raw", config, backend=backend) as data:
+        with Datafeed("market_daily_raw", config, backend=backend, pit_policy="strict") as data:
             assert data.query_time_range(metric="close").value.tolist() == [10, 5]
     pd.testing.assert_frame_equal(results["postgres"], results["clickhouse"])
     assert results["postgres"]["revenue"].tolist() == [100, 200]
@@ -173,13 +179,13 @@ def test_live_pg_connection_recovery_readonly_and_subscription(live):
     configs, _, _ = live
     config = configs["postgres"]
     from betalens.datafeed.query import query_nearest_before
-    with Datafeed("market_daily_post_adjusted", config) as data:
+    with Datafeed("market_daily_post_adjusted", config, pit_policy="strict") as data:
         with pytest.raises(psycopg2.errors.ReadOnlySqlTransaction):
             data._reader.cursor.execute(f'CREATE TABLE "{config["schema"]}".forbidden (x integer)')
         data._reader.conn.rollback()
         got = query_nearest_before(data, "market_daily_post_adjusted", ["A"], ["2024-01-03 15:00"], "close")
         assert got["close"].iloc[0] == 20
-    with Datafeed("market_daily_post_adjusted", config) as again:
+    with Datafeed("market_daily_post_adjusted", config, pit_policy="strict") as again:
         assert again.get_latest_date(metric="close") == pd.Timestamp("2024-01-03 15:00")
 
 
@@ -189,7 +195,7 @@ def test_live_sql_candidate_reduction_matches_python(live, direction, ranges):
     configs, _, _ = live
     anchors = [("2024-01-01", "2024-01-03 15:00"), ("2024-01-02 15:00", "2024-01-03 15:00")] if ranges else ["2024-01-02 15:00", "2024-01-04"]
     for backend, config in configs.items():
-        with Datafeed("market_daily_post_adjusted", config, backend=backend) as data:
+        with Datafeed("market_daily_post_adjusted", config, backend=backend, pit_policy="strict") as data:
             expected = _nearest(data, "market_daily_post_adjusted", ["A", "missing", "A"], anchors, "close", direction, 48, ranges=ranges, engine="python")
             actual = _nearest(data, "market_daily_post_adjusted", ["A", "missing", "A"], anchors, "close", direction, 48, ranges=ranges, engine="sql")
             pd.testing.assert_frame_equal(actual, expected)
@@ -200,7 +206,7 @@ def test_live_selected_default_path_and_missing_candidates(live):
     configs, _, _ = live
     codes = ["A"] + [f"missing{i}" for i in range(199)]
     for backend, config in configs.items():
-        with Datafeed("market_daily_post_adjusted", config, backend=backend) as data:
+        with Datafeed("market_daily_post_adjusted", config, backend=backend, pit_policy="strict") as data:
             expected = _nearest(data, "market_daily_post_adjusted", codes, ["2024-01-03 15:00"], "close", "before", None, engine="python")
             actual = data.query_nearest_before({"codes": codes, "datetimes": ["2024-01-03 15:00"], "metric": "close"})
             pd.testing.assert_frame_equal(actual, expected)
@@ -209,7 +215,7 @@ def test_live_selected_default_path_and_missing_candidates(live):
 def test_live_raw_cursor_is_rejected(live):
     from betalens.datafeed.query import query_nearest_before
     configs, _, _ = live
-    with Datafeed("market_daily_post_adjusted", configs["postgres"]) as data:
+    with Datafeed("market_daily_post_adjusted", configs["postgres"], pit_policy="strict") as data:
         with pytest.raises(TypeError, match="游标"):
             query_nearest_before(data._reader.cursor, "market_daily_post_adjusted", ["A"], ["2024-01-03"], "close")
         assert not hasattr(data, "cursor") and not hasattr(data, "run_query")
@@ -220,7 +226,7 @@ def test_live_clickhouse_duplicate_parts_are_deduplicated(live):
     config = configs["clickhouse"]
     relation = '`' + config['database'] + '`.`market_daily_post_adjusted`'
     ch_command(session, config, f"INSERT INTO {relation} SELECT * FROM {relation} FINAL WHERE security_code='A' AND trade_date='2024-01-02'")
-    with Datafeed("market_daily_post_adjusted", config, backend="clickhouse") as data:
+    with Datafeed("market_daily_post_adjusted", config, backend="clickhouse", pit_policy="strict") as data:
         assert data.query_time_range(metric="close").value.tolist() == [20, 10]
 
 
@@ -234,7 +240,7 @@ def test_live_explicit_field_filters_match_sql_python_and_backends(live, table, 
     configs, _, _ = live
     results = []
     for backend, config in configs.items():
-        with Datafeed(table, config, backend=backend) as data:
+        with Datafeed(table, config, backend=backend, pit_policy="strict") as data:
             args = (data, table, ["A", "missing"], ["2024-07-01"], metric, "before", None)
             expected = _nearest(*args, filters=filters, engine="python")
             actual = _nearest(*args, filters=filters, engine="sql")
@@ -250,9 +256,9 @@ def test_live_calendar_rejects_shse_as_an_sse_alias(live):
     for backend, config in configs.items():
         with pytest.raises(ValueError, match="exchange"):
             get_absolute_trade_days("2024-01-02", "2024-01-02", "D", exchange="SHSE",
-                                    backend=backend, db_config=config)
+                                    backend=backend, db_config=config, table_name="trade_calendar_versions", pit_policy="strict")
         with pytest.raises(ValueError, match="exchange"):
-            trade_periods_offset("2024-01-02", 1, exchange="SHSE", backend=backend, db_config=config)
+            trade_periods_offset("2024-01-02", 1, exchange="SHSE", backend=backend, db_config=config, table_name="trade_calendar_versions", pit_policy="strict")
 
 
 def test_live_shanghai_filters_numeric_parameters_and_industry_versions(live):
@@ -262,15 +268,58 @@ def test_live_shanghai_filters_numeric_parameters_and_industry_versions(live):
     frames = {}
     for backend, config in configs.items():
         frames[backend] = []
-        with Datafeed('market_daily_post_adjusted', config, backend=backend) as data:
+        with Datafeed('market_daily_post_adjusted', config, backend=backend, pit_policy="strict") as data:
             for at in (datetime(2024, 1, 2, 15), '2024-01-02T07:00:00Z', '2024-01-02T15:00:00+08:00'):
                 result = data.query_time_range(metric='close', filters={'available_at': at, 'close': Decimal('10')})
                 assert result.value.tolist() == [10]
                 frames[backend].append(result)
-        with Datafeed('stock_industry_membership_versions', config, backend=backend) as data:
+        with Datafeed('stock_industry_membership_versions', config, backend=backend, pit_policy="strict") as data:
             for level in (1, 2, 3):
                 result = data.query_industry(['A'], ['2024-01-02', '2024-01-04'], level=level)
                 assert result.ind_name.tolist() == [f'SW2014-L{level}', f'SW2021-L{level}']
                 frames[backend].append(result)
     for pg, ch in zip(frames['postgres'], frames['clickhouse']):
         pd.testing.assert_frame_equal(pg, ch, check_exact=True)
+
+
+def test_live_research_industry_calendar_risks_and_index_contracts():
+    from test_datafeed_research import industry_reader, status_reader
+    from datafeed_support import evidence
+    memory = industry_reader()
+    status = status_reader()
+    memory.tables.update(status.tables)
+    memory.types.update(status.types)
+    memory.types["trade_calendar"] = {"exchange": "text", "trade_date": "date", "is_open": "integer"}
+    memory.tables["trade_calendar"] = [{"exchange": "SSE", "trade_date": date(2024,1,d), "is_open": 1} for d in [2,3]]
+    memory.types["index_membership"] = {"index_code": "text", "security_code": "text", "trade_date": "date",
+        "snapshot_complete": "integer", "snapshot_member_count": "integer", "available_at": "timestamp",
+        "availability_basis": "text", "data_quality_status": "text"}
+    memory.tables["index_membership"] = [{"index_code":"I","security_code":"A","trade_date":date(2024,1,2),
+        "snapshot_complete":1,"snapshot_member_count":1,**evidence("2024-01-03",availability_basis="next_calendar_day_assumed")}]
+    outputs = []
+    with isolated_databases(memory.tables,memory.types) as (configs,conn,session):
+        for table in ['industry_dim','industry_scheme_dim','security_industry_membership','trade_calendar','trade_status_daily','suspension_event','index_membership','security_dim']:
+            with conn.cursor() as cur:
+                cur.execute(f'ALTER TABLE "{configs["postgres"]["schema"]}"."{table}" ADD COLUMN unrelated text[]')
+            ch_command(session,configs['clickhouse'],f'ALTER TABLE `{configs["clickhouse"]["database"]}`.`{table}` ADD COLUMN unrelated Array(String)')
+        for backend,config in configs.items():
+            frames=[]
+            with Datafeed("security_industry_membership",config,backend=backend) as data:
+                for level in [1,2,3]:
+                    frames.append(data.query_industry(["A","X","A"],["2021-07-31","2021-08-01"],level=level))
+            with Datafeed("trade_status_daily",config,backend=backend) as data:
+                frames.append(data.query_trade_risks(["A","B"],["2024-01-02 09:30","2024-01-02 10:00"]))
+                frames.append(data.query_trade_status({"codes":["A","B"],"dates":["2024-01-02 09:30"]}))
+            with Datafeed("market_daily_post_adjusted",config,backend=backend) as data:
+                frames.append(data.query_nearest_before({"codes":["A"],"datetimes":["2024-01-03"],"metric":"close"}))
+                from betalens.datafeed.query import _nearest
+                for direction in ["before","after"]:
+                    args=(data,"market_daily_post_adjusted",["A","X","A"],["2024-01-02","2024-01-03"],"close",direction,None)
+                    pd.testing.assert_frame_equal(_nearest(*args,engine="sql"),_nearest(*args,engine="python"))
+            with Datafeed("index_membership",config,backend=backend) as data:
+                assert data.get_index_universe("I","2024-01-03") == ["A"]
+            assert get_absolute_trade_days("2024-01-02","2024-01-03","D",db_config=config,backend=backend,as_of="2020-01-01") == [date(2024,1,2),date(2024,1,3)]
+            assert trade_periods_offset("2024-01-02 10:00",1,db_config=config,backend=backend) == pd.Timestamp("2024-01-03 10:00")
+            outputs.append(frames)
+    for pg,ch in zip(*outputs):
+        pd.testing.assert_frame_equal(pg,ch)

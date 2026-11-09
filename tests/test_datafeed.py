@@ -160,7 +160,7 @@ def test_industry_replaces_whole_scope_and_does_not_fill_old_values():
     newer = deepcopy(scope)
     newer["rows"][0]["industry_name"] = None
     reader = reference_reader("industry", [("old", [scope], "publish"), ("new", [newer], "publish")])
-    result = query_industry(reader, ["A", "unknown"], ["2024-01-02"], "SW2021")
+    result = query_industry(reader, ["A", "unknown"], ["2024-01-02"], "SW2021", table_name="stock_industry_membership_versions", pit_policy="strict")
     assert result.ind_name.isna().all()
     assert result.ind_code.iloc[0] == "01"
     assert result.ind_code.iloc[1] is None
@@ -463,7 +463,7 @@ def test_industry_selects_one_published_version_consistently_across_levels():
     scopes += [industry_scope('SW2021', level) for level in (1, 2, 3)]
     reader = reference_reader('industry', [('r', scopes, 'publish')])
     for level in (1, 2, 3):
-        result = query_industry(reader, ['A'], ['2024-01-02', '2024-01-04'], level=level)
+        result = query_industry(reader, ['A'], ['2024-01-02', '2024-01-04'], level=level, table_name="stock_industry_membership_versions", pit_policy="strict")
         assert result.ind_name.tolist() == [f'SW2014-L{level}', f'SW2021-L{level}']
         assert result.ind_code.tolist() == [f'{level:02}', f'{level:02}']
 
@@ -474,24 +474,24 @@ def test_industry_overlapping_versions_missing_status_and_bad_year_do_not_fall_b
     new = industry_scope()
     reader = reference_reader('industry', [('r', [old, new], 'publish')])
     with pytest.raises(VersionConflictError, match='多个有效申万'):
-        query_industry(reader, ['A'], ['2024-01-04'])
+        query_industry(reader, ['A'], ['2024-01-04'], table_name="stock_industry_membership_versions", pit_policy="strict")
     new['rows'][0].pop('membership_status')
     reader = reference_reader('industry', [('r', [new], 'publish')])
-    assert query_industry(reader, ['A'], ['2024-01-04'], 'SW2021').ind_code.isna().all()
+    assert query_industry(reader, ['A'], ['2024-01-04'], 'SW2021', table_name="stock_industry_membership_versions", pit_policy="strict").ind_code.isna().all()
     with pytest.raises(PITUnavailableError):
-        query_industry(reader, ['A'], ['2024-01-04'])
+        query_industry(reader, ['A'], ['2024-01-04'], table_name="stock_industry_membership_versions", pit_policy="strict")
     new['rows'][0]['classification_version'] = 'SW2014'
     reader = reference_reader('industry', [('r', [new], 'publish')])
     with pytest.raises(VersionConflictError, match='年份版本'):
-        query_industry(reader, ['A'], ['2024-01-04'], 'SW2021')
+        query_industry(reader, ['A'], ['2024-01-04'], 'SW2021', table_name="stock_industry_membership_versions", pit_policy="strict")
 
 
 def test_industry_default_never_chooses_citic_and_unpublished_version_is_invisible():
     from datafeed_support import industry_scope
     reader = reference_reader('industry', [('ci', [industry_scope('CITICS')], 'publish'), ('sw', [industry_scope()], None)])
     with pytest.raises(PITUnavailableError):
-        query_industry(reader, ['A'], ['2024-01-04'])
-    result = query_industry(reader, ['A'], ['2024-01-04'], 'CITICS', level=1)
+        query_industry(reader, ['A'], ['2024-01-04'], table_name="stock_industry_membership_versions", pit_policy="strict")
+    result = query_industry(reader, ['A'], ['2024-01-04'], 'CITICS', level=1, table_name="stock_industry_membership_versions", pit_policy="strict")
     assert result.ind_code.tolist() == ['01']
 
 
@@ -509,11 +509,11 @@ def test_industry_one_company_has_at_most_one_membership_per_level():
     scope['rows'].append(dict(scope['rows'][0], industry_code='99', industry_name='conflicting'))
     reader = reference_reader('industry', [('r', [scope], 'publish')])
     with pytest.raises(VersionConflictError, match='行业区间'):
-        query_industry(reader, ['A'], ['2024-01-04'], 'SW2021')
+        query_industry(reader, ['A'], ['2024-01-04'], 'SW2021', table_name="stock_industry_membership_versions", pit_policy="strict")
     scope['rows'][1]['membership_status'] = None
     reader = reference_reader('industry', [('r', [scope], 'publish')])
-    assert query_industry(reader, ['A'], ['2024-01-04'], 'SW2021').ind_code.isna().all()
-    assert query_industry(reader, [], ['2024-01-04']).empty
+    assert query_industry(reader, ['A'], ['2024-01-04'], 'SW2021', table_name="stock_industry_membership_versions", pit_policy="strict").ind_code.isna().all()
+    assert query_industry(reader, [], ['2024-01-04'], table_name="stock_industry_membership_versions", pit_policy="strict").empty
 
 
 def test_scalar_index_queries_keep_distinct_intraday_cutoffs():

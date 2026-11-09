@@ -506,7 +506,9 @@ def _numeric_frame(df: Any) -> pd.DataFrame:
 
 
 def _timing_weight_frames(bt: Any) -> tuple[pd.DataFrame, pd.Series]:
-    weight = getattr(bt, "actual_weight", None)
+    weight = getattr(bt, "daily_weight", None)
+    if weight is None or getattr(weight, "empty", True):
+        weight = getattr(bt, "actual_weight", None)
     if weight is None or getattr(weight, "empty", True):
         weight = getattr(bt, "weight", None)
 
@@ -642,10 +644,13 @@ def _timing_position_records(position: pd.Series, cash: pd.Series) -> list[dict[
     return records
 
 
-def _drawdown_from_nav(nav: pd.Series) -> pd.Series:
+def _drawdown_from_nav(nav: pd.Series, initial_nav: float | None = None) -> pd.Series:
     if nav.empty:
         return pd.Series(dtype=float)
-    peak = nav.cummax().replace(0, np.nan)
+    peak = nav.cummax()
+    if initial_nav is not None:
+        peak = peak.clip(lower=initial_nav)
+    peak = peak.replace(0, np.nan)
     return ((peak - nav) / peak).replace([np.inf, -np.inf], np.nan).dropna()
 
 
@@ -774,7 +779,7 @@ def _timing_trade_metrics(segments: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def _timing_performance_metrics(nav: pd.Series, returns: pd.Series) -> dict[str, Any]:
+def _timing_performance_metrics(nav: pd.Series, returns: pd.Series, initial_nav: float | None = None) -> dict[str, Any]:
     if nav.empty:
         return {
             "total_return": np.nan,
@@ -784,13 +789,14 @@ def _timing_performance_metrics(nav: pd.Series, returns: pd.Series) -> dict[str,
             "calmar": np.nan,
             "daily_win_rate": np.nan,
         }
-    total_return = nav.iloc[-1] / nav.iloc[0] - 1.0 if nav.iloc[0] else np.nan
+    baseline = initial_nav if initial_nav is not None else nav.iloc[0]
+    total_return = nav.iloc[-1] / baseline - 1.0 if baseline else np.nan
     periods = max(len(nav), 1)
     annualized_return = (1.0 + total_return) ** (252 / periods) - 1.0 if pd.notna(total_return) and total_return > -1 else np.nan
-    dd = _drawdown_from_nav(nav)
+    dd = _drawdown_from_nav(nav, initial_nav)
     max_drawdown = dd.max() if len(dd) else np.nan
     ret = returns.dropna()
-    ret_for_stats = ret.iloc[1:] if len(ret) > 1 else ret
+    ret_for_stats = ret.iloc[1:] if initial_nav is None and len(ret) > 1 else ret
     sharpe = (
         ret_for_stats.mean() / ret_for_stats.std() * math.sqrt(252)
         if len(ret_for_stats) > 1 and ret_for_stats.std() != 0
@@ -958,16 +964,34 @@ def build_timing_payload(bt: Any, factor_values: pd.DataFrame | None = None) -> 
         return payload
 
     nav = _numeric_series(getattr(bt, "nav", None))
-    returns = _timing_return_series(nav)
+    returns = _numeric_series(getattr(bt, "daily_returns", None))
+    initial_nav = 1.0 if hasattr(bt, "daily_returns") else None
+    if returns.empty:
+        returns = _timing_return_series(nav)
     daily_pnl = _numeric_series(getattr(bt, "daily_pnl_total", None))
     stock_weight, cash = _timing_weight_frames(bt)
     position = stock_weight.abs().sum(axis=1).sort_index() if not stock_weight.empty else pd.Series(dtype=float)
     primary_code = _timing_primary_code(stock_weight)
     price = _timing_price_series(bt, primary_code)
-    drawdown = _drawdown_from_nav(nav)
+    drawdown = _drawdown_from_nav(nav, initial_nav)
     segments = _timing_trade_segments(stock_weight, position, returns, daily_pnl)
+    cycles = getattr(bt, 'trade_cycles', None)
+    if cycles is not None:
+        segments = []
+        for row in cycles.loc[cycles.status.eq('closed') & cycles.accounting_status.eq('complete')].to_dict('records'):
+            days = position.index[(position.index >= pd.Timestamp(row['entry_ts']).normalize()) &
+                                  (position.index <= pd.Timestamp(row['exit_ts']).normalize())]
+            exposure = stock_weight[row['code']].reindex(days).abs() if row['code'] in stock_weight else pd.Series(dtype=float)
+            segments.append(dict(tradeNo=len(segments) + 1, code=row['code'],
+                startDate=pd.Timestamp(row['entry_ts']).strftime('%Y-%m-%d'), endDate=pd.Timestamp(row['exit_ts']).strftime('%Y-%m-%d'),
+                holdingDays=row['holding_days'], side=row['side'], avgPosition=_clean_scalar(exposure.mean()),
+                maxPosition=_clean_scalar(exposure.max()), **{'return': row['return_net']}, pnl=row['pnl_net'],
+                fees=row['fees'], isWin=row['pnl_net'] > 0))
     trade = _timing_trade_metrics(segments)
-    perf = _timing_performance_metrics(nav, returns)
+    if cycles is not None:
+        from betalens.analyst.trades import trade_cycle_stats
+        trade.update(trade_cycle_stats(cycles))
+    perf = _timing_performance_metrics(nav, returns, initial_nav)
     active = position.abs() > 1e-8 if not position.empty else pd.Series(dtype=bool)
     position_change_count = int((position.diff().abs() > 1e-8).sum()) if not position.empty else 0
     prediction = _timing_prediction_payload(factor_values, nav, primary_code)
@@ -1023,6 +1047,7 @@ def build_timing_payload(bt: Any, factor_values: pd.DataFrame | None = None) -> 
     payload["tables"] = {
         "tradeSegments": segments,
         "prediction": prediction["charts"]["prediction"],
+        "riskEvents": _json_records(getattr(bt, "risk_events", None)),
     }
     return payload
 
@@ -1080,6 +1105,10 @@ def build_generated_chart_data(
     precomputed = precomputed or {}
     group_frame = precomputed.get("group_nav")
     if group_frame is None:
+        group_frame = getattr(bt, 'research_group_nav', None)
+    if group_frame is None and hasattr(bt, 'calculation_version'):
+        group_frame = pd.DataFrame()
+    if group_frame is None:
         group_frame = M.group_nav(
             getattr(bt, "cost_ret", None),
             _factor_values_for_group_nav(factor_values, quantiles),
@@ -1103,12 +1132,18 @@ def build_generated_chart_data(
     nav = getattr(bt, "nav", None)
     trade_pairs = precomputed.get("trade_pairs")
     if trade_pairs is None:
-        trade_pairs = M.match_trade_pairs(getattr(bt, "rebalance_log", None))
+        cycles = getattr(bt, 'trade_cycles', None)
+        trade_pairs = cycles.loc[cycles.status.eq('closed')] if cycles is not None else M.match_trade_pairs(
+            getattr(bt, "rebalance_log", None), getattr(bt, 'synthetic_settlements', None), getattr(bt, 'daily_position_value', None))
     trade_records = []
     for _, row in trade_pairs.iterrows():
         trade_records.append(
             {
                 "code": str(row["code"]),
+                "side": row.get('side', 'long'),
+                "fees": _clean_scalar(row.get('fees')),
+                "pnlNet": _clean_scalar(row.get('pnl_net')),
+                "accountingStatus": row.get('accounting_status', 'legacy_incomplete'),
                 "buyDate": pd.Timestamp(row["buy_date"]).strftime("%Y-%m-%d"),
                 "sellDate": pd.Timestamp(row["sell_date"]).strftime("%Y-%m-%d"),
                 "buyPrice": _clean_scalar(row["buy_price"]),
@@ -1150,7 +1185,9 @@ def build_position_table(bt: Any) -> list[dict[str, Any]]:
     position = getattr(bt, "position", None)
     position_value = getattr(bt, "daily_position_value", None)
     daily_pnl = getattr(bt, "daily_pnl", None)
-    cost_price = getattr(bt, "cost_price", None)
+    cost_price = getattr(bt, "daily_raw_price", None)
+    if cost_price is None:
+        cost_price = getattr(bt, "cost_price", None)
     daily_amount = getattr(bt, "daily_amount", None)
     if position is None and position_value is None and daily_pnl is None:
         return []
@@ -1182,7 +1219,8 @@ def build_position_table(bt: Any) -> list[dict[str, Any]]:
                     "代码": code,
                     "多空": "现金" if code == "cash" else ("多" if (qty or 0) >= 0 else "空"),
                     "数量": qty,
-                    "可用数量": qty,
+                    "数量口径": "分红再投等效股数" if hasattr(bt, "equivalent_position") and code != "cash" else None,
+                    "可用数量": None if hasattr(bt, "equivalent_position") and code != "cash" else qty,
                     "收盘价/结算价": price,
                     "市值/价值": value,
                     "盈亏/逐笔浮盈": pnl,
@@ -1239,6 +1277,8 @@ def build_result_payload(
             "parameters": run.parameters,
             "compute_kwargs": run.compute_kwargs,
         },
+        "calculationVersion": getattr(run.backtest, "calculation_version", None),
+        "riskEvents": _json_records(getattr(run.backtest, "risk_events", None)),
         "metrics": build_metrics(run.analyst, run.backtest),
         "timing": build_timing_payload(run.backtest, factor_values),
         "charts": {

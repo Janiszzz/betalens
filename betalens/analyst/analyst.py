@@ -41,36 +41,28 @@ def _load_benchmark_nav_from_code(
     code = str(benchmark_code or '').strip()
     if not code:
         return None
-    tables = tuple(table_names or ('market_daily_raw', 'market_daily_post_adjusted'))
+    tables = tuple(table_names or ('market_daily_post_adjusted',))
     from betalens.datafeed import Datafeed
+    from betalens.datafeed.daily import daily_wide
 
     for table_name in tables:
         db = None
         try:
             db = Datafeed(table_name)
-            data = db.query_time_range(
-                codes=[code],
-                start_date=pd.Timestamp(start_date).strftime('%Y-%m-%d'),
-                end_date=pd.Timestamp(end_date).strftime('%Y-%m-%d'),
-                metric=metric,
-            )
+            data = db.query_daily_market(codes=[code], start_date=None, end_date=end_date, metrics=[metric])
         except Exception:
             continue
         finally:
             if db is not None:
                 db.close()
-        if data is None or data.empty or 'datetime' not in data.columns:
+        prices = daily_wide(data, metric)
+        if code not in prices or prices[code].dropna().empty:
             continue
-        value_col = 'value' if 'value' in data.columns else metric
-        if value_col not in data.columns:
-            continue
-        prices = data.set_index('datetime')[value_col].sort_index()
-        prices.index = pd.to_datetime(prices.index, errors='coerce').normalize()
-        prices = pd.to_numeric(prices, errors='coerce').dropna()
-        prices = prices.groupby(level=0).last()
-        if prices.empty:
-            continue
-        return prices / prices.iloc[0]
+        values = prices[code].dropna()
+        start = pd.Timestamp(start_date).normalize()
+        before = values.loc[values.index < start]
+        values = pd.concat([before.tail(1), values.loc[values.index >= start]])
+        return values / values.iloc[0]
     return None
 
 
@@ -93,9 +85,19 @@ class PortfolioAnalyzer:
     def __init__(self, nav_series, risk_free_rate=0.0, annualizer=252, window=30,
                  weight=None, daily_position_value=None, daily_pnl=None,
                  rebalance_log=None, benchmark=None, cost_price=None,
-                 factor_values=None):
+                 factor_values=None, *, daily_returns=None, daily_amount=None,
+                 synthetic_settlements=None, risk_events=None, forward_returns=None,
+                 research_schedule=None, trade_cycles=None):
         self.nav = nav_series.sort_index()
-        self.returns = self.nav.pct_change().dropna()
+        self.returns = daily_returns.copy().sort_index() if daily_returns is not None else self.nav.pct_change(fill_method=None).dropna()
+        self.daily_returns = self.returns
+        self.daily_amount = daily_amount
+        self.synthetic_settlements = synthetic_settlements
+        self.risk_events = risk_events
+        self.research_schedule = research_schedule
+        self.forward_returns = forward_returns
+        self.diagnostics = []
+        self.metadata = {}
         self.risk_free_rate = risk_free_rate
         self.annualizer = annualizer
         self.window = window
@@ -110,17 +112,49 @@ class PortfolioAnalyzer:
         self.benchmark = None
         self.bench_returns = None
         if benchmark is not None:
-            self.benchmark = benchmark.sort_index().reindex(self.nav.index).ffill()
-            self.bench_returns = self.benchmark.pct_change().dropna()
+            base = benchmark.copy().sort_index()
+            base.index = pd.DatetimeIndex(base.index)
+            if base.index.tz is not None:
+                base.index = base.index.tz_convert('Asia/Shanghai').tz_localize(None)
+            base.index = base.index.normalize()
+            base = base.groupby(level=0).last()
+            days = pd.DatetimeIndex(self.returns.index).normalize()
+            aligned = base.pct_change(fill_method=None).reindex(days)
+            aligned.index = self.returns.index
+            self.bench_returns = aligned
+            before = base.loc[base.index < days.min()] if len(days) else base.iloc[:0]
+            anchor = before.iloc[-1] if len(before) else base.iloc[0]
+            curve = base.reindex(days) / anchor
+            curve.index = self.returns.index
+            self.benchmark = pd.concat([pd.Series([1.], index=self.nav.index[:1]), curve])
+            self.benchmark = self.benchmark.loc[~self.benchmark.index.duplicated(keep='last')]
+            if aligned.isna().any():
+                self.diagnostics.append('benchmark daily return coverage is incomplete')
 
+        from .trades import build_trade_cycles, COLUMNS
+        try:
+            self.trade_cycles = trade_cycles.copy() if trade_cycles is not None else build_trade_cycles(
+                rebalance_log, synthetic_settlements, daily_position_value,
+                self.returns.index)
+        except ValueError as exc:
+            self.trade_cycles = pd.DataFrame(columns=COLUMNS)
+            self.diagnostics.append(str(exc))
+        self.metadata['evaluation_version'] = 'actual-v1'
+        if self.trade_cycles.accounting_status.eq('legacy_incomplete').any():
+            self.metadata['trade_accounting'] = 'legacy_incomplete'
+            self.diagnostics.append('旧成交记录缺少净交易核算字段，未纳入净交易胜率和年度交易统计')
+        else:
+            self.metadata['trade_accounting'] = 'complete' if rebalance_log is not None else 'unavailable'
         self.ic_series = None
-        if factor_values is not None and cost_price is not None:
+        if factor_values is not None:
             try:
                 from betalens.factor.stats import calc_ic_from_factor_values
-
-                self.ic_series = calc_ic_from_factor_values(factor_values, cost_price)
-            except Exception:
-                self.ic_series = None
+                if forward_returns is not None:
+                    self.ic_series = calc_ic_from_factor_values(factor_values, forward_returns=forward_returns)
+                elif cost_price is not None and cost_price.attrs.get('index_role') != 'execution_events':
+                    self.ic_series = calc_ic_from_factor_values(factor_values, cost_price)
+            except (ValueError, TypeError) as exc:
+                self.diagnostics.append('IC unavailable: ' + str(exc))
 
     # ── 兼容旧接口的核心指标（委托 metrics）────────────────────────────────
 
@@ -128,7 +162,7 @@ class PortfolioAnalyzer:
         return M.total_return(self.nav)
 
     def annualized_return(self):
-        return M.annualized_return(self.nav, self.annualizer)
+        return M.performance_from_returns(self.returns, self.annualizer)["ann_ret"]
 
     def annualized_volatility(self):
         return M.annualized_volatility(self.returns, self.annualizer)
@@ -156,7 +190,7 @@ class PortfolioAnalyzer:
         nav, ret = self.nav, self.returns
         out = {
             '累计收益': M.total_return(nav),
-            '年化收益': M.annualized_return(nav, ann),
+            '年化收益': M.performance_from_returns(ret, ann)['ann_ret'],
             '年化波动率': M.annualized_volatility(ret, ann),
             '夏普比率': M.sharpe_ratio(ret, rf, ann),
             '索提诺比率': M.sortino_ratio(ret, rf, ann),
@@ -194,7 +228,12 @@ class PortfolioAnalyzer:
             })
         # 交易 / 持仓类（需 weight）
         if self.weight is not None:
-            to = M.turnover(self.weight, ann)
+            if self.rebalance_log is not None and 'equity_before' in self.rebalance_log.columns:
+                trading_amount = self.daily_amount if self.daily_amount is not None else (
+                    self.daily_position_value.sum(axis=1) if self.daily_position_value is not None else self.nav)
+                to = M.turnover_from_trades(self.rebalance_log, trading_amount, ann)
+            else:
+                to = M.turnover(self.weight, ann)
             cnt = M.avg_holdings_count(self.weight)
             out.update({
                 '单边换手率(年化)': to['annualized'],
@@ -204,6 +243,10 @@ class PortfolioAnalyzer:
                 '权重HHI(均值)': M.weight_hhi(self.weight).mean(),
                 '前5集中度(均值)': M.top_n_concentration(self.weight, 5).mean(),
             })
+        from .trades import trade_cycle_stats
+        cycle_stats = trade_cycle_stats(self.trade_cycles)
+        out.update({'交易次数': cycle_stats['trade_count'], '交易胜率': cycle_stats['win_rate'],
+                    '交易赔率': cycle_stats['odds'], '平均已平仓持有交易日': cycle_stats['avg_holding_days']})
         # 基准相对类
         if self.bench_returns is not None:
             br = self.bench_returns.reindex(ret.index)
@@ -238,7 +281,8 @@ class PortfolioAnalyzer:
             '风险分布': ['下行偏差', 'VaR(95%)', 'CVaR(95%)', '偏度', '峰度'],
             '因子有效性': ['IC均值', 'ICIR', 'IC胜率'],
             '交易持仓': ['单边换手率(年化)', '平均单边换手', '平均持仓数',
-                         '平均持仓寿命(期)', '权重HHI(均值)', '前5集中度(均值)'],
+                         '平均持仓寿命(期)', '权重HHI(均值)', '前5集中度(均值)',
+                         '交易次数', '交易胜率', '交易赔率', '平均已平仓持有交易日'],
             '基准相对': ['基准收益', '基准年化收益', '基准波动率', '超额收益',
                      '超额年化收益', '超额波动率', '超额最大回撤', '超额夏普比率',
                      '超额卡玛比率', 'Beta', 'Alpha', '跟踪误差', '信息比率',
@@ -270,7 +314,7 @@ _PCT_KEYS = {'累计收益', '年化收益', '年化波动率', '最大回撤', 
              '下行偏差', 'VaR(95%)', 'CVaR(95%)', '单边换手率(年化)', '平均单边换手',
              'Alpha', '跟踪误差', '相对基准胜率', '前5集中度(均值)', '日胜率',
              '基准收益', '基准年化收益', '基准波动率', '超额收益', '超额年化收益',
-             '超额波动率', '超额最大回撤', 'IC胜率'}
+             '超额波动率', '超额最大回撤', 'IC胜率', '交易胜率'}
 
 
 class ReportExporter:
@@ -278,28 +322,35 @@ class ReportExporter:
 
     def __init__(self, analyzer, benchmark_analyzer=None, start_date=None, end_date=None):
         self.analyzer = analyzer
-        if start_date:
-            subset = self.analyzer.nav.loc[start_date:end_date]
-            self.analyzer = PortfolioAnalyzer(subset)
+        if start_date is not None or end_date is not None:
+            self.analyzer = self._window(analyzer, start_date, end_date)
         self.benchmark = None
         if benchmark_analyzer:
-            subset = benchmark_analyzer.nav.loc[
-                self.analyzer.nav.index[0]:self.analyzer.nav.index[-1]]
-            self.benchmark = PortfolioAnalyzer(subset)
-            excess_returns = (self.analyzer.returns - self.benchmark.returns + 1).cumprod()
-            self.excess = PortfolioAnalyzer(excess_returns)
+            self.benchmark = self._window(benchmark_analyzer,
+                self.analyzer.returns.index.min(), self.analyzer.returns.index.max())
+            self.excess = PortfolioAnalyzer(M.excess_nav(self.analyzer.returns, self.benchmark.returns))
+
+    @staticmethod
+    def _window(analyzer, start=None, end=None):
+        returns = analyzer.returns.loc[start:end]
+        nav = (1 + returns).cumprod()
+        if len(returns):
+            baseline = pd.Series([1.], index=[returns.index[0] - pd.Timedelta(nanoseconds=1)])
+            nav = pd.concat([baseline, nav])
+        return PortfolioAnalyzer(nav, risk_free_rate=analyzer.risk_free_rate,
+            annualizer=analyzer.annualizer, window=analyzer.window, daily_returns=returns)
 
     def _format_percentage(self, value):
         return f"{value:.2%}" if isinstance(value, (float, np.float64)) else str(value)
 
     def generate_annual_report(self, excel_path=None):
         """分年度绩效报告"""
-        annual_groups = self.analyzer.nav.groupby(pd.Grouper(freq='YE'))
+        annual_groups = self.analyzer.returns.groupby(pd.Grouper(freq='YE'))
         report_data = []
-        for year, nav_series in annual_groups:
-            if len(nav_series) < 5:
+        for year, returns in annual_groups:
+            if returns.empty:
                 continue
-            ya = PortfolioAnalyzer(nav_series)
+            ya = self._window(self.analyzer, returns.index.min(), returns.index.max())
             report_data.append({
                 'Year': year.year,
                 'Return': ya.total_return(),
@@ -307,7 +358,7 @@ class ReportExporter:
                 'MaxDD': ya.max_drawdown(),
                 'Sharpe': ya.sharpe_ratio(),
             })
-        df = pd.DataFrame(report_data).set_index('Year')
+        df = pd.DataFrame(report_data, columns=['Year', 'Return', 'Volatility', 'MaxDD', 'Sharpe']).set_index('Year')
         self._print_cli_table(df, title="分年度绩效报告")
         if excel_path:
             self._export_to_excel(df, excel_path, sheet_name="Annual")
@@ -315,11 +366,10 @@ class ReportExporter:
 
     def generate_custom_report(self, start_date, end_date, excel_path=None):
         """指定时段绩效报告"""
-        subset = self.analyzer.nav.loc[start_date:end_date]
-        if len(subset) < 2:
-            print(f"⚠️ 警告: {start_date}至{end_date}期间数据不足（仅{len(subset)}条），跳过")
+        ca = self._window(self.analyzer, start_date, end_date)
+        if ca.returns.empty:
+            print(f"⚠️ 警告: {start_date}至{end_date}期间无日收益，跳过")
             return None
-        ca = PortfolioAnalyzer(subset)
         metrics = {
             '累计收益': ca.total_return(),
             '年化波动率': ca.annualized_volatility(),
@@ -390,15 +440,14 @@ class Analyst:
                       benchmark_code=None, benchmark_metric='close',
                       benchmark_table_names=None, factor_values=None):
         """
-        从回测实例构建。自动抽取 nav / actual_weight / daily_position_value /
-        daily_pnl / rebalance_log。
+        从回测实例构建，使用实际日收益、漂移持仓、交易周期及显式研究区间。
 
         Args:
             bt: BacktestBase 实例（须已完成回测，含 nav 等属性）
             benchmark: 基准 nav Series 或另一个 bt 实例
             benchmark_code: 基准代码；仅在 benchmark 未传入时按代码查库构造基准净值
             benchmark_metric: 基准价格字段
-            factor_values: 因子长表；用于结合回测价格计算 IC
+            factor_values: 因子长表；配合 research_forward_returns 计算 IC
             name: 组合名称（用于报告标题）
         """
         bench_nav = None
@@ -413,7 +462,9 @@ class Analyst:
                 benchmark_table_names,
             )
 
-        weight = getattr(bt, 'actual_weight', None)
+        weight = getattr(bt, 'daily_weight', None)
+        if weight is None:
+            weight = getattr(bt, 'actual_weight', None)
         if weight is None:
             weight = getattr(bt, 'weight', None)
 
@@ -428,8 +479,13 @@ class Analyst:
             rebalance_log=getattr(bt, 'rebalance_log', None),
             benchmark=bench_nav,
             cost_price=getattr(bt, 'cost_price', None),
-            factor_values=factor_values,
+            factor_values=factor_values if factor_values is not None else getattr(bt, 'factor_values', None),
+            daily_returns=getattr(bt, 'daily_returns', None), daily_amount=getattr(bt, 'daily_amount', None),
+            synthetic_settlements=getattr(bt, 'synthetic_settlements', None), risk_events=getattr(bt, 'risk_events', None),
+            forward_returns=getattr(bt, 'research_forward_returns', None), research_schedule=getattr(bt, 'research_schedule', None),
+            trade_cycles=getattr(bt, 'trade_cycles', None),
         )
+        an.metadata.update(calculation_version=getattr(bt, 'calculation_version', 'legacy'))
         return cls(an, name=name)
 
     @classmethod
@@ -453,15 +509,41 @@ class Analyst:
         if nav is None:
             raise ValueError("Excel 缺少 nav sheet")
 
+        def series(sheet):
+            value = _read(sheet)
+            return value.iloc[:, 0] if value is not None and len(value.columns) else None
+
+        def rows(sheet):
+            value = _read(sheet, index_col=None)
+            if value is not None:
+                for column in ('datetime', 'target_ts', 'trigger_ts', 'execution_ts', 'entry_ts', 'exit_ts',
+                               'signal_date', 'signal_ts', 'target_ts', 'forward_end_ts', 'start_ts', 'end_ts', '信号日'):
+                    if column in value:
+                        value[column] = pd.to_datetime(value[column], errors='coerce')
+            return value
+
+        meta = _read('meta', index_col=None)
+        metadata = dict(zip(meta['key'], meta['value'])) if meta is not None and {'key', 'value'}.issubset(meta.columns) else {}
+        cost_price = _read('cost_price')
+        if cost_price is not None and str(metadata.get('calculation_version', '')).startswith('backtest-v2'):
+            cost_price.attrs['index_role'] = 'execution_events'
+        forward = rows('research_forward_returns')
+        if forward is not None and 'valid' in forward:
+            forward['valid'] = forward['valid'].fillna(False).astype(bool)
+        extras = dict(daily_returns=series('daily_returns'), daily_amount=series('daily_amount'),
+            synthetic_settlements=rows('synthetic_settlements'), risk_events=rows('risk_events'),
+            forward_returns=forward, research_schedule=rows('research_schedule'),
+            trade_cycles=rows('trade_cycles'), factor_values=rows('factor_values'), cost_price=cost_price)
+        extras.update(kwargs)
         an = PortfolioAnalyzer(
             nav_series=nav,
-            weight=_read('actual_weight') if 'actual_weight' in xls.sheet_names else _read('weight'),
+            weight=_read('daily_weight') if 'daily_weight' in xls.sheet_names else (
+                _read('actual_weight') if 'actual_weight' in xls.sheet_names else _read('weight')),
             daily_position_value=_read('daily_position_value'),
-            daily_pnl=_read('daily_pnl'),
-            rebalance_log=_read('rebalance_log', index_col=None),
-            benchmark=benchmark,
-            **kwargs,
+            daily_pnl=_read('daily_pnl'), rebalance_log=rows('rebalance_log'),
+            benchmark=benchmark, **extras,
         )
+        an.metadata.update(metadata)
         return cls(an, name=name)
 
     # ── 中文名映射 ─────────────────────────────────────────────────────────
@@ -503,12 +585,7 @@ class Analyst:
         return df
 
     def trade_pnl_df(self) -> pd.DataFrame:
-        if self.an.rebalance_log is None:
-            return pd.DataFrame()
-        df = M.trade_pnl(self.an.rebalance_log)
-        if not df.empty:
-            df.index = [label(c, self.name_map) for c in df.index]
-        return df
+        return self.an.trade_cycles.copy()
 
     def monthly_table(self) -> pd.DataFrame:
         return M.monthly_returns_table(self.an.nav)
@@ -618,6 +695,10 @@ class Analyst:
             mt = self.monthly_table()
             if not mt.empty:
                 mt.to_excel(writer, sheet_name='月度收益')
+            pd.DataFrame(list(self.an.metadata.items()), columns=['key', 'value']).to_excel(
+                writer, sheet_name='评价口径', index=False)
+            if self.an.diagnostics:
+                pd.DataFrame({'diagnostic': self.an.diagnostics}).to_excel(writer, sheet_name='诊断', index=False)
         print(f"Excel 报告已保存至: {filepath}")
         return filepath
 
@@ -635,6 +716,10 @@ class Analyst:
         sdf = self.summary_df()
         parts.append("<h2>指标汇总</h2>")
         parts.append(sdf[['类别', '指标', '展示']].to_html(index=False, border=0))
+        parts.append("<h2>评价口径</h2>")
+        parts.append(pd.DataFrame(list(self.an.metadata.items()), columns=['key', 'value']).to_html(index=False, border=0))
+        if self.an.diagnostics:
+            parts.append(pd.DataFrame({'diagnostic': self.an.diagnostics}).to_html(index=False, border=0))
         # 交互图
         first = True
         for title, fig in self.interactive_plots().items():

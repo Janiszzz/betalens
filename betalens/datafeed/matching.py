@@ -5,11 +5,11 @@ are fetched. This preserves all same-time conflicts and NULL revisions.
 """
 from itertools import product
 
-from .contracts import PROVEN_AVAILABILITY, ACCEPTED_QUALITY, timestamp
+from .contracts import PROVEN_AVAILABILITY, RESEARCH_AVAILABILITY, ACCEPTED_QUALITY, timestamp
 from .readers import select_sql, typed_rows
 
 
-def nearest_candidates(reader, table, fields, filters, codes, anchors, direction, *, ranges=False):
+def nearest_candidates(reader, table, fields, filters, codes, anchors, direction, *, ranges=False, policy="research"):
     # Fetching every row at a winning timestamp lets the common business layer
     # detect conflicts. Selecting only a single argMax row would hide them.
     condition = "f.available_at <= i.at" if direction == "before" else "f.available_at > i.at"
@@ -25,7 +25,7 @@ def nearest_candidates(reader, table, fields, filters, codes, anchors, direction
         block_filters = list(filters)
         block_filters.extend([("security_code", "IN", list(dict.fromkeys(r[0] for r in block))),
             ("available_at", "IS NOT NULL", None),
-            ("availability_basis", "IN", sorted(PROVEN_AVAILABILITY)),
+            ("availability_basis", "IN", sorted(PROVEN_AVAILABILITY if policy == "strict" else RESEARCH_AVAILABILITY)),
             ("data_quality_status", "IN", sorted(ACCEPTED_QUALITY))])
         source, params = select_sql(reader, table, list(fields), block_filters)
         bound = dict(params)

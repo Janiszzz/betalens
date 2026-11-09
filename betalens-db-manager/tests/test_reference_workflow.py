@@ -90,6 +90,20 @@ def test_persistent_plan_uses_all_calendar_dates_and_explicit_bse_reference(tmp_
     with pytest.raises(ValueError,match='中断'):acquire_reference(service,workflow.job(job['id']))
 
 
+
+def test_bulk_reference_uses_complete_months_and_keeps_subscription_rate(tmp_path):
+    service=DatabaseManagerService(Settings(config_dir=tmp_path/'config',state_dir=tmp_path/'state'))
+    codes=[f'{n:06}.SZ' for n in range(1,501)]
+    job=ReferenceWorkflow(service).plan(request(modules=['suspension'],security_codes=codes,
+        start_date='2005-01-01',end_date='2005-12-31',requests_per_minute=500))
+    roots=job['plan']['requests']
+    assert job['plan']['request']['requests_per_minute']==500
+    assert job['plan']['request']['security_codes']==codes
+    assert len([r for r in roots if r['endpoint']=='suspend_d'])==12
+    assert len([r for r in roots if r['endpoint']=='stock_basic'])==3
+    assert all('ts_code' not in r['parameters'] for r in roots if r['endpoint']=='suspend_d')
+
+
 def test_worker_hard_exit_records_reference_attempt_without_granting_trust(tmp_path):
     from betalens_db_manager.worker import interrupt_attempts
     service=DatabaseManagerService(Settings(config_dir=tmp_path/'config',state_dir=tmp_path/'state'))

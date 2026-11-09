@@ -190,9 +190,8 @@ class TablePagingTests(unittest.TestCase):
         self.assertAlmostEqual(group[("2024-01-03", "G2")], 1.08)
         self.assertEqual(charts["tradePairs"][0]["buyDate"], "2024-01-01")
         self.assertAlmostEqual(charts["tradePairs"][0]["return"], 0.2)
-        self.assertEqual(charts["annualTrade"], [
-            {"year": "2024", "avgReturn": 0.2, "winRate": 1.0, "tradeCount": 1}
-        ])
+        self.assertEqual(charts["tradePairs"][0]["accountingStatus"], "legacy_incomplete")
+        self.assertEqual(charts["annualTrade"], [])
 
     def test_generated_group_nav_converts_zero_based_factor_labels(self) -> None:
         class FakeBacktest:

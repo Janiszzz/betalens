@@ -8,6 +8,8 @@ from datetime import date
 import json
 from statistics import median
 import time
+import os
+import threading
 import tracemalloc
 from types import MethodType
 
@@ -73,6 +75,13 @@ def transfer_stats(data, args, engine, filters):
             "decoded_json_bytes": reader._benchmark_bytes, "scan_rows": scans}
 
 
+def sample_rss(stop, samples):
+    while not stop.is_set():
+        with open("/proc/self/statm") as stream:
+            samples.append(int(stream.read().split()[1]) * os.sysconf("SC_PAGE_SIZE"))
+        stop.wait(0.005)
+
+
 def measure(data, args, engine, filters):
     start = time.perf_counter()
     result = _nearest(data, *args, engine=engine, filters=filters)
@@ -83,12 +92,19 @@ def measure(data, args, engine, filters):
         start = time.perf_counter()
         _nearest(data, *args, engine=engine, filters=filters)
         times.append(time.perf_counter() - start)
+    rss = []
+    stop = threading.Event()
+    sampler = threading.Thread(target=sample_rss, args=(stop, rss))
+    sampler.start()
     tracemalloc.start()
     _nearest(data, *args, engine=engine, filters=filters)
     _, peak = tracemalloc.get_traced_memory()
     tracemalloc.stop()
+    stop.set()
+    sampler.join()
     metrics = {"first_ms": first * 1000, "median_ms": median(times) * 1000,
                "p95_ms": float(np.percentile(times, 95)) * 1000, "python_peak_mb": peak / 1024**2,
+               "process_peak_rss_mb": max(rss, default=0) / 1024**2,
                **transfer_stats(data, args, engine, filters)}
     return result, metrics
 
@@ -113,7 +129,7 @@ def main():
         for backend, config in configs.items():
             for name, args in scenarios.items():
                 filters = {"statement_type": "income", "report_type": "1"} if args[0] == "fundamental_periodic" else {"asset_type": "stock"}
-                with Datafeed(args[0], config, backend=backend) as data:
+                with Datafeed(args[0], config, backend=backend, pit_policy="research") as data:
                     python_result, python_metrics = measure(data, args, "python", filters)
                     sql_result, sql_metrics = measure(data, args, "sql", filters)
                     pd.testing.assert_frame_equal(python_result, sql_result)

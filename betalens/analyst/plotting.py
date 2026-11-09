@@ -231,12 +231,13 @@ def plot_timing_nav_with_trades(nav: pd.Series, trade_pairs: pd.DataFrame,
             # 买入点
             bd = row['buy_date']
             bv = nav.asof(bd) if bd in nav.index else nav.loc[nav.index >= bd].iloc[0] if any(nav.index >= bd) else nav.iloc[-1]
-            ax.plot(bd, bv, marker='^', color='red', markersize=9, zorder=5)
+            short = row.get('side') == 'short'
+            ax.plot(bd, bv, marker='v' if short else '^', color='green' if short else 'red', markersize=9, zorder=5)
 
             # 卖出点 + 收益标注
             sd = row['sell_date']
             sv = nav.asof(sd) if sd in nav.index else nav.loc[nav.index >= sd].iloc[0] if any(nav.index >= sd) else nav.iloc[-1]
-            ax.plot(sd, sv, marker='v', color='green', markersize=9, zorder=5)
+            ax.plot(sd, sv, marker='^' if short else 'v', color='red' if short else 'green', markersize=9, zorder=5)
             ret = row['return']
             sign = '+' if ret >= 0 else ''
             ax.annotate(f'{sign}{ret:.1%}', (sd, sv),
@@ -249,9 +250,9 @@ def plot_timing_nav_with_trades(nav: pd.Series, trade_pairs: pd.DataFrame,
         handles = [
             Line2D([0], [0], color='black', linewidth=1, label='净值'),
             Line2D([0], [0], marker='^', color='red', linestyle='None',
-                   markersize=9, label='买入'),
+                   markersize=9, label='买入（多头开仓/空头平仓）'),
             Line2D([0], [0], marker='v', color='green', linestyle='None',
-                   markersize=9, label='卖出'),
+                   markersize=9, label='卖出（多头平仓/空头开仓）'),
         ]
         ax.legend(handles=handles, fontsize=9, loc='best')
     else:

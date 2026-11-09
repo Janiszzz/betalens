@@ -3,11 +3,13 @@
 from .core import Datafeed, get_absolute_trade_days, trade_periods_offset
 from .industry import get_industry_members, query_industry
 from .validation import FillStrategy
+from .status import query_trade_risks
 from .contracts import DatafeedError, SchemaError, PITUnavailableError, VersionConflictError
 from .universe import get_index_universe, get_index_universe_date, get_index_universe_panel
 
 __all__ = [
     "Datafeed",
+    "query_trade_risks",
     "FillStrategy",
     "DatafeedError",
     "SchemaError",

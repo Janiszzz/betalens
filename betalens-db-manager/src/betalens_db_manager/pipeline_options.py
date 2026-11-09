@@ -9,7 +9,7 @@ PLANNING_SEED = ContextVar('pipeline_planning_seed',default=False)
 RULES = ('values', 'relations', 'readback')
 DEFAULTS = dict(pipeline_version=2, auto_commit=True, run_in_background=True,
                 validation_profile='light', post_check_rules=[], download_workers=BUDGET.download_workers,
-                normalization_workers=BUDGET.cpu_workers, commit_batch_rows=50000,
+                normalization_workers=BUDGET.cpu_workers, history_batch_size=10, commit_batch_rows=50000,
                 commit_batch_bytes=64*1024*1024, commit_batch_max_wait_seconds=1,
                 memory_budget_bytes=BUDGET.processing_memory_bytes, backlog_high_bytes=8*1024**3,
                 backlog_low_bytes=4*1024**3, min_free_bytes=10*1024**3,
@@ -27,7 +27,7 @@ def options(request):
     if not isinstance(rules,list) or any(r not in RULES for r in rules):raise ValueError('未知事后校验规则')
     value['post_check_rules']=list(dict.fromkeys(rules))
     if value['validation_profile']=='strict':value['post_check_rules']=list(RULES)
-    for key,low,high in [('download_workers',1,BUDGET.download_max_workers),('normalization_workers',1,BUDGET.cpu_workers),('commit_batch_rows',1,200000),
+    for key,low,high in [('download_workers',1,BUDGET.download_max_workers),('normalization_workers',1,BUDGET.cpu_workers),('history_batch_size',1,100),('commit_batch_rows',1,200000),
                           ('commit_batch_bytes',1024,256*1024**2),('commit_batch_max_wait_seconds',1,60),
                           ('memory_budget_bytes',64*1024**2,BUDGET.processing_memory_bytes),('backlog_high_bytes',1024,8*1024**3),
                           ('backlog_low_bytes',0,1024**4),('min_free_bytes',0,1024**4)]:

@@ -142,48 +142,19 @@ def _ensure_profiling_runtime():
 
 def fetch_daily_wide(metric, universe=None, start_date=None, end_date=None,
                      table_name=DB_TABLE, *, filters=None):
+    from betalens.datafeed.daily import daily_wide
     data = Datafeed(table_name)
     try:
-        df = data.query_time_range(codes=universe, start_date=start_date,
-                                   end_date=end_date, metric=metric, filters=filters)
+        frame = data.query_daily_market(codes=universe, start_date=start_date,
+                                       end_date=end_date, metrics=[metric], filters=filters)
     finally:
         data.close()
-    if df.empty:
-        return pd.DataFrame()
-    df['value'] = pd.to_numeric(df['value'], errors='coerce')
-    df['datetime'] = pd.to_datetime(df['datetime'])
-    return df.pivot_table(index='datetime', columns='code', values='value').sort_index()
+    return daily_wide(frame, metric)
 
 
 def align_daily_wides(wides):
-    """Align daily metrics by trade date at that day's latest availability time."""
-    import pandas as pd
-
-    nonempty = [wide for wide in wides.values() if wide is not None and not wide.empty]
-    if not nonempty:
-        return dict(wides)
-
-    latest_by_day = {}
-    for wide in nonempty:
-        for ts in pd.DatetimeIndex(wide.index):
-            stamp = pd.Timestamp(ts)
-            day = stamp.normalize()
-            if day not in latest_by_day or stamp > latest_by_day[day]:
-                latest_by_day[day] = stamp
-    days = pd.DatetimeIndex(sorted(latest_by_day))
-    canonical_index = pd.DatetimeIndex([latest_by_day[day] for day in days])
-
-    aligned = {}
-    for name, wide in wides.items():
-        if wide is None or wide.empty:
-            aligned[name] = wide
-            continue
-        frame = wide.copy()
-        frame.index = pd.DatetimeIndex(frame.index).normalize()
-        frame = frame.loc[~frame.index.duplicated(keep="last")].reindex(days)
-        frame.index = canonical_index
-        aligned[name] = frame
-    return aligned
+    from betalens.factor.research import align_daily_wides as align
+    return align(wides)
 
 
 def wide_to_prequery(wide_df, metric_name, signal_dates):
@@ -526,27 +497,11 @@ def _match_trade_pairs(rebalance_log):
 
 
 def _compute_group_nav(bt, factor_values, n_quantiles: int):
-    """从已有回测的 cost_ret 直接计算各分组等权净值，无需额外查库。
-
-    原理：bt.cost_ret 已记录每个调仓区间内各标的的价格变化率；
-    factor_values 给出每个信号日各分组的成员；两者结合即可得到各组
-    等权持仓期收益，cumprod 后得到净值曲线（从 1.0 出发）。
-
-    Args:
-        bt:            已完成回测的 BacktestBase 实例（含 cost_ret）
-        factor_values: _labeled_to_factor_values 输出（信号日/股票代码/分组）
-        n_quantiles:   分组数
-
-    Returns:
-        DataFrame: index=调仓日, columns=[G1..Gn]，净值从 1.0 出发
-    """
-    from betalens.analyst.metrics import group_nav
-
-    return group_nav(
-        getattr(bt, 'cost_ret', None),
-        _factor_values_for_group_nav(factor_values, n_quantiles),
-        n_quantiles,
-    )
+    """Ideal research groups are independent of strategy execution/risk events."""
+    result = getattr(bt, 'research_group_nav', None)
+    if result is None:
+        raise ValueError('缺少独立研究价格和调仓映射，不能从 cost_ret 推断分组净值')
+    return result
 
 
 # ============================================================
@@ -833,6 +788,10 @@ class FactorPipeline:
             universe: list | None = None,
             n_quantiles: int = 20,
             initial_amount: float = 1e8,
+            risk: dict | None = None,
+            price_time_map: dict | None = None,
+            ftc: float = 0.0,
+            ptc: float = 0.0,
             benchmark_code: str | None = None,
             output_dir: str = ".",
             extra_inputs: dict[str, pd.DataFrame] | None = None,
@@ -867,10 +826,12 @@ class FactorPipeline:
         td = sorted(all_trade_days)
         td_idx = {d: i for i, d in enumerate(td)}
         signal_dates = []
+        valid_rebalance_dates = []
         for rd in rebalance_dates:
             i = td_idx.get(rd)
             if i is not None and i > 0:
                 signal_dates.append(td[i - 1])
+                valid_rebalance_dates.append(rd)
 
         # 1. 股票池：时变成分股（PIT）或静态 universe
         pit_universe = None
@@ -1022,7 +983,6 @@ class FactorPipeline:
             'group_weights': sp.group_weights,
             'intra_group_allocation': sp.intra_group_allocation,
         })
-        weights = _expand_weights_to_factor_universe(weights, factor_values)
         if verbose:
             print(f"  完成生成权重: {weights.shape}", flush=True)
         pit_validation = validate_weights_in_pit_universe(weights, pit_universe)
@@ -1034,13 +994,22 @@ class FactorPipeline:
         if "cash" not in weights.columns:
             weights = weights.copy()
             weights["cash"] = 1.0 - weights.sum(axis=1)
-        weights.index = weights.index + pd.Timedelta(minutes=10)
+        from betalens.factor.research import build_rebalance_schedule, weights_on_schedule
+        research_schedule = build_rebalance_schedule(signal_dates, valid_rebalance_dates, wides=wides)
+        weights = weights_on_schedule(weights, research_schedule)
 
         # 7. 回测
         if verbose:
             print("  开始回测", flush=True)
+        from betalens.backtest import validate_risk_config
+        validate_risk_config(risk, sp.compute_kwargs)
         bt = BacktestBase(weights, metric=sp.backtest_metric, symbol=sp.name,
-                          amount=initial_amount, time_tolerance=24 * 11)
+                          amount=initial_amount, end_date=end_date, risk=risk,
+                          price_time_map=price_time_map, ftc=ftc, ptc=ptc, verbose=verbose)
+        from betalens.factor.research import attach_research
+        factor_values = attach_research(bt, factor_values, research_schedule,
+            n_quantiles if sp.strategy_type in {'cross_section', 'cross_sectional'} else 0,
+            metric=sp.backtest_metric, price_time_map=price_time_map)
         if verbose:
             print("  完成回测", flush=True)
 
@@ -1051,7 +1020,7 @@ class FactorPipeline:
             bt,
             name=sp.name,
             benchmark_code=benchmark_code,
-            benchmark_metric=sp.backtest_metric,
+            benchmark_metric="close",
             factor_values=factor_values,
         )
         summary = analyst.report(
@@ -1065,10 +1034,10 @@ class FactorPipeline:
             print("  开始生成静态图", flush=True)
         import betalens.analyst.plotting as _P
 
-        trade_pairs = _match_trade_pairs(bt.rebalance_log)
+        trade_pairs = bt.trade_cycles.loc[bt.trade_cycles.status.eq('closed')].copy()
         group_nav = pd.DataFrame()
 
-        if sp.strategy_type == 'cross_section':
+        if sp.strategy_type in {'cross_section', 'cross_sectional'}:
             if verbose:
                 print(f"  跑各分组净值回测 (n_quantiles={n_quantiles})", flush=True)
             group_nav = _compute_group_nav(bt, factor_values, n_quantiles)

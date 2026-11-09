@@ -139,9 +139,7 @@ factors:
 evaluation:
   span: ["2015-01-01", "2022-12-31"]
   rebal_freq: D
-  engine: vector
   initial_amount: 100000000
-  time_tolerance: 24
 
 windows:
   lengths: [252, 756]

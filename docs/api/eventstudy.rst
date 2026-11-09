@@ -10,7 +10,7 @@ EventStudy
 
    :param datafeed: :class:`betalens.datafeed.Datafeed` 实例，用于查询价格数据
 
-   .. py:method:: analyze(events, code, window_before=5, window_after=5, metric='收盘价(元)', periods=None, holding_periods=None, holding_start_offset=0, market_close_hour=15, benchmark_code=None, multi_asset_mode='aggregate', exchange='SHSE')
+   .. py:method:: analyze(events, code, window_before=5, window_after=5, metric='close', periods=None, holding_periods=None, holding_start_offset=0, market_close_hour=15, benchmark_code=None, multi_asset_mode='aggregate', exchange='SSE', price_time_map=None)
 
       分析事件前后的收益率表现。
 
@@ -18,14 +18,15 @@ EventStudy
       :param code: 证券代码（str 单标的 | List[str] 多标的取平均）
       :param window_before: 事件前窗口期数
       :param window_after: 事件后窗口期数
-      :param metric: 价格指标名称，如 ``'收盘价(元)'``
+      :param metric: 物理价格字段，如 ``'close'`` / ``'open'``
       :param periods: 可选的时间分段序列（pd.Series），用于分组统计
       :param holding_periods: 持有期字典，如 ``{'days': [1,2,3,4,5], 'months': [1,3,6,9,12]}``；不传时使用该默认值
       :param holding_start_offset: 持有起点偏移天数（0=Day 0, -3=提前3天）
       :param market_close_hour: 市场收盘时间（小时），默认 15
       :param benchmark_code: 基准代码，提供时计算超额收益 = 标的收益 - 基准收益
       :param multi_asset_mode: 多标的处理方式；``'aggregate'`` 保持等权聚合，``'compare'`` 同时返回逐标的比较结果
-      :param exchange: 标准交易日历交易所代码，默认 ``'SHSE'``
+      :param exchange: 标准交易日历交易所代码，默认 ``'SSE'``；兼容 ``'SHSE'``
+      :param price_time_map: 自定义价格字段的观测时刻映射，格式 ``{字段: 'HH:MM'}``
       :return: 结果字典，包含以下键：
 
          - ``daily_stats`` (pd.DataFrame): 每日收益统计，index=day，列含 mean, std, positive_prob, odds, t_stat, count
@@ -34,6 +35,8 @@ EventStudy
          - ``returns_matrix`` (pd.DataFrame): 收益矩阵，行=相对天数，列=事件编号
          - ``trade_days`` (pd.DatetimeIndex): 本次分析实际使用的标准交易日序列
          - ``holding_returns_matrix`` (pd.DataFrame): 每次事件的固定持有收益矩阵
+         - ``holding_coverage`` (pd.DataFrame): 各事件、各持有期的标的覆盖率
+         - ``return_model`` (str): ``per_asset_interval_then_average``
          - ``price_matrix`` (pd.DataFrame): 每次事件的价格曲线，Day 0 归一化为 0
          - ``stock_returns_dict`` (dict, 多标的模式): {代码: 收益矩阵}
          - ``valid_codes`` (list, 多标的模式): 有效代码列表
@@ -44,9 +47,10 @@ EventStudy
 
       .. note::
 
-         ``daily_stats`` 使用每个交易日自身的收盘价涨跌幅。事件在 15:00 前以当日为 Day 0，15:00 后以下一标准交易日为 Day 0。
+         ``daily_stats`` 使用每个交易日自身的价格涨跌幅。事件严格早于观测时刻时以当日为 Day 0，等于或晚于时以下一标准交易日为 Day 0。
          相对日由 ``get_absolute_trade_days(..., "D")`` 提供的标准交易日序列确定。
-         compare 模式至少需要两个代码；多标的共性结果在同一事件和相对日内对可用标的等权平均。
+         compare 模式至少需要两个代码；日收益按相对日求均值，持有收益逐标的独立复合后求均值。
+         超额持有收益为累计标的收益减累计基准收益。
 
    .. py:method:: plot_bar(daily_stats, title='事件前后平均收益率', figsize=(12, 6), save_path=None)
 

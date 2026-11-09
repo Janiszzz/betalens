@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from .contracts import PITUnavailableError, VersionConflictError, local_time, proven, timestamp, calendar_date
+from .contracts import PITUnavailableError, VersionConflictError, local_time, available, timestamp, pit_policy as resolve_policy, calendar_date
 from .readers import get_reader, require_columns
 from .query import PROVEN_COLUMNS
 
@@ -22,14 +22,15 @@ def _snapshots(reader, index_code):
         raise PITUnavailableError("index_membership 缺少完整快照证明(snapshot_complete/snapshot_member_count)；不能推定成分完整")
     require_columns(reader, table, proof)
     groups = defaultdict(list)
-    for row in reader.rows(table, filters=[("index_code", "=", index_code)]):
+    for row in reader.rows(table, ["index_code", "security_code", "trade_date", *PROVEN_COLUMNS, *proof], filters=[("index_code", "=", index_code)]):
         groups[row["trade_date"]].append(row)
     return groups
 
 
-def _snapshot_at(groups, at):
+def _snapshot_at(groups, at, policy="research"):
     day = local_time(at).date()
-    candidates = [d for d, rows in groups.items() if d <= day and all(proven(row, at) for row in rows)]
+    candidates = [d for d, rows in groups.items() if d <= day and rows and all(available(row, at, policy) for row in rows)
+                  and all(r["snapshot_complete"] == 1 for r in rows)]
     if not candidates:
         raise PITUnavailableError("查询时点没有历史可知的指数完整快照")
     selected = max(candidates)
@@ -44,7 +45,8 @@ def _snapshot_at(groups, at):
 
 
 def get_index_universe_panel(source, index_code, dates, table_name=DEFAULT_TABLE,
-                             metric=DEFAULT_METRIC):
+                             metric=DEFAULT_METRIC, *, pit_policy=None):
+    policy = resolve_policy(source, pit_policy)
     if table_name != DEFAULT_TABLE or metric != DEFAULT_METRIC:
         raise NotImplementedError("指数成分查询仅支持 index_membership/universe")
     if isinstance(dates, str):
@@ -55,24 +57,26 @@ def get_index_universe_panel(source, index_code, dates, table_name=DEFAULT_TABLE
     reader = get_reader(source)
     with reader.snapshot():
         groups = _snapshots(reader, index_code)
-    return {local_time(timestamp(d)).date(): set(_snapshot_at(groups, timestamp(d))[1]) for d in dates}
+    return {local_time(timestamp(d)).date(): set(_snapshot_at(groups, timestamp(d), policy)[1]) for d in dates}
 
 
 def get_index_universe_date(source, index_code, date, table_name=DEFAULT_TABLE,
-                            metric=DEFAULT_METRIC):
+                            metric=DEFAULT_METRIC, *, pit_policy=None):
+    policy = resolve_policy(source, pit_policy)
     if table_name != DEFAULT_TABLE or metric != DEFAULT_METRIC:
         raise NotImplementedError("指数成分查询仅支持 index_membership/universe")
     reader = get_reader(source)
     with reader.snapshot():
         groups = _snapshots(reader, index_code)
-    return timestamp(_snapshot_at(groups, timestamp(date))[0]).tz_convert("Asia/Shanghai").tz_localize(None).to_pydatetime()
+    return timestamp(_snapshot_at(groups, timestamp(date), policy)[0]).tz_convert("Asia/Shanghai").tz_localize(None).to_pydatetime()
 
 
 def get_index_universe(source, index_code, date, table_name=DEFAULT_TABLE,
-                        metric=DEFAULT_METRIC):
+                        metric=DEFAULT_METRIC, *, pit_policy=None):
+    policy = resolve_policy(source, pit_policy)
     if table_name != DEFAULT_TABLE or metric != DEFAULT_METRIC:
         raise NotImplementedError("指数成分查询仅支持 index_membership/universe")
     reader = get_reader(source)
     with reader.snapshot():
         groups = _snapshots(reader, index_code)
-    return _snapshot_at(groups, timestamp(date))[1]
+    return _snapshot_at(groups, timestamp(date), policy)[1]

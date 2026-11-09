@@ -29,8 +29,19 @@ def test_frozen_options_and_large_requests(tmp_path):
     assert planned['pipeline_version']==2
     assert not any(r['endpoint']=='daily_basic' for r in planned['requests'])
     assert sum(r['endpoint']=='daily' for r in planned['requests'])==1
-    assert planned['request']['requests_per_minute']==450
+    assert planned['request']['requests_per_minute']==s.settings.requests_per_minute
     assert planned['retrieval_policies']['tushare:stock_basic']['endpoint_rpm']==50
+
+
+
+@pytest.mark.parametrize('rate',[200,500])
+def test_explicit_subscription_rate_is_preserved_and_endpoint_caps_remain(tmp_path,rate):
+    s=manager(tmp_path)
+    plan=s.compile({'tables':['market_daily_raw'],'source_id':'tushare','asset_types':['stock'],
+        'start_date':'2005-01-01','end_date':'2005-01-02','requests_per_minute':rate})
+    assert plan['request']['requests_per_minute']==rate
+    assert plan['retrieval_policies']['tushare:daily']['effective_rpm']==rate
+    assert plan['retrieval_policies']['tushare:stock_basic']['effective_rpm']==50
 
 
 def test_stage_leases_are_exclusive_and_explicitly_recoverable(tmp_path):
@@ -295,3 +306,31 @@ def test_real_failed_download_refreshes_child_checkpoint_on_retry(live_manager,p
     assert Pipeline(s).run(job['id'])['status']=='completed'
     with registry_context(s.registry):
         assert len(s.pg.query('pipeline_quotes')['rows'])==2 and len(s.ch.query('pipeline_quotes')['rows'])==2
+
+
+def test_compact_progress_is_bounded_and_polling_reuses_snapshot(tmp_path,monkeypatch):
+    from betalens_db_manager.pipeline import Pipeline
+    from copy import deepcopy
+    s=manager(tmp_path);pipeline=Pipeline(s);calls=[]
+    sample={'plan':{'requests':[{'n':n} for n in range(1000)]},'pipeline':{}}
+    def compute(job,compact):
+        calls.append(job)
+        return deepcopy(sample)
+    monkeypatch.setattr(pipeline,'_detail',compute)
+    first=pipeline.detail('progress',compact=True)
+    assert pipeline.detail('progress',compact=True) is first
+    assert calls==['progress']
+    assert len(sample['plan']['requests'])==1000
+
+
+def test_compact_pipeline_does_not_return_full_large_request_list(tmp_path):
+    from betalens_db_manager.pipeline import Pipeline
+    s=manager(tmp_path)
+    job=s.plan({'tables':['market_daily_raw'],'source_id':'tushare','endpoints':['daily'],
+                'asset_types':['stock'],'start_date':'2020-01-01','end_date':'2022-12-31'})
+    full_count=len(job['plan']['requests'])
+    assert full_count>100
+    result=Pipeline(s).detail(job['id'],compact=True)
+    assert len(result['plan']['requests'])==100
+    assert result['plan']['requests_count']==full_count
+    assert len(s.state.plan(job['id'])['requests'])==full_count

@@ -57,11 +57,53 @@ def memory_guard(request,root):
     finally:stop.set();thread.join()
 
 
-NORMALIZATION_POLICY_VERSION='normalization-v2-industry-parent-etf-benchmark-20261104'
+NORMALIZATION_POLICY_VERSION='normalization-v2-bounded-index-20261109'
 NORMALIZATION_IMPLEMENTATION='verified-parent-and-archive-closure-20261104'
 
 
 _normalization_service=None
+_detail_lock=threading.Lock()
+_detail_cache={}
+
+
+
+def _retrieval_rows(key,parts,children,counts):
+    if key not in counts:
+        own=0 if parts[key]['status']=='split' else parts[key]['rows'] or 0
+        counts[key]=own+sum(_retrieval_rows(child,parts,children,counts) for child in children[key])
+    return counts[key]
+
+
+def _normalization_items(service,item,max_rows=25000):
+    """Large index histories consume complete disjoint retrieval branches."""
+    plan=item['plan']
+    if plan['request']['tables']!=['index_membership']:
+        yield item;return
+    source=[p for p in item['slices'] if p['dataset']=='index_weight']
+    if sum(p['rows'] or 0 for p in source if p['status']!='split')<=max_rows:
+        yield item;return
+    if any(p['request']['source_id']!='tushare' for p in source):
+        yield item;return
+    from .response_validation import validate_archives
+    if validate_archives(service,item):
+        yield item;return  # The ordinary converter returns the full rejection.
+    preparer=TaskDownloader(service,{**item,'slices':[]})
+    parts={p['id']:p for p in source};children={};counts={}
+    for key,part in parts.items():
+        children[key]=[TaskDownloader.key(preparer.prepared(r)[0]) for r in (part.get('result') or {}).get('children',[])]
+    roots=[TaskDownloader.key(preparer.prepared(r)[0]) for r in plan['requests'] if r['endpoint']=='index_weight']
+    pending=list(reversed(roots))
+    while pending:
+        key=pending.pop()
+        if parts[key]['status']=='split' and _retrieval_rows(key,parts,children,counts)>max_rows:
+            pending.extend(reversed(children[key]));continue
+        selected=[];queue=[key];seen=set()
+        while queue:
+            current=queue.pop()
+            if current in seen:continue
+            seen.add(current);selected.append(parts[current]);queue.extend(reversed(children[current]))
+        local={**plan,'requests':[parts[key]['request']]}
+        yield {**item,'plan':local,'slices':selected}
 
 
 def normalize_child(settings,job):
@@ -90,27 +132,30 @@ def _normalize_child(settings,job):
             return saved
     started=time.monotonic()
     with memory_guard(item['plan']['request'],root),registry_context(service.registry),catalog_snapshot(service.registry),light_normalization():
-        tables,rejects=service._build_canonical(item)
-        result={'cache_key':cache_key,'normalization_policy':NORMALIZATION_POLICY_VERSION,'normalization_implementation':NORMALIZATION_IMPLEMENTATION,'tables':{},'rejected':len(rejects),'reject_sample':rejects[:100]}
-        reasons=collections.Counter((r.get('dataset'),r.get('code'),r.get('reason')) for r in rejects)
+        result={'cache_key':cache_key,'normalization_policy':NORMALIZATION_POLICY_VERSION,'normalization_implementation':NORMALIZATION_IMPLEMENTATION,'tables':{},'rejected':0,'reject_sample':[]}
+        reasons=collections.Counter()
+        import pyarrow as pa
+        from .pipeline_cache import schema
+        for local in _normalization_items(service,item):
+            tables,rejects=service._build_canonical(local)
+            result['rejected']+=len(rejects)
+            result['reject_sample'].extend(rejects[:max(0,100-len(result['reject_sample']))])
+            reasons.update((r.get('dataset'),r.get('code'),r.get('reason')) for r in rejects)
+            for name,rows in tables.items():
+                spec=service.registry.spec(name);records=result['tables'].setdefault(name,[])
+                limit=item['plan']['request']['commit_batch_rows'];byte_limit=item['plan']['request']['commit_batch_bytes']
+                for offset in range(0,len(rows),limit):
+                    pending=[rows[offset:offset+limit]]
+                    while pending:
+                        block=pending.pop(0)
+                        table=pa.Table.from_pylist(block,schema=schema(spec));size=table.nbytes
+                        if size>byte_limit and len(block)>1:
+                            middle=len(block)//2;pending[:0]=[block[:middle],block[middle:]];continue
+                        if size>byte_limit:raise ValueError('单行超过本地批次字节上限')
+                        records.append(write_rows(root/name/(str(len(records))+'.parquet'),spec,table))
+            del tables
         result['reject_summary']=[{'dataset':dataset,'code':code,'reason':reason,'count':count}
                                   for (dataset,code,reason),count in reasons.most_common()]
-        for name,rows in tables.items():
-            spec=service.registry.spec(name);records=[]
-            # Typed Arrow batches cap bytes as well as rows without repeatedly serializing row dictionaries.
-            import pyarrow as pa
-            from .pipeline_cache import schema
-            limit=item['plan']['request']['commit_batch_rows'];byte_limit=item['plan']['request']['commit_batch_bytes']
-            for offset in range(0,len(rows),limit):
-                pending=[rows[offset:offset+limit]]
-                while pending:
-                    block=pending.pop(0)
-                    table=pa.Table.from_pylist(block,schema=schema(spec));size=table.nbytes
-                    if size>byte_limit and len(block)>1:
-                        middle=len(block)//2;pending[:0]=[block[:middle],block[middle:]];continue
-                    if size>byte_limit:raise ValueError('单行超过本地批次字节上限')
-                    records.append(write_rows(root/name/(str(len(records))+'.parquet'),spec,table))
-            result['tables'][name]=records
     result['normalization_seconds']=round(time.monotonic()-started,4)
     atomic_json(index,result);return result
 
@@ -126,6 +171,19 @@ class Pipeline:
         self.s=service;self.store=PipelineStore(service.state)
 
     def detail(self,job,compact=False):
+        if not compact:return self._detail(job,False)
+        key=(str(self.s.settings.state_dir),job)
+        # Polling clients share one short-lived progress snapshot. They must
+        # never expand the same large archive graph in parallel.
+        with _detail_lock:
+            cached=_detail_cache.get(key)
+            if cached and time.monotonic()-cached[0]<3:return cached[1]
+            result=self._detail(job,True)
+            if len(_detail_cache)>=4:_detail_cache.pop(next(iter(_detail_cache)))
+            _detail_cache[key]=(time.monotonic(),result)
+            return result
+
+    def _detail(self,job,compact=False):
         item=self.s.state.job(job);units=self.store.units(job);receipts=self.store.receipts(job)
         item['pipeline']={'units':[{'id':u['id'],'kind':u['kind'],'status':u['status'],'error':u['error'],'result':u['result']} for u in units],
             'receipts':[{k:r[k] for k in ('batch','target','status','result','error')} for r in receipts],
@@ -155,6 +213,8 @@ class Pipeline:
             'local_pending_cohorts':pending,'local_eta_seconds':round(pending*seconds/ready/max(1,item['plan']['request'].get('normalization_workers',1))) if ready else None,
             'cooldowns':[r for r in self.s.state.logs(job,limit=100) if r.get('event')=='rate_limit_cooldown'][-5:]}
         if compact:
+            item['plan']={**item['plan'],'requests_count':len(item['plan'].get('requests',[])),
+                          'requests':item['plan'].get('requests',[])[:100]}
             item['pipeline']['datasets']=sorted({p['dataset'] for p in item['slices']})
             item['pipeline']['physical_slice_count']=len(item['slices'])
             item['slices']=item['slices'][:100]
@@ -348,9 +408,10 @@ class Pipeline:
                 if {'cal_date','is_open'}<=set(fields):open_days.update(str(v[fields.index('cal_date')]) for v in data['items'] if str(v[fields.index('is_open')])=='1')
         groups=collections.OrderedDict()
         history_codes=sorted({str(r['parameters'].get('ts_code') or r['parameters'].get('index_code')) for r in roots if not (r['parameters'].get('trade_date') or r['parameters'].get('period') or r['parameters'].get('nav_date')) and (r['parameters'].get('ts_code') or r['parameters'].get('index_code'))})
-        history_buckets={code:i//100 for i,code in enumerate(history_codes)}
+        history_size=req.get('history_batch_size',100)
+        history_buckets={code:i//history_size for i,code in enumerate(history_codes)}
         batch_history=item['plan'].get('cohort_strategy')=='security_batches_v1'
-        self.s.state.log(job,'retrieval_expansion_plan',requests=len(roots),history_securities=len({code for group in history_codes for code in group.split(',')}),history_request_groups=len(history_codes),local_security_batches=(len(history_codes)+99)//100 if batch_history else len(history_codes),initial_requests=len(item['plan']['requests']))
+        self.s.state.log(job,'retrieval_expansion_plan',requests=len(roots),history_securities=len({code for group in history_codes for code in group.split(',')}),history_request_groups=len(history_codes),local_security_batches=(len(history_codes)+history_size-1)//history_size if batch_history else len(history_codes),history_batch_size=history_size,initial_requests=len(item['plan']['requests']))
         deps={TaskDownloader.key(downloader.prepared(r)[0]) for r in dependencies}
         for root in roots:
             p=root['parameters'];day=p.get('trade_date') or p.get('period') or p.get('nav_date')

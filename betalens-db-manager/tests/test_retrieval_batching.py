@@ -164,3 +164,49 @@ def test_replan_discards_corrupt_cache_and_changed_source(tmp_path):
         plan=original(request);plan['source_instances']={'tushare':'different'};return plan
     s.compile=changed
     with pytest.raises(ValueError,match='来源身份'):s.replan_retrieval(old['id'])
+
+
+def test_recovery_options_keep_scope_and_expand_archive_reuse(tmp_path):
+    s=manager(tmp_path)
+    from test_retrieval import ArchivedSource
+    s.source=ArchivedSource(lambda *_:[])
+    old=s.plan({'tables':['security_dim'],'targets':['postgres'],'asset_types':['stock'],
+               'start_date':'2005-01-01','end_date':'2005-01-02','requests_per_minute':500})
+    TaskDownloader(s,old).run()
+    # A dynamically expanded request is not one of the initial logical roots.
+    extra={**old['plan']['requests'][0],'parameters':{'list_status':'L','ts_code':'000001.SZ'}}
+    TaskDownloader(s,s.state.job(old['id'])).run([extra])
+    before=s.state.job(old['id']);calls=len(s.source.calls)
+    new=s.replan_retrieval(old['id'],{'normalization_workers':1,'history_batch_size':1})
+    assert len(s.source.calls)==calls
+    assert len(new['slices'])==len(before['slices'])
+    assert new['plan']['request']['normalization_workers']==1
+    assert new['plan']['request']['history_batch_size']==1
+    for field in ['tables','start_date','end_date','targets','asset_types','requests_per_minute']:
+        assert new['plan']['request'][field]==before['plan']['request'][field]
+    with pytest.raises(ValueError,match='业务范围'):
+        s.replan_retrieval(old['id'],{'start_date':'2020-01-01'})
+
+
+def test_index_normalization_splits_only_complete_disjoint_branches(tmp_path):
+    from datetime import timedelta
+    from betalens_db_manager.pipeline import _normalization_items
+    from betalens_db_manager.util import parse_date
+    def response(endpoint,p):
+        start,end=parse_date(p['start_date']),parse_date(p['end_date'])
+        return [{'index_code':'000300.SH','con_code':'000001.SZ',
+                 'trade_date':(start+timedelta(days=n)).strftime('%Y%m%d'),'weight':'1'}
+                for n in range((end-start).days+1)]
+    s,_,job=task(tmp_path,'index_weight',{'index_code':'000300.SH','start_date':'20261001','end_date':'20261004'},response,cap=2)
+    TaskDownloader(s,job).run()
+    item=s.state.job(job['id']);item['plan']['request']['tables']=['index_membership']
+    chunks=list(_normalization_items(s,item,max_rows=1))
+    assert len(chunks)==4
+    dates=[]
+    for chunk in chunks:
+        assert validate_archives(s,chunk)==[]
+        for part in chunk['slices']:
+            if part['status']=='split':continue
+            data=read_archive(Path(part['archive']),part['sha'])
+            dates.extend(row[data['fields'].index('trade_date')] for row in data['items'])
+    assert sorted(dates)==['20261001','20261002','20261003','20261004']

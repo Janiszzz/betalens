@@ -1,49 +1,33 @@
 Backtest API
 ============
 
-核心包：:mod:`betalens.backtest`
-
 .. automodule:: betalens.backtest
    :members:
    :undoc-members:
    :show-inheritance:
 
-backtest.backtest
------------------
-
-.. automodule:: betalens.backtest.backtest
-   :members:
-   :undoc-members:
-   :show-inheritance:
-   :member-order: bysource
-
-BacktestBase 当前签名
-~~~~~~~~~~~~~~~~~~~~~
+BacktestBase
+------------
 
 .. code-block:: text
 
    BacktestBase(
-       weight, symbol, amount,
-       ftc=0.0, ptc=0.0, verbose=True,
-       metric='收盘价(元)', time_tolerance=24, table_name='daily_market',
-       check_trade_status=True, trade_status_mode='to_cash',
-       trade_status_table='trade_status', lot_size=100,
+       weight, symbol, amount, ftc=0.0, ptc=0.0, verbose=True,
+       metric="close", table_name="market_daily_post_adjusted",
+       check_trade_status=True, trade_status_mode="to_cash",
+       trade_status_table="stock_suspension_intervals_versions", *,
+       end_date=None, price_time_map=None, risk=None,
    )
 
-从目标调仓权重计算日频净值。回测按整数手成交，未成交资金转入 ``cash``；换仓前可查询 ``trade_status`` 并按 ``trade_status_mode`` 处理停牌持仓。
+目标权重驱动的统一回测。股票数量按板块规则确定，收益使用后复权价格，
+成交股数及费用使用原始价格。``daily_weight`` 为日末漂移权重，
+``actual_weight`` 为成交事件后的实际权重。``position`` 为分红再投等效股数。
 
-:param weight: 目标权重 DataFrame，行是调仓时间，列是证券代码，建议包含 ``cash``。
-:param symbol: 策略名称。
-:param amount: 初始资金。
-:param ftc: 固定交易费用。
-:param ptc: 百分比交易费用。
-:param verbose: 是否打印过程信息。
-:param metric: 成交价格指标，默认 ``收盘价(元)``。
-:param time_tolerance: 价格查询时间容差，单位小时，默认 ``24``。
-:param table_name: 价格表名，默认 ``daily_market``。
-:param check_trade_status: 是否检查交易状态，默认 ``True``。
-:param trade_status_mode: 停牌处理模式：``to_cash`` / ``hold`` / ``redistribute`` / ``as_normal`` / ``report_only``。
-:param trade_status_table: 交易状态表名，默认 ``trade_status``。
-:param lot_size: 一手股数，默认 ``100``。
+``RiskConfig`` 的 ``stop_loss/take_profit`` 默认均为空，``execution_metric`` 默认 open。
+每日收盘以本轮首次实际建仓后复权价格检查，触发后只匹配更晚的成交时点。
 
-关键属性包括 ``nav``、``actual_weight``、``daily_position_value``、``daily_pnl``、``daily_pnl_total``、``rebalance_log``、``position``、``trade_status``、``trade_status_matrix``。
+``time_tolerance``、``lot_size`` 和 ``preloaded_*`` 已删除。
+参见 :doc:`../guide/backtest` 的时间、费用、分红与风控约定。
+
+.. automodule:: betalens.backtest.risk
+   :members:

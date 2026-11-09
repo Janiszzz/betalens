@@ -125,6 +125,10 @@ class LiqDemandPipeline(FactorPipeline):
             universe: list | None = None,
             n_quantiles: int = 20,
             initial_amount: float = 1e8,
+            risk: dict | None = None,
+            price_time_map: dict | None = None,
+            ftc: float = 0.0,
+            ptc: float = 0.0,
             benchmark_code: str | None = None,
             output_dir: str = ".",
             extra_inputs: dict[str, pd.DataFrame] | None = None,
@@ -147,10 +151,12 @@ class LiqDemandPipeline(FactorPipeline):
         td = sorted(all_trade_days)
         td_idx = {d: i for i, d in enumerate(td)}
         signal_dates = []
+        valid_rebalance_dates = []
         for rd in rebalance_dates:
             i = td_idx.get(rd)
             if i is not None and i > 0:
                 signal_dates.append(td[i - 1])
+                valid_rebalance_dates.append(rd)
 
         # 1. 股票池：时变成分股（PIT）或静态 universe
         pit_universe = None
@@ -234,21 +240,24 @@ class LiqDemandPipeline(FactorPipeline):
             'group_weights': sp.group_weights,
             'intra_group_allocation': sp.intra_group_allocation,
         })
-        weights = _expand_weights_to_factor_universe(weights, factor_values)
         pit_validation = validate_weights_in_pit_universe(weights, pit_universe)
         if verbose and pit_universe is not None and not pit_validation.empty:
             bad = int((~pit_validation['passed']).sum())
             print(f"  PIT 权重校验: {len(pit_validation)-bad}/{len(pit_validation)} 期通过")
             if bad:
                 print("  [WARN] 存在调仓股票不在当期 PIT 股票池内，请检查 pit_validation")
-        weights.index = weights.index + pd.Timedelta(minutes=10)
+        from betalens.factor.research import build_rebalance_schedule, weights_on_schedule
+        research_schedule = build_rebalance_schedule(signal_dates, valid_rebalance_dates, wides=wides)
+        weights = weights_on_schedule(weights, research_schedule)
 
         # 6b. PreTOM 择时掩码：非窗口交易日整行清零（空仓）。论文核心日历叠加。
         if pretom_only:
             pretom = get_pretom_dates(start_date, end_date, lo=pretom_lo, hi=pretom_hi)
             keep = np.array([ts.date() in pretom for ts in weights.index])
             n_keep = int(keep.sum())
-            weights = weights.loc[keep]            # 仅保留 PreTOM 调仓日，其余日不持仓
+            stocks = [c for c in weights if c != 'cash']
+            weights.loc[~keep, stocks] = 0.0
+            weights['cash'] = 1.0 - weights[stocks].sum(axis=1)
             if verbose:
                 print(f"  PreTOM zeshi: {keep.size} rebal-days -> keep {n_keep} "
                       f"([tau-{pretom_lo}, tau-{pretom_hi}], ~{n_keep / max(keep.size,1):.0%})")
@@ -256,15 +265,22 @@ class LiqDemandPipeline(FactorPipeline):
                 raise ValueError("PreTOM 窗口内无调仓日，请检查区间或窗口参数")
 
         # 7. 回测
+        from betalens.backtest import validate_risk_config
+        validate_risk_config(risk, sp.compute_kwargs)
         bt = BacktestBase(weights, metric=sp.backtest_metric, symbol=sp.name,
-                          amount=initial_amount, time_tolerance=24 * 11)
+                          amount=initial_amount, end_date=end_date, risk=risk,
+                          price_time_map=price_time_map, ftc=ftc, ptc=ptc, verbose=verbose)
+
+        from betalens.factor.research import attach_research
+        factor_values = attach_research(bt, factor_values, research_schedule, n_quantiles,
+                                        metric=sp.backtest_metric, price_time_map=price_time_map)
 
         # 8. 绩效评价
         analyst = Analyst.from_backtest(
             bt,
             name=sp.name,
             benchmark_code=benchmark_code,
-            benchmark_metric=sp.backtest_metric,
+            benchmark_metric="close",
             factor_values=factor_values,
         )
         summary = analyst.report(

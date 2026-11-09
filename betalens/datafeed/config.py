@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from .contracts import integer
+from .contracts import integer, pit_policy
 
 _COMMON = {"connect_timeout", "statement_timeout_ms"}
 _CONNECTION = {
@@ -54,7 +54,10 @@ def load_subscription_config(db_config=None, *, config_file=None, backend=None):
             config = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError) as exc:
             raise ValueError(f"无法读取订阅配置: {path}") from exc
-    _keys(config, {"backend", "postgres", "clickhouse"}, "订阅配置")
+    _keys(config, {"backend", "postgres", "clickhouse", "pit_policy"}, "订阅配置")
+    if "pit_policy" in config and config["pit_policy"] is None:
+        raise ValueError("pit_policy 必须是 research 或 strict")
+    policy = pit_policy(value=config.get("pit_policy", "research"))
     for target in ("postgres", "clickhouse"):
         if target in config:
             _keys(config[target], _CONNECTION[target], target)
@@ -83,4 +86,4 @@ def load_subscription_config(db_config=None, *, config_file=None, backend=None):
         connection[key] = _positive_integer(connection.get(key, default), key)
     if target == "postgres" and connection["pool_max_connections"] < connection["pool_min_connections"]:
         raise ValueError("pool_max_connections 不能小于 pool_min_connections")
-    return {**connection, "backend": target}
+    return {**connection, "backend": target, "pit_policy": policy}

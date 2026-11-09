@@ -5,6 +5,25 @@
 滑动窗口和筛选规则放在 ``parameter_space.yaml``；进程数、缓存和输出目录
 放在 ``performance.yaml``。
 
+统一回测接口
+------------
+
+挖掘净值统一调用 ``BacktestBase``，目标之间自然漂移，执行板块数量规则和交易费用。
+``evaluation.engine``（旧 vector/exact）及 ``evaluation.time_tolerance`` 已移除，
+保留这些字段会报迁移错误。``evaluation.risk``、``price_time_map``、``ftc`` 和 ``ptc``
+传入统一回测；未指定时风控关闭、费用为零。
+
+行情仍在每次回测内查询；挖掘原有 NPY/memmap 输入缓存继续供因子和 Rank IC 使用，
+不会通过预加载入口注入回测。搜索、筛选、窗口和 ``precomputed/rolling_fit`` 逻辑不变。
+回测结果记录 ``calculation_version`` 和 ``evaluation_version='actual-v1'``，
+用于识别净值与评价口径。worker 通过 ``BacktestEvaluation`` 读取实际日收益、
+漂移仓位、资产金额和交易周期，换手率、仓位、胜率等不再由目标权重近似推导。
+窗口保留起点前的资金基准或等价的首日日收益，避免遗漏窗口第一天损益。
+
+Rank IC 使用共同的 ``research_schedule`` 映射和显式远期区间；成交事件、
+止盈止损退出不会改变研究期限。输入宽表按 ``trade_date`` 对齐，可得时间元数据
+随输入缓存保存；新版缓存签名隔离旧日期轴。
+
 入口
 ----
 

@@ -1,15 +1,8 @@
 回测模块
 ========
 
-``betalens.backtest`` 将调仓权重转换为日频净值、持仓、损益和调仓审计记录。核心类是 ``BacktestBase``。
-
-权重矩阵
---------
-
-* 行索引为 ``DatetimeIndex``，表示调仓日。
-* 列为证券代码，建议显式包含 ``cash``。
-* 多头权重合计通常为 1，空头权重合计通常为 -1。
-* 输入 ``weight`` 是目标权重；整数手撮合后的真实权重在 ``engine.actual_weight``。
+``BacktestBase`` 接收带时间戳的目标权重，按成交事件推进账户，输出日频漂移权重、
+净值、净损益和交易审计。统一引擎使用后复权分红再投收益，原始价格用于整数成交和费用。
 
 基本用法
 --------
@@ -18,118 +11,105 @@
 
    from betalens.backtest import BacktestBase
 
-   engine = BacktestBase(
-       weight=weights,
-       symbol="DemoFactor",
-       amount=100_000_000,
-       ftc=0.0,
-       ptc=0.0,
-       verbose=True,
-       metric="close",
-       time_tolerance=24,
-       table_name="market_daily_post_adjusted",
-       check_trade_status=True,
-       trade_status_mode="to_cash",
-       trade_status_table="trade_status",
-       lot_size=100,
+   bt = BacktestBase(
+       weight=weights, symbol="Demo", amount=1_000_000,
+       metric="close", end_date="2024-12-31",
+       ftc=0.0, ptc=0.001,
+       risk={"stop_loss": 0.08, "take_profit": 0.20, "execution_metric": "open"},
    )
 
-   nav = engine.nav
-   actual_weight = engine.actual_weight
-   rebalance_log = engine.rebalance_log
+阈值仅为配置示例，不是建议参数。``risk=None`` 默认关闭风控。
 
-关键参数
---------
+目标权重和自然漂移
+------------------
 
-.. list-table::
-   :header-rows: 1
-   :widths: 22 48 30
+权重行表示调仓指令，索引必须是唯一时间戳。股票列是代码，现金按股票净敞口补足。
+输入按时间排序；NaN、Inf、重复时间和重复代码拒绝。日频输入的每行仍表示一次目标重设，
+即使数值相同。稀疏目标之间只传播收益、更新实际权重，不自动取整或再平衡。
 
-   * - 参数
-     - 含义
-     - 默认值
-   * - ``metric``
-     - 成交价格指标
-     - ``close``
-   * - ``time_tolerance``
-     - 价格查询时间容差，单位小时
-     - ``24``
-   * - ``table_name``
-     - 价格所在数据表
-     - ``market_daily_post_adjusted``
-   * - ``lot_size``
-     - 一手股数，按整数手成交
-     - ``100``
-   * - ``check_trade_status``
-     - 是否在换仓前检查交易状态
-     - ``True``
-   * - ``trade_status_mode``
-     - 停牌持仓处理模式
-     - ``to_cash``
+无交易时，组合收益为上一时点实际权重乘以标的后复权收益之和；
+实际权重随后按 ``w_i * (1+r_i) / (1+R)`` 漂移。日内成交会拆分成交前后收益，
+不可直接将日末权重乘当日完整收益。
 
-整数手成交
-----------
+``weight`` 保存原始输入；``effective_target_weight`` 是状态处理后的目标；
+``actual_weight`` 是成交事件后的快照；``daily_weight`` 是扣费后的每日收盘权重。
 
-每个调仓日会按当期总资产把目标权重转换为股数，并用 ``np.trunc(目标股数 / lot_size)`` 向零截断为整数手。未能成交的资金转入 ``cash``。因此：
+时间和数据口径
+--------------
 
-* ``engine.actual_weight`` 才是用于日频持仓和净值计算的权重。
-* ``engine.position`` 中股票列均为 ``lot_size`` 的整数倍。
-* ``engine.amount`` 是各调仓日分配前总资产，由上一期实际持仓收益逐期递推。
-* 资金太小买不起一手时，目标标的会被置 0 并保留现金。
+无时区时间按上海时间解释。``metric`` 默认 ``close``，内置时点为 ``open=09:30``、
+``close=15:00``。其他价格字段须在 ``price_time_map`` 配置 ``HH:MM[:SS]`` 时点，
+且数据库存在同一记录中的原始价和后复权价。成交匹配不早于目标时点的最近价格，
+允许精确匹配；10:00 指定开盘价会匹配下一可用开盘。
 
-交易状态处理
+价格从 ``market_daily_post_adjusted`` 成对读取 ``metric/raw_metric/adjustment_factor``，
+按 ``trade_date`` 建立模拟时点。源 ``available_at`` 保留用于版本策略和审计，
+不会被改写成开盘或收盘时间；Datafeed 的 research/strict 合同继续适用。
+研究模式的来源推定时间不表示严格 PIT，模拟市场时点也不是字段级历史可得性的证明。
+
+``end_date`` 是明确的成交和估值上界，日期字符串包含该日收盘。省略时，默认结束于
+最后一批策略目标完成首次价格匹配的交易日收盘；要继续观察持仓或风控须显式给结束日。
+无后续成交价的指令保持 pending；缺失估值只能沿用已知价格并写入 ``valuation_audit``。
+
+同一证券尚未成交的旧策略目标被更新目标替代。不同证券可在不同价格时点执行，
+资金按实际发生顺序变化。一次回测内批量查询，不提供预加载或持久化回测行情缓存。
+
+整数成交和费用
+--------------
+
+板块取自 ``stock_profile.market``。主板、创业板买入按100股倍数，科创板至少200股、
+超过后可按1股递增。限制作用于本次交易增减量；科创板200股增至250股的50股买单不能成交。
+卖出支持一次性处理已有零股。不实现单笔申报上限拆单；其他板块/资产类型明确拒绝。
+
+目标交易量向零截断。卖出先执行；买入会预留费用，现金不足时统一缩小买入增量并再次截断，
+余款留现金，不二次分配。目标明确允许负现金时保留融资研究假设，不另计融资/借券成本。
+
+每个证券每次非零主动成交收 ``ftc + ptc * abs(成交股数) * 原始成交价``；
+无成交不收费。费用扣现金并归属该证券的日损益，首次费用计入收益。
+
+``position`` / ``equivalent_position`` 是分红再投后的等效股数，可能包含小数；
+``position_units`` 是后复权持仓单位，不能解释为券商真实股数。跨分红先传播旧仓后复权收益，
+再用当时原始价及复权因子换算新交易。除息日新买入不获得此前分红；复权因子变化不记交易、
+不重复加现金分红。全部退出时不足1股的虚拟余份折现金，记 ``synthetic_settlements``，不收交易费。
+
+固定止盈止损
 ------------
 
-回测会查询 ``trade_status`` 表并在换仓前处理停牌持仓。``Datafeed.query_trade_status`` 在 Python 端还原三态：``1`` 正常、``0`` 停牌、``-1`` 未上市。
+每天收盘检查实际持仓，即使策略仅按月调仓。基准是本轮首次实际建仓的后复权价格；
+同方向加减仓不重置，完全退出或反向后重建。多头价格收益为 ``close/entry-1``，
+空头取其相反数，阈值不含手续费。触及止损或止盈后生成全退出指令，默认下一可用开盘执行，
+也可通过 ``risk.execution_metric`` 指定其他价格字段。
 
-.. list-table::
-   :header-rows: 1
-   :widths: 20 80
+收盘观察后只能匹配严格更晚的价格，不能用同一收盘价成交；跳空按实际后续价格成交。
+风控只影响触发证券，其他股票继续漂移，退出资金留现金。pending 退出期间仍持仓计收益，
+不重复提交或收费。退出完成后只接受目标时间严格晚于退出成交的新原始目标，旧目标不会恢复。
 
-   * - 模式
-     - 行为
-   * - ``to_cash``
-     - 停牌标的目标权重转为现金。
-   * - ``hold``
-     - 停牌标的尽量沿用上一期持仓。
-   * - ``redistribute``
-     - 停牌权重在同侧可交易标的间再分配。
-   * - ``as_normal``
-     - 停牌标的按正常交易处理。
-   * - ``report_only``
-     - 仅记录状态，不调整权重。
+缺少有效新收盘价时跳过该证券检查并审计。触发/成交记录在 ``risk_events``，
+``rebalance_log.source`` 区分 strategy/risk。旧信号层 state 止盈止损与统一 risk 同时启用时，
+流水线配置校验拒绝；不静默迁移旧信号规则。
 
-关闭检查：
-
-.. code-block:: python
-
-   engine = BacktestBase(weights, "NoStatus", 1_000_000, check_trade_status=False)
-
-主要产出
+停牌模式
 --------
 
-* ``nav``：日频归一化净值。
-* ``actual_weight``：整数手成交后的调仓权重，含 ``cash``。
-* ``daily_position_value``：日频逐标的持仓市值，含 ``cash``。
-* ``daily_pnl`` / ``daily_pnl_total``：逐标的和组合日频损益。
-* ``rebalance_log``：调仓长表，含目标权重、真实权重、价格、股数、手数、市值。
-* ``trade_status`` / ``trade_status_matrix``：交易状态审计数据。
-* ``position``：日频持仓数量。
-* ``cost_price`` / ``cost_ret``：调仓价格与调仓区间收益。
+交易状态只在原始目标行上处理一次，不冻结实际股数，也不强制检查成交可交易性。
+``to_cash`` 置零停牌目标；``hold`` 沿用上一期整行目标；``redistribute`` 在多空同侧
+重新分配；``as_normal/report_only`` 保留目标。查询失败告警并保留未知状态。
 
-导出与评价
+输出和迁移
 ----------
 
-.. code-block:: python
+``nav`` 包含初始资金基准1；``daily_returns`` 包括首日损益。
+``daily_pnl`` / ``daily_pnl_total`` 是含交易费的净损益，与净资产变化一致。
+``daily_price`` 为后复权收盘估值价，``daily_raw_price`` 是对应原始价；
+``cost_price`` / ``raw_cost_price`` 是成交事件价格快照。
 
-   from betalens.analyst import Analyst
+``rebalance_log.price/value`` 表示原始成交价/额，``adjusted_price`` 用于复权收益比较。
+``order_log`` 记录未成交、替代或风控阻止的指令；``price_audit`` 保留来源时点和板块。
 
-   engine.dump_to_excel("backtest_dump.xlsx")
-   Analyst.from_backtest(engine, name="DemoFactor").report(
-       to_excel="report.xlsx",
-       to_html="report.html",
-   )
+``dump_to_excel`` 导出上述数据及参数；Analyst 和 Dashboard 以日频漂移权重展示持仓，
+主动成交流水计算换手，排除自然漂移、分红再投和虚拟余份结算。
 
-``dump_to_excel`` 会把回测产出写入多 sheet，``Analyst.from_excel`` 可以从导出的 xlsx 读回评价。
-
-更多 API 细节请参阅 :doc:`../api/backtest`。
+旧 ``time_tolerance``、``lot_size``、``preloaded_*`` 参数已移除，传入会明确报迁移错误。
+挖掘不再区分 vector/exact，删除 ``evaluation.engine/time_tolerance``，
+可通过 ``evaluation.risk``、因子 ``run.risk`` 传入统一风控配置。
+挖掘的输入数据缓存、搜索和窗口算法仍独立存在。

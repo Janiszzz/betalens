@@ -147,15 +147,34 @@ def calendar_rows(scopes, as_of):
     return days
 
 
-def calendar_days(reader, begin, end, exchange="SSE", as_of=None):
+def read_calendar(reader, exchange, cutoff, table_name, policy):
+    if table_name == "trade_calendar_versions":
+        return calendar_rows(load_reference(reader, "calendar", exchange=exchange), cutoff)
+    if table_name != "trade_calendar":
+        raise NotImplementedError("日历仅支持 trade_calendar/trade_calendar_versions")
+    if policy == "strict":
+        raise PITUnavailableError("strict 日历查询须显式使用 trade_calendar_versions")
+    require_columns(reader, table_name, BUSINESS_COLUMNS["calendar"])
+    result = {}
+    for row in reader.rows(table_name, list(BUSINESS_COLUMNS["calendar"]), filters=[("exchange", "=", exchange)]):
+        day = str(row["trade_date"])
+        if row["is_open"] not in (0, 1):
+            raise PITUnavailableError("日历开市状态未知: " + day)
+        if day in result and result[day]["is_open"] != row["is_open"]:
+            raise VersionConflictError("日历日期冲突: " + day)
+        result[day] = row
+    return result
+
+
+def calendar_days(reader, begin, end, exchange="SSE", as_of=None, *,
+                  table_name="trade_calendar_versions", pit_policy="strict"):
     if exchange not in {"SSE", "SZSE", "BSE"}:
         raise ValueError("exchange 必须是 SSE/SZSE/BSE")
     begin, end = local_time(timestamp(begin)).normalize(), local_time(timestamp(end)).normalize()
     if begin > end:
         raise ValueError("开始日期不能晚于结束日期")
-    scopes = load_reference(reader, "calendar", exchange=exchange)
     cutoff = timestamp(as_of) if as_of is not None else pd.Timestamp.now(tz="UTC")
-    rows = calendar_rows(scopes, cutoff)
+    rows = read_calendar(reader, exchange, cutoff, table_name, pit_policy)
     requested = pd.date_range(begin, end, freq="D")
     missing = [day.date().isoformat() for day in requested if day.date().isoformat() not in rows]
     if missing:

@@ -61,7 +61,7 @@ def install_routes(app,service,response):
         return response({'task':service.state.enqueue(job,'pipeline_run',{'background':item['plan']['request']['run_in_background']})})
 
     @app.get('/api/tasks/{job}/pipeline')
-    def detail(job:str):return response(Pipeline(service).detail(job))
+    def detail(job:str):return response(Pipeline(service).detail(job,compact=True))
 
     @app.post('/api/tasks/{job}/pipeline/commit')
     def commit(job:str):

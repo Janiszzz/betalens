@@ -6,7 +6,7 @@ Betalens 文档
 核心能力
 --------
 
-* **Datafeed**：只读 PostgreSQL 数据访问、交易日、行业、指数成分和交易状态查询。
+* **Datafeed**：只读 PostgreSQL/ClickHouse 数据访问、交易日、行业、指数成分和交易状态查询。
 * **DB Manager / Infra**：独立的数据接入与管理工作台，维护同等地位的 PG/CH 目标、来源映射、审计、可信版本和完整性检查。
 * **Factor**：可交易池、单/双/多因子分组、因子预处理、IC/回归/择时统计、参数挖掘。
 * **Backtest**：目标权重到日频净值，整数手成交，停牌状态处理，调仓审计日志。
@@ -104,6 +104,8 @@ Betalens 文档
    guide/infra
    guide/db-manager-reference
    guide/local-databases
+   guide/database-schema
+   reference/database-dictionary
 
 .. toctree::
    :maxdepth: 2

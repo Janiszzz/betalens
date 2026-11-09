@@ -191,7 +191,7 @@ def create_app(service: DatabaseManagerService | None = None) -> FastAPI:
         item=service._job(job)
         if item['plan'].get('pipeline_version')==2:
             from .pipeline import Pipeline
-            return response(Pipeline(service).detail(job))
+            return response(Pipeline(service).detail(job,compact=True))
         return response(item)
 
     @app.get("/api/jobs/{job}/source-preview")

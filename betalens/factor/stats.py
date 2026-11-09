@@ -143,25 +143,18 @@ def summarize_ic(ic_series: pd.Series) -> dict:
 
 
 def _normalize_factor_long(factor_values: pd.DataFrame) -> pd.DataFrame:
-    rename_map = {
-        '信号日': 'input_ts',
-        'signal_date': 'input_ts',
-        'date': 'input_ts',
-        'datetime': 'input_ts',
-        '股票代码': 'code',
-        '代码': 'code',
-        '因子值': 'factor',
-        'factor_value': 'factor',
-        'value': 'factor',
+    # Annotated outputs contain both the original Chinese columns and canonical
+    # research columns. Select one alias instead of creating duplicate labels.
+    aliases = {
+        'input_ts': ('input_ts', '信号日', 'signal_date', 'date', 'datetime'),
+        'code': ('code', '股票代码', '代码'),
+        'factor': ('factor', '因子值', 'factor_value', 'value'),
     }
-    df = factor_values.rename(columns={
-        col: rename_map.get(str(col), str(col))
-        for col in factor_values.columns
-    }).copy()
-    required = {'input_ts', 'code', 'factor'}
-    if not required.issubset(df.columns):
-        return pd.DataFrame(columns=['input_ts', 'code', 'factor'])
-    df = df[list(required)].copy()
+    columns = {name: next((key for key in keys if key in factor_values), None)
+               for name, keys in aliases.items()}
+    if any(key is None for key in columns.values()):
+        return pd.DataFrame(columns=list(aliases))
+    df = pd.DataFrame({name: factor_values[key] for name, key in columns.items()})
     df['input_ts'] = pd.to_datetime(df['input_ts'], errors='coerce')
     df['code'] = df['code'].astype(str)
     df['factor'] = pd.to_numeric(df['factor'], errors='coerce')
@@ -170,24 +163,45 @@ def _normalize_factor_long(factor_values: pd.DataFrame) -> pd.DataFrame:
 
 def calc_ic_from_factor_values(
     factor_values: pd.DataFrame,
-    price_data: pd.DataFrame,
+    price_data: pd.DataFrame | None = None,
     method: str = 'spearman',
-    min_periods: int = 5,
+    min_periods: int = 5, *, forward_returns=None, schedule=None,
+    metric='close', price_time_map=None,
 ) -> pd.Series:
     """
-    基于因子长表和回测价格宽表计算逐期 IC。
+    基于因子长表和显式研究区间收益计算逐期 IC。
 
     Args:
         factor_values: 长表，至少含 input_ts/信号日、code/股票代码、factor/因子值。
-        price_data: 宽表，index=调仓/成交时间，columns=code，值为回测成交价。
+        price_data: 日频价格宽表，配合 schedule 生成研究区间收益。
+            旧研究价格表仍可使用相邻行推导区间；成交事件表不允许此用法。
+        forward_returns: build_forward_returns 生成的显式区间收益，优先使用。
         method: 'spearman'（Rank IC，推荐）| 'pearson'。
         min_periods: 单期截面最少股票数。
 
     Returns:
-        Series，index=调仓时间，name='IC'。每期使用该调仓日前最近一期因子信号，
-        收益使用当前价格到下一期价格的持仓期收益。
+        Series，显式研究接口的 index=signal_date，name='IC'。
     """
     factor_df = _normalize_factor_long(factor_values)
+    if forward_returns is None and schedule is not None:
+        from .research import build_forward_returns
+        forward_returns = build_forward_returns(price_data, schedule, metric=metric, price_time_map=price_time_map)
+    if forward_returns is not None:
+        if factor_df.empty or forward_returns.empty:
+            return pd.Series(dtype=float, name='IC')
+        left = factor_df.copy()
+        left['signal_date'] = left.input_ts.dt.normalize()
+        right = forward_returns.loc[forward_returns.valid].copy()
+        right['signal_date'] = pd.to_datetime(right.signal_date).dt.normalize()
+        joined = left.merge(right[['signal_date', 'code', 'return']], on=['signal_date', 'code'], validate='one_to_one')
+        output = {}
+        for day, section in joined.groupby('signal_date'):
+            section = section.dropna(subset=['factor', 'return'])
+            output[day] = (section.factor.corr(section['return'], method=method)
+                           if len(section) >= min_periods else np.nan)
+        return pd.Series(output, name='IC', dtype=float)
+    if price_data is not None and price_data.attrs.get('index_role') == 'execution_events':
+        raise ValueError('IC 需要原始研究区间；不可从包含风控的成交事件推断预测期')
     if factor_df.empty or price_data is None or price_data.empty:
         return pd.Series(dtype=float, name='IC')
 
@@ -825,6 +839,7 @@ def backtest_timing_signal(
 
     result = {
         '总收益率(策略)': total_ret,
+        'return_model': 'ideal_signal_daily_weights',
         '年化收益(策略)': ann_ret,
         '年化波动(策略)': ann_vol,
         'Sharpe(策略)': sharpe,

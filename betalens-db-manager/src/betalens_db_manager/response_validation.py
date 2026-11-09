@@ -194,6 +194,13 @@ def validate_archives(service, item):
         if key in parts:
             errors.append(issue('duplicate_request','同一固定请求存在多个归档分片',dataset=part.get('dataset')))
         parts[key]=part
+    def prepared_request(request):
+        if not valid_request(request):raise ValueError('请求结构无效')
+        original = downloader.plan
+        downloader.plan = {**plan,'source_contracts':frozen}
+        try:return downloader.prepared(request)
+        finally:downloader.plan = original
+
     for key, part in parts.items():
         request = part['request']; identity = request['source_id']+':'+request['endpoint']
         if part['status'] == 'unavailable':continue
@@ -213,14 +220,14 @@ def validate_archives(service, item):
             except (ValueError, TypeError, KeyError) as exc:problems.append(issue('adapter_validation',str(exc)))
         errors.extend({**p,'dataset':part['dataset'],'request_key':key} for p in problems)
         # Invalid field names/row widths must never reach dict(zip(...)) below.
-        if not problems:data_by_key[key] = data
-
-    def prepared_request(request):
-        if not valid_request(request):raise ValueError('请求结构无效')
-        original = downloader.plan
-        downloader.plan = {**plan,'source_contracts':frozen}
-        try:return downloader.prepared(request)
-        finally:downloader.plan = original
+        if not problems:
+            # Validation keeps transport summaries, not every decoded source row.
+            # Full rows are read one archive at a time again during conversion.
+            try:page=prepared_request(request)[3]
+            except (ValueError,TypeError,KeyError):page=None
+            codes=tuple(row[data['fields'].index('ts_code')] for row in data['items']) if 'ts_code' in data['fields'] else None
+            fingerprints=tuple(bytes.fromhex(digest(dict(zip(data['fields'],row)))) for row in data['items']) if page else ()
+            data_by_key[key]={'count':len(data['items']),'codes':codes,'fingerprints':fingerprints}
 
     seen, visiting, memo, edges, universes = set(), set(), {}, {}, {}
 
@@ -244,13 +251,12 @@ def validate_archives(service, item):
             visited.add(key);pending.extend(edges.get(key,[]))
             part=parts.get(key);data=data_by_key.get(key)
             if part is None or data is None or part['status']=='split':continue
-            if 'ts_code' not in data['fields']:
+            if data['codes'] is None:
                 problems.append(issue('universe_keys','证券清单归档缺少 ts_code',dataset=endpoint));continue
-            pos=data['fields'].index('ts_code')
-            for row in data['items']:
-                if not isinstance(row[pos],str) or not row[pos]:
+            for code in data['codes']:
+                if not isinstance(code,str) or not code:
                     problems.append(issue('universe_keys','证券清单归档含无效证券代码',dataset=endpoint));break
-                codes.add(row[pos])
+                codes.add(code)
         if not codes:problems.append(issue('incomplete_universe','归档无法证明完整证券清单，必须重新拉取',dataset=endpoint))
         universes[asset]=(sorted(codes),problems)
         return universes[asset]
@@ -275,7 +281,7 @@ def validate_archives(service, item):
                 if not isinstance(result,dict):raise ValueError('分页证据必须为对象')
                 children=result.get('children') or []
                 if not isinstance(children,list) or not all(valid_request(c) for c in children):raise ValueError('分页后继必须是固定请求对象列表')
-                count=len(data['items']);cap=(policy or {}).get('row_limit',contract.get('limit',100000))
+                count=data['count'];cap=(policy or {}).get('row_limit',contract.get('limit',100000))
                 if type(cap) is not int or cap<=0:raise ValueError('响应上限必须为正整数')
                 expected=[]
                 if page:
@@ -314,8 +320,7 @@ def validate_archives(service, item):
         data = data_by_key[key]
         group = digest([identity,request.get('dependency_only',False),{k:v for k,v in request['parameters'].items() if k not in {page.get('offset_param','offset'),page.get('limit_param','limit')}}])
         prior = groups.setdefault(group,set())
-        for row in data['items']:
-            fingerprint = digest(dict(zip(data['fields'],row)))
+        for fingerprint in data['fingerprints']:
             if fingerprint in prior:errors.append(issue('pagination_overlap','分页记录重复或交叠，无法证明完整性',dataset=request['endpoint']));break
             prior.add(fingerprint)
     if _manual_coverage_job.get()==item['id']:

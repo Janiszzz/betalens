@@ -2,7 +2,7 @@
 from copy import deepcopy
 from datetime import date,timedelta
 from .pipeline_options import options,DEFAULTS
-from .retrieval import tushare_policy,universe_hint_key,security_partitions,CODE_BATCHES
+from .retrieval import tushare_policy,universe_hint_key,security_partitions,CODE_BATCHES,request_rate
 from .util import parse_date,digest
 
 DAILY={'daily','daily_basic','adj_factor','fund_daily','fund_adj','fund_share','bak_daily'}
@@ -99,7 +99,7 @@ def compile_plan(service,request):
     try:plan=service.compile(seed)
     finally:PLANNING_SEED.reset(token)
     normalized=plan['request'];normalized.update(start_date=request.get('start_date',normalized['start_date']),end_date=original_end,codes=list(request.get('codes',[])),**opts)
-    normalized['requests_per_minute']=min(int(request.get('requests_per_minute',450)),450)
+    normalized['requests_per_minute']=request_rate(request.get('requests_per_minute',service.settings.requests_per_minute))
     endpoints={b['endpoint'] for m in plan['mapping_snapshots'].values() for b in m['bindings']}
     # Full-market finance uses the explicitly mapped 5000-point batch interface.
     if not normalized['codes'] and not request.get('endpoints'):

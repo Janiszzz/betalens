@@ -104,12 +104,14 @@ class ReferenceWorkflow:
         request={**request,**options(request)}
         request=normalize_request(request);sid=request['source_id']
         if sid not in self.s.sources.values:raise ValueError('未登记订阅源')
-        roots=[]
+        from .pipeline_plan import params_for
+        compact_request={**request,'codes':request['security_codes']}
+        roots=[];seen=set()
         def add(endpoint,parameters,dependency=False):
             root={'source_id':sid,'endpoint':endpoint,'parameters':parameters,'strategy':'reference_scope'}
             if dependency:root['dependency_only']=True
-            if root not in roots:roots.append(root)
-        compact=lambda value:value.replace('-','')
+            key=digest(root)
+            if key not in seen:roots.append(root);seen.add(key)
         start,end=request['start_date'],request['end_date']
         if set(request['modules']) & {'calendar','suspension'}:
             exchanges=set(request['exchanges']) if 'calendar' in request['modules'] else set()
@@ -120,15 +122,16 @@ class ReferenceWorkflow:
                 # Official trade_cal has no native BSE output; the scope retains
                 # the explicit reference exchange rather than relabelling it.
                 actual='SSE' if exchange=='BSE' else exchange
-                add('trade_cal',{'exchange':actual,'start_date':compact(start),'end_date':compact(end)})
+                for params in params_for('trade_cal',compact_request,{'exchange':actual}):add('trade_cal',params)
         if 'suspension' in request['modules']:
-            for code in request['security_codes']:
+            # Complete bulk responses retain coverage proof for each selected code.
+            query_codes=[None] if len(request['security_codes'])>1 else request['security_codes']
+            for code in query_codes:
+                custom={'ts_code':code} if code else {}
                 for status in ('L','D','P'):
-                    add('stock_basic',{'ts_code':code,'list_status':status},True)
-                day=parse_date(start)
-                while day<=parse_date(end):
-                    add('suspend_d',{'ts_code':code,'trade_date':day.strftime('%Y%m%d')})
-                    day+=timedelta(days=1)
+                    add('stock_basic',{**custom,'list_status':status},True)
+                monthly={**compact_request,'codes':[]}
+                for params in params_for('suspend_d',monthly,custom):add('suspend_d',params)
         if 'industry' in request['modules']:
             for scheme in request['schemes']:
                 endpoint='ci_index_member' if scheme=='CITICS' else 'index_member_all'
@@ -136,18 +139,6 @@ class ReferenceWorkflow:
                     for current in ('Y','N'):add(endpoint,{'ts_code':code,'is_new':current})
                 if scheme!='CITICS':
                     for level in request['levels']:add('index_classify',{'src':scheme,'level':'L'+str(level)},True)
-        if request.get('pipeline_version')==2:
-            from .pipeline_plan import params_for
-            compact_request={**request,'codes':request['security_codes']}
-            optimized=[]
-            for root in roots:
-                if root['endpoint'] in {'trade_cal','suspend_d','stock_basic'}:
-                    custom={k:v for k,v in root['parameters'].items() if k not in {'start_date','end_date','trade_date'}}
-                    for params in params_for(root['endpoint'],compact_request,custom):
-                        candidate={**root,'parameters':params}
-                        if candidate not in optimized:optimized.append(candidate)
-                elif root not in optimized:optimized.append(root)
-            roots=optimized
         # Distinct SW source revisions cannot be separated by index_member_all
         # (no src filter); evidence explicitly preserves the dictionary match.
         contracts={sid+':'+r['endpoint']:deepcopy(self.s.sources.endpoint(sid,r['endpoint'])) for r in roots}
@@ -157,7 +148,7 @@ class ReferenceWorkflow:
               'source_identity':source_identity(self.s.sources.values[sid]),'parent_task_id':request.get('parent_task_id')}
         if request.get('pipeline_version')==2:
             plan['pipeline_version']=2
-            plan['request']['requests_per_minute']=min(request.get('requests_per_minute',450),450)
+            plan['request']['requests_per_minute']=request_rate(request.get('requests_per_minute',self.s.settings.requests_per_minute))
         item=self.s.state.create_job(plan,self.s.settings.fingerprint)
         self.s.state.log(item['id'],'reference_task_created',request=request,actual_requests=roots)
         return item

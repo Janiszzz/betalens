@@ -27,7 +27,11 @@ __all__ = [
     'metrics',
     'naming',
     'plotting',
+    'BacktestEvaluation',
+    'build_trade_cycles',
 ]
 
 __version__ = '2.0.0'
 __author__ = 'Janis'
+from .evaluation import BacktestEvaluation
+from .trades import build_trade_cycles

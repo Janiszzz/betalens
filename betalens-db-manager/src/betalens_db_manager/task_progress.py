@@ -32,14 +32,17 @@ def summary(service,item,units):
         service.state.ledger_put('pipeline_work_plan',job,plan)
     if plan is None:return {'phase':'planning','requests':None,'batches':None,'physical_requests':len(item['slices'])}
     by={p['id']:p for p in item['slices']};memo={};visiting=set()
-    preparer=TaskDownloader(service,{**item,'slices':[]})  # Identity only; no response-cache scan.
+    # Read-only monitors receive archived identities without source contracts.
+    # They must not initialize a downloader or depend on its execution ledger.
+    preparer=TaskDownloader(service,{**item,'slices':[]}) if item['plan'].get('source_contracts') else None
     def child_key(request):
-        try:return TaskDownloader.key(preparer.prepared(request)[0])
-        except (KeyError,TypeError,ValueError):
-            # Historical sources can have been removed. Progress is read-only;
-            # use an archived identity, and leave missing evidence incomplete.
-            try:return TaskDownloader.key(request)
-            except (KeyError,TypeError,ValueError):return None
+        if preparer is not None:
+            try:return TaskDownloader.key(preparer.prepared(request)[0])
+            except (KeyError,TypeError,ValueError):pass
+        # Historical sources can have been removed. Use the archived identity,
+        # and leave missing evidence incomplete.
+        try:return TaskDownloader.key(request)
+        except (KeyError,TypeError,ValueError):return None
     def done(key):
         if key in memo:return memo[key]
         part=by.get(key)

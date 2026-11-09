@@ -1,4 +1,4 @@
-"""Small, shared read contracts. No database management or inferred timestamps."""
+"""Shared read contracts with explicit strict and research availability policies."""
 from __future__ import annotations
 
 import hashlib
@@ -35,6 +35,13 @@ PROVEN_AVAILABILITY = frozenset({
     "source_version_publication_time", "verified_historical_version",
 })
 ACCEPTED_QUALITY = frozenset({"accepted", "verified"})
+RESEARCH_AVAILABILITY = PROVEN_AVAILABILITY | frozenset({
+    "next_calendar_day_assumed", "announcement_next_calendar_day_assumed",
+    "announcement_next_calendar_day_assumed;historical_revision_not_proven",
+    "membership_effective_date_assumed;historical_disclosure_unproven",
+    "manual_publication_date_assumed", "suspension_effective_date_assumed",
+    "name_effective_date_assumed",
+})
 RANGE_COLUMNS = ["datetime", "code", "name", "metric", "value", "remark"]
 STATUS_COLUMNS = ["code", "datetime", "value", "status_text", "name"]
 INDUSTRY_COLUMNS = ["code", "query_date", "effective_dt", "sec_name",
@@ -119,6 +126,24 @@ def proven(row, as_of=None):
         return False
     available = timestamp(row["available_at"], stored=True)
     return as_of is None or available <= timestamp(as_of)
+
+
+def pit_policy(source=None, value=None):
+    policy = value if value is not None else getattr(source, "pit_policy", "research")
+    if not isinstance(policy, str) or policy not in {"research", "strict"}:
+        raise ValueError("pit_policy 必须是 research 或 strict")
+    return policy
+
+
+def available(row, as_of=None, policy="research"):
+    """Research accepts named source assumptions, never download timestamps."""
+    if policy == "strict":
+        return proven(row, as_of)
+    if row.get("availability_basis") not in RESEARCH_AVAILABILITY:
+        return False
+    if row.get("available_at") is None or row.get("data_quality_status") not in ACCEPTED_QUALITY:
+        return False
+    return as_of is None or timestamp(row["available_at"], stored=True) <= timestamp(as_of)
 
 
 def frame(records, columns, *, numeric=(), times=(), integers=()):

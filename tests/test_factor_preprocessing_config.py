@@ -187,3 +187,29 @@ def test_subscription_configuration_requires_physical_fields_and_structured_indu
     config['factor_spec']['industry_scheme'] = '申万一级行业'
     with pytest.raises(ConfigError, match='不接受旧名称'):
         factor_spec_options(config, 'factor.yaml')
+
+
+def test_run_config_passes_unified_risk_and_rejects_old_controls(tmp_path):
+    from betalens.factor.config import run_parameters
+    config = {"factor_spec": {"compute_kwargs": {}}, "run": {
+        "start_date": "2024-01-01", "end_date": "2024-03-01", "rebal_freq": "M",
+        "n_quantiles": 10, "initial_amount": 100_000, "include_profiling": False,
+        "dump_excel": False, "output_dir": "out", "risk": {"stop_loss": .08},
+        "ftc": 1, "ptc": .001, "price_time_map": {"open": "09:30"},
+    }}
+    params = run_parameters(config, tmp_path / "factor.yaml")
+    assert params["risk"] == {"stop_loss": .08}
+    assert params["ptc"] == .001
+    assert params["price_time_map"]["open"] == "09:30"
+    config["factor_spec"]["compute_kwargs"] = {"state_stop_loss": .1}
+    with pytest.raises(ValueError, match="同时启用"):
+        run_parameters(config, tmp_path / "factor.yaml")
+    config["factor_spec"]["compute_kwargs"] = {}
+    config["run"]["time_tolerance"] = 24
+    with pytest.raises(ConfigError, match="已移除"):
+        run_parameters(config, tmp_path / "factor.yaml")
+
+
+def test_mining_rejects_removed_engine_selector():
+    with pytest.raises(ValueError, match="已移除"):
+        mining._validate_search_config({"evaluation": {"engine": "vector"}})

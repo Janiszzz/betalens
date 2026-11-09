@@ -7,16 +7,17 @@ import pandas as pd
 
 from . import query
 from .config import load_subscription_config
-from .contracts import frame, local_time, timestamp, integer, PITUnavailableError, VersionConflictError
+from .contracts import frame, local_time, timestamp, integer, pit_policy as resolve_policy, PITUnavailableError, VersionConflictError
 from .readers import PostgresReader, ClickHouseReader, identifier, require_columns
-from .reference import calendar_days, calendar_rows, load_reference
+from .reference import calendar_days, read_calendar
 
 
 class Datafeed:
     def __init__(self, table_name, db_config=None, *, backend=None,
-                 config_file=None):
+                 config_file=None, pit_policy=None):
         self.sheet = identifier(table_name)
         config = load_subscription_config(db_config, config_file=config_file, backend=backend)
+        self.pit_policy = resolve_policy(value=pit_policy if pit_policy is not None else config["pit_policy"])
         self.backend = config["backend"]
         self._reader = PostgresReader(config) if self.backend == "postgres" else ClickHouseReader(config)
         self._closed = False
@@ -29,6 +30,22 @@ class Datafeed:
 
     def query_time_range(self, codes=None, start_date=None, end_date=None, metric=None, limit=None, *, as_of=None, filters=None):
         return query.query_time_range(self, self.sheet, codes, start_date, end_date, metric, limit, as_of=as_of, filters=filters)
+
+    def query_backtest_bars(self, codes, start_date, end_date=None, metrics=("open", "close")):
+        from .backtest import query_backtest_bars
+        return query_backtest_bars(self, self.sheet, codes, start_date, end_date, metrics)
+
+    def query_daily_market(self, codes=None, start_date=None, end_date=None, metrics=("close",), *, as_of=None, filters=None):
+        from .daily import query_daily_market
+        return query_daily_market(self, self.sheet, codes, start_date, end_date, metrics, as_of=as_of, filters=filters)
+
+    def query_backtest_calendar(self, start_date, end_date):
+        from .backtest import query_backtest_calendar
+        return query_backtest_calendar(self, start_date, end_date)
+
+    def query_trade_risks(self, codes, dates):
+        from .status import query_trade_risks
+        return query_trade_risks(self, self.sheet, codes, dates)
 
     def query_trade_status(self, params=None):
         params = self._require(params, ("dates",))
@@ -85,7 +102,7 @@ class Datafeed:
             if as_of is not None:
                 require_columns(self._reader, "security_name_history", {"name": "text"})
                 history = query._name_rows(self._reader, codes)
-                records = [{"code": code, "name": query.historical_name(history, code, cutoff)} for code in codes]
+                records = [{"code": code, "name": query.historical_name(history, code, cutoff, self.pit_policy)} for code in codes]
             else:
                 require_columns(self._reader, "security_dim", {"security_code": "text", "name": "text"})
                 rows = self._reader.rows("security_dim", ["security_code", "name"], [("security_code", "IN", codes)])
@@ -125,21 +142,24 @@ def _period_days(days, period):
 
 
 def get_absolute_trade_days(begin_date, end_date, period, exchange="SSE", *,
-                            backend=None, config_file=None, db_config=None, as_of=None):
+                            backend=None, config_file=None, db_config=None, as_of=None,
+                            table_name="trade_calendar", pit_policy=None):
     _period_days([], period)
     begin_date, end_date = timestamp(begin_date), timestamp(end_date)
     if exchange not in {"SSE", "SZSE", "BSE"}:
         raise ValueError("exchange 必须是 SSE/SZSE/BSE")
     if begin_date > end_date:
         raise ValueError("开始日期不能晚于结束日期")
-    with Datafeed("trade_calendar_versions", db_config, backend=backend, config_file=config_file) as data:
+    with Datafeed(table_name, db_config, backend=backend, config_file=config_file, pit_policy=pit_policy) as data:
         with data._reader.snapshot():
-            days = calendar_days(data._reader, begin_date, end_date, exchange, as_of)
+            days = calendar_days(data._reader, begin_date, end_date, exchange, as_of,
+                                 table_name=table_name, pit_policy=data.pit_policy)
     return _period_days(days, period)
 
 
 def trade_periods_offset(begin_datetime, offset, period="D", *, exchange="SSE",
-                      backend=None, config_file=None, db_config=None, as_of=None):
+                      backend=None, config_file=None, db_config=None, as_of=None,
+                      table_name="trade_calendar", pit_policy=None):
     """Shift by trading period ends; offset counts periods, not natural days."""
     if exchange not in {"SSE", "SZSE", "BSE"}:
         raise ValueError("exchange 必须是 SSE/SZSE/BSE")
@@ -147,10 +167,9 @@ def trade_periods_offset(begin_datetime, offset, period="D", *, exchange="SSE",
     _period_days([], period)
     original = local_time(timestamp(begin_datetime))
     cutoff = timestamp(as_of) if as_of is not None else pd.Timestamp.now(tz="UTC")
-    with Datafeed("trade_calendar_versions", db_config, backend=backend, config_file=config_file) as data:
+    with Datafeed(table_name, db_config, backend=backend, config_file=config_file, pit_policy=pit_policy) as data:
         with data._reader.snapshot():
-            scopes = load_reference(data._reader, "calendar", exchange=exchange)
-            rows = calendar_rows(scopes, cutoff)
+            rows = read_calendar(data._reader, exchange, cutoff, table_name, data.pit_policy)
     days = _period_days(sorted(pd.Timestamp(d).date() for d, row in rows.items() if row["is_open"] == 1), period)
     index = pd.DatetimeIndex(days)
     insertion = int(index.searchsorted(original.normalize(), side="left"))

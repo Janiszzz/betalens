@@ -1,0 +1,235 @@
+{
+  "samples": [
+    {
+      "backend": "postgres",
+      "scenario": "single_code_many_dates",
+      "equal": true,
+      "python": {
+        "first_ms": 22.849659000712563,
+        "median_ms": 8.980756999335426,
+        "p95_ms": 9.377723199759203,
+        "python_peak_mb": 0.12006092071533203,
+        "process_peak_rss_mb": 195.62109375,
+        "queries": 1,
+        "transferred_rows": 20,
+        "decoded_json_bytes": 5335,
+        "scan_rows": 20
+      },
+      "sql": {
+        "first_ms": 12.351467999906163,
+        "median_ms": 11.00728299934417,
+        "p95_ms": 12.186549399484647,
+        "python_peak_mb": 0.13192367553710938,
+        "process_peak_rss_mb": 196.05859375,
+        "queries": 1,
+        "transferred_rows": 20,
+        "decoded_json_bytes": 5335,
+        "scan_rows": 4420
+      }
+    },
+    {
+      "backend": "postgres",
+      "scenario": "market_single_date",
+      "equal": true,
+      "python": {
+        "first_ms": 2962.13110699955,
+        "median_ms": 2931.3168779999614,
+        "p95_ms": 2994.3068458003836,
+        "python_peak_mb": 174.6389684677124,
+        "process_peak_rss_mb": 686.34375,
+        "queries": 1,
+        "transferred_rows": 100000,
+        "decoded_json_bytes": 26675000,
+        "scan_rows": 100000
+      },
+      "sql": {
+        "first_ms": 984.6663399994213,
+        "median_ms": 1052.9034559995125,
+        "p95_ms": 1080.0249342002644,
+        "python_peak_mb": 15.3826904296875,
+        "process_peak_rss_mb": 417.62109375,
+        "queries": 10,
+        "transferred_rows": 5000,
+        "decoded_json_bytes": 1335000,
+        "scan_rows": 205000
+      }
+    },
+    {
+      "backend": "postgres",
+      "scenario": "market_four_dates",
+      "equal": true,
+      "python": {
+        "first_ms": 3928.3708519997163,
+        "median_ms": 3976.7894549995617,
+        "p95_ms": 4142.873163399963,
+        "python_peak_mb": 139.89028072357178,
+        "process_peak_rss_mb": 573.9375,
+        "queries": 1,
+        "transferred_rows": 80000,
+        "decoded_json_bytes": 21335000,
+        "scan_rows": 100000
+      },
+      "sql": {
+        "first_ms": 3884.5571229994675,
+        "median_ms": 4289.161353000054,
+        "p95_ms": 4373.372778199882,
+        "python_peak_mb": 60.07428741455078,
+        "process_peak_rss_mb": 511.1640625,
+        "queries": 40,
+        "transferred_rows": 20000,
+        "decoded_json_bytes": 5315000,
+        "scan_rows": 820000
+      }
+    },
+    {
+      "backend": "postgres",
+      "scenario": "financial_revisions",
+      "equal": true,
+      "python": {
+        "first_ms": 160.25068699946132,
+        "median_ms": 169.94808700019348,
+        "p95_ms": 197.60301759979484,
+        "python_peak_mb": 6.498970985412598,
+        "process_peak_rss_mb": 509.171875,
+        "queries": 1,
+        "transferred_rows": 3200,
+        "decoded_json_bytes": 993200,
+        "scan_rows": 4000
+      },
+      "sql": {
+        "first_ms": 421.1049909999929,
+        "median_ms": 384.7730959996625,
+        "p95_ms": 420.3270779997183,
+        "python_peak_mb": 2.6005382537841797,
+        "process_peak_rss_mb": 505.21875,
+        "queries": 2,
+        "transferred_rows": 800,
+        "decoded_json_bytes": 248400,
+        "scan_rows": 3208800
+      }
+    },
+    {
+      "backend": "postgres",
+      "scenario": "verified_reference_snapshot",
+      "median_ms": 3.61890600015613,
+      "note": "manifest/content verification remains Python; not replaced by an unverified SQL max"
+    },
+    {
+      "backend": "clickhouse",
+      "scenario": "single_code_many_dates",
+      "equal": true,
+      "python": {
+        "first_ms": 23.423954999998386,
+        "median_ms": 15.766674999213137,
+        "p95_ms": 17.14729519953835,
+        "python_peak_mb": 0.12205791473388672,
+        "process_peak_rss_mb": 498.3828125,
+        "queries": 1,
+        "transferred_rows": 20,
+        "decoded_json_bytes": 5353,
+        "scan_rows": 8192
+      },
+      "sql": {
+        "first_ms": 25.90868299921567,
+        "median_ms": 25.233268999727443,
+        "p95_ms": 25.880052199499914,
+        "python_peak_mb": 0.1250782012939453,
+        "process_peak_rss_mb": 491.43359375,
+        "queries": 1,
+        "transferred_rows": 20,
+        "decoded_json_bytes": 5353,
+        "scan_rows": 16404
+      }
+    },
+    {
+      "backend": "clickhouse",
+      "scenario": "market_single_date",
+      "equal": true,
+      "python": {
+        "first_ms": 3756.52343100046,
+        "median_ms": 3456.8141990002914,
+        "p95_ms": 3532.7414201992724,
+        "python_peak_mb": 208.26836585998535,
+        "process_peak_rss_mb": 715.75,
+        "queries": 1,
+        "transferred_rows": 100000,
+        "decoded_json_bytes": 26765000,
+        "scan_rows": 32768
+      },
+      "sql": {
+        "first_ms": 6548.608338000122,
+        "median_ms": 6638.929974999883,
+        "p95_ms": 6855.495012800202,
+        "python_peak_mb": 15.15659236907959,
+        "process_peak_rss_mb": 484.50390625,
+        "queries": 10,
+        "transferred_rows": 5000,
+        "decoded_json_bytes": 1340000,
+        "scan_rows": 411496
+      }
+    },
+    {
+      "backend": "clickhouse",
+      "scenario": "market_four_dates",
+      "equal": true,
+      "python": {
+        "first_ms": 4186.554672000057,
+        "median_ms": 4173.6592760007625,
+        "p95_ms": 4203.3602059997065,
+        "python_peak_mb": 166.77616691589355,
+        "process_peak_rss_mb": 637.6796875,
+        "queries": 1,
+        "transferred_rows": 80000,
+        "decoded_json_bytes": 21405000,
+        "scan_rows": 32768
+      },
+      "sql": {
+        "first_ms": 24434.265740999763,
+        "median_ms": 23006.789842000217,
+        "p95_ms": 23906.323887399594,
+        "python_peak_mb": 60.09983539581299,
+        "process_peak_rss_mb": 445.9453125,
+        "queries": 40,
+        "transferred_rows": 20000,
+        "decoded_json_bytes": 5325000,
+        "scan_rows": 929600
+      }
+    },
+    {
+      "backend": "clickhouse",
+      "scenario": "financial_revisions",
+      "equal": true,
+      "python": {
+        "first_ms": 166.6442920004556,
+        "median_ms": 173.5864769998443,
+        "p95_ms": 179.52797840007406,
+        "python_peak_mb": 7.205577850341797,
+        "process_peak_rss_mb": 443.00390625,
+        "queries": 1,
+        "transferred_rows": 3200,
+        "decoded_json_bytes": 990000,
+        "scan_rows": 4000
+      },
+      "sql": {
+        "first_ms": 470.1332280001225,
+        "median_ms": 403.8502739995238,
+        "p95_ms": 425.76228359957895,
+        "python_peak_mb": 2.5577077865600586,
+        "process_peak_rss_mb": 442.015625,
+        "queries": 2,
+        "transferred_rows": 800,
+        "decoded_json_bytes": 247600,
+        "scan_rows": 16800
+      }
+    },
+    {
+      "backend": "clickhouse",
+      "scenario": "verified_reference_snapshot",
+      "median_ms": 10.771149999527552,
+      "note": "manifest/content verification remains Python; not replaced by an unverified SQL max"
+    }
+  ],
+  "warm_repetitions": 5,
+  "memory_scope": "Python allocations and client process RSS; excludes database server RSS",
+  "shared_server_caches_flushed": false
+}

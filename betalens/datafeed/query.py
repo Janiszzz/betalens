@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 
 from .contracts import (RANGE_COLUMNS, STATUS_COLUMNS, SchemaError, PITUnavailableError,
-    VersionConflictError, bounds, frame, local_time, proven, timestamp, integer, hours)
+    VersionConflictError, bounds, frame, local_time, available, timestamp, integer, hours, pit_policy as resolve_policy)
 from .readers import get_reader, identifier, require_columns, filter_value, PostgresReader, ClickHouseReader
 
 PROVEN_COLUMNS = {"available_at": "timestamp", "availability_basis": "text",
@@ -96,9 +96,9 @@ def _name_rows(reader, codes):
     return grouped
 
 
-def historical_name(rows, code, at):
+def historical_name(rows, code, at, policy="research"):
     day = local_time(at).date()
-    candidates = [r for r in (rows.get(code, []) if rows else []) if proven(r, at)
+    candidates = [r for r in (rows.get(code, []) if rows else []) if available(r, at, policy)
                   and r["start_date"] is not None and r["start_date"] <= day
                   and (r["end_date"] is None or day <= r["end_date"])]
     if not candidates:
@@ -111,7 +111,7 @@ def historical_name(rows, code, at):
 
 
 def observations(reader, table, metric, codes=None, lower=None, upper=None,
-                 *, filters=None, end_exclusive=False, nearest=None):
+                 *, filters=None, end_exclusive=False, nearest=None, policy="research"):
     expected, predicates = _query_fields(reader, table, metric, filters)
     unit = _column_unit(reader, table, metric)
     if codes is not None:
@@ -125,8 +125,8 @@ def observations(reader, table, metric, codes=None, lower=None, upper=None,
     else:
         from .matching import nearest_candidates
         anchors, direction, ranges = nearest
-        rows = nearest_candidates(reader, table, expected, predicates, codes, anchors, direction, ranges=ranges)
-    rows = [r for r in rows if proven(r)]
+        rows = nearest_candidates(reader, table, expected, predicates, codes, anchors, direction, ranges=ranges, policy=policy)
+    rows = [r for r in rows if available(r, policy=policy)]
     names = _name_rows(reader, list({r["security_code"] for r in rows})) if rows else []
     records = []
     for row in rows:
@@ -134,12 +134,13 @@ def observations(reader, table, metric, codes=None, lower=None, upper=None,
         records.append({"code": row["security_code"], "available_at": at,
                         "value": float(row[metric]) if row[metric] is not None else np.nan,
                         "_value_key": Decimal(str(row[metric])) if row[metric] is not None else None,
-                        "name": historical_name(names, row["security_code"], at),
+                        "name": historical_name(names, row["security_code"], at, policy),
                         "period_end": row.get("period_end"),
                         "remark": {"event_date": row["event_date"].isoformat(),
                                    "period_end": row["period_end"].isoformat() if row.get("period_end") else None,
                                    "version_id": row.get("version_id"), "table": table, "unit": unit,
-                                   "asset_type": row.get("asset_type"),
+                                   "asset_type": row.get("asset_type"), "pit_policy": policy,
+                                   "availability_basis": row.get("availability_basis"),
                                    "statement_type": row.get("statement_type"), "report_type": row.get("report_type")}})
     # An old-period revision is a new observation, not silently a replacement
     # for the entire time series. Simultaneous releases prefer the newest period.
@@ -158,7 +159,8 @@ def observations(reader, table, metric, codes=None, lower=None, upper=None,
 
 
 def query_time_range(source, table_name, codes=None, start_date=None, end_date=None,
-                     metric=None, limit=None, *, as_of=None, filters=None):
+                     metric=None, limit=None, *, as_of=None, filters=None, pit_policy=None):
+    policy = resolve_policy(source, pit_policy)
     reader = get_reader(source)
     codes = _codes(codes)
     lower, upper, exclusive = bounds(start_date, end_date)
@@ -171,7 +173,7 @@ def query_time_range(source, table_name, codes=None, start_date=None, end_date=N
     records = []
     with reader.snapshot():
         rows = observations(reader, table_name, metric, codes, lower, upper,
-                            filters=filters, end_exclusive=exclusive)
+                            filters=filters, end_exclusive=exclusive, policy=policy)
         records.extend({"datetime": local_time(r["available_at"]), "code": r["code"],
                         "name": r["name"], "metric": metric, "value": r["value"], "remark": r["remark"]} for r in rows)
     result = frame(records, RANGE_COLUMNS, numeric=("value",), times=("datetime",))
@@ -220,7 +222,8 @@ def match_nearest(rows, codes, anchors, metric, direction, time_tolerance=None, 
 
 
 def _nearest(source, table_name, codes, anchors, metric, direction, time_tolerance,
-             *, ranges=False, filters=None, engine=None):
+             *, ranges=False, filters=None, engine=None, pit_policy=None):
+    policy = resolve_policy(source, pit_policy)
     codes = _codes(codes, required=True)
     if metric is None:
         raise ValueError("metric 必须显式指定数据库数值字段")
@@ -248,57 +251,56 @@ def _nearest(source, table_name, codes, anchors, metric, direction, time_toleran
         engine = "python"
         native = isinstance(reader, (PostgresReader, ClickHouseReader))
         count = len(set(codes))
-        # Only use the SQL wins demonstrated by the reproducible benchmark.
+        # Use measured SQL speed/memory advantages for wide PG price queries.
         # Other query shapes keep the simpler bulk Python implementation.
-        if native and direction == "before" and not ranges:
-            if reader.backend == "postgres" and count >= 200:
-                engine = "sql"
-            elif reader.backend == "clickhouse" and count >= 5000 and len(set(times)) == 1:
-                engine = "sql"
+        if (native and reader.backend == "postgres" and direction == "before" and not ranges
+                and table_name in {"market_daily_raw", "market_daily_post_adjusted"}
+                and count >= 5000 and len(set(times)) <= 4):
+            engine = "sql"
     if engine not in {"python", "sql"}:
         raise ValueError("无效的内部匹配实现")
     with reader.snapshot():
         rows = observations(reader, table_name, metric, codes, lower, upper,
                             filters=filters,
-                            nearest=(anchors, direction, ranges) if engine == "sql" else None)
+                            nearest=(anchors, direction, ranges) if engine == "sql" else None, policy=policy)
     return match_nearest(rows, codes, anchors, metric, direction, time_tolerance, ranges=ranges)
 
 
-def query_nearest_before(source, table_name, codes, datetimes, metric, time_tolerance=None, *, filters=None):
-    return _nearest(source, table_name, codes, datetimes, metric, "before", time_tolerance, filters=filters)
+def query_nearest_before(source, table_name, codes, datetimes, metric, time_tolerance=None, *, filters=None, pit_policy=None):
+    return _nearest(source, table_name, codes, datetimes, metric, "before", time_tolerance, filters=filters, pit_policy=pit_policy)
 
 
-def query_nearest_after(source, table_name, codes, datetimes, metric, time_tolerance=None, *, filters=None):
-    return _nearest(source, table_name, codes, datetimes, metric, "after", time_tolerance, filters=filters)
+def query_nearest_after(source, table_name, codes, datetimes, metric, time_tolerance=None, *, filters=None, pit_policy=None):
+    return _nearest(source, table_name, codes, datetimes, metric, "after", time_tolerance, filters=filters, pit_policy=pit_policy)
 
 
-def query_nearest_in_range_before(source, table_name, codes, ranges, metric, time_tolerance=None, *, filters=None):
-    return _nearest(source, table_name, codes, ranges, metric, "before", time_tolerance, ranges=True, filters=filters)
+def query_nearest_in_range_before(source, table_name, codes, ranges, metric, time_tolerance=None, *, filters=None, pit_policy=None):
+    return _nearest(source, table_name, codes, ranges, metric, "before", time_tolerance, ranges=True, filters=filters, pit_policy=pit_policy)
 
 
-def query_nearest_in_range_after(source, table_name, codes, ranges, metric, time_tolerance=None, *, filters=None):
-    return _nearest(source, table_name, codes, ranges, metric, "after", time_tolerance, ranges=True, filters=filters)
+def query_nearest_in_range_after(source, table_name, codes, ranges, metric, time_tolerance=None, *, filters=None, pit_policy=None):
+    return _nearest(source, table_name, codes, ranges, metric, "after", time_tolerance, ranges=True, filters=filters, pit_policy=pit_policy)
 
 
-def get_available_dates(source, table_name, code, metric, start_date=None, end_date=None, *, as_of=None, filters=None):
+def get_available_dates(source, table_name, code, metric, start_date=None, end_date=None, *, as_of=None, filters=None, pit_policy=None):
     result = query_time_range(source, table_name, [code], start_date, end_date, metric,
-                              as_of=as_of, filters=filters)
+                              as_of=as_of, filters=filters, pit_policy=pit_policy)
     return sorted(value.to_pydatetime() for value in result.datetime.drop_duplicates())
 
 
-def get_latest_date(source, table_name, code=None, metric=None, *, as_of=None, filters=None):
+def get_latest_date(source, table_name, code=None, metric=None, *, as_of=None, filters=None, pit_policy=None):
     result = query_time_range(source, table_name, [code] if code else None, metric=metric,
-                              limit=1, as_of=as_of, filters=filters)
+                              limit=1, as_of=as_of, filters=filters, pit_policy=pit_policy)
     return None if result.empty else result.datetime.iloc[0].to_pydatetime()
 
 
-def query_trade_status(source, table_name, codes, dates, metric="交易状态"):
+def _strict_trade_status(source, table_name, codes, dates, metric="交易状态"):
     from .reference import load_reference, known_scopes, suspension_status
 
     if table_name != "stock_suspension_intervals_versions" or metric != "交易状态":
         raise NotImplementedError("交易状态查询仅支持 stock_suspension_intervals_versions/交易状态")
     codes = _codes(codes)
-    if isinstance(dates, str):
+    if dates is None or isinstance(dates, str):
         raise ValueError("dates 必须是列表")
     dates = [timestamp(value) for value in dates]
     reader = get_reader(source)
@@ -319,8 +321,14 @@ def query_trade_status(source, table_name, codes, dates, metric="交易状态"):
                 scope = selected.get(code)
                 value, reason = suspension_status(scope, at) if scope else (None, "缺少历史可知的完整停牌范围")
                 records.append({"code": code, "datetime": local_time(at), "value": value,
-                                "status_text": reason, "name": historical_name(names, code, at)})
+                                "status_text": reason, "name": historical_name(names, code, at, "strict")})
     return frame(records, STATUS_COLUMNS, integers=("value",), times=("datetime",))
+
+
+def query_trade_status(source, table_name="trade_status_daily", codes=None, dates=None, metric="交易状态", *, pit_policy=None):
+    from .status import query_trade_status as implementation
+    return implementation(source, table_name, codes, dates, metric, pit_policy=pit_policy)
+
 
 def pivot_to_wide(
     df: pd.DataFrame,

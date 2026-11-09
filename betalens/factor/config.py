@@ -189,6 +189,17 @@ def run_parameters(config: Mapping[str, Any], config_path: str | Path) -> dict[s
         params["universe"] = run["universe"]
     if "benchmark_code" in run and run["benchmark_code"] is not None:
         params["benchmark_code"] = str(run["benchmark_code"])
+    removed = {"time_tolerance", "lot_size", "preloaded_cost_price", "preloaded_close_price", "preloaded_trade_status"}.intersection(run)
+    if removed:
+        raise ConfigError(f"{config_path}: run 已移除回测参数 {sorted(removed)}")
+    from betalens.backtest import validate_risk_config
+    validate_risk_config(run.get("risk"), section(config, "factor_spec").get("compute_kwargs") or {})
+    for key in ("risk", "price_time_map"):
+        if key in run:
+            params[key] = dict(run[key]) if run[key] is not None else None
+    for key in ("ftc", "ptc"):
+        if key in run:
+            params[key] = float(run[key])
     return params
 
 

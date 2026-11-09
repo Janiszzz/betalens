@@ -17,7 +17,26 @@
        show_plots=False,
    )
 
-``from_backtest`` 会自动抽取 ``nav``、``actual_weight``、``daily_position_value``、``daily_pnl`` 和 ``rebalance_log``。``benchmark`` 可传基准净值 Series、基准代码或另一个回测实例。
+``from_backtest`` 使用 ``daily_returns``、``daily_weight`` 和实际资产金额，
+并读取费用、再投余份结算、风控事件及 ``trade_cycles``。``benchmark`` 可传
+基准净值 Series、基准代码或另一个回测实例。代码基准默认读取后复权收盘价，
+保留开始日前一个收盘点，再按业务日期与策略日收益对齐；缺失行情不会填充。
+
+年化天数仅计日收益观测，不计初始资金点。月度、年度和指定区间报告均保留
+首日收益，包括初次建仓费用。
+
+交易与研究口径
+--------------
+
+交易统计按完整方向持仓周期计算：从空仓建仓，到平仓或反向开仓；同方向加仓、
+减仓合并到同一周期。净损益包含实际费用和再投余份结算，净收益率的分母为
+累计开仓名义金额。未平仓周期单独展示，不计入交易胜率和年度交易统计。
+旧文件缺少核算字段时标注 ``legacy_incomplete``，仅保留可识别的价格配对，
+不生成净交易统计。
+
+IC 使用 ``research_schedule`` 和 ``research_forward_returns`` 的显式研究区间。
+止盈止损等额外成交不会改变预测期限；新回测缺少研究区间时不从成交事件推断 IC。
+研究分组净值在原始调仓时等权、区间内自然漂移，不扣费用，也不应用手数和风控。
 
 从 Excel 读回
 -------------
@@ -29,7 +48,9 @@
    analyst = Analyst.from_excel("backtest_dump.xlsx", name="UploadedRun")
    analyst.to_html("report.html")
 
-该入口用于读取 ``BacktestBase.dump_to_excel()`` 的产物。若只有 ``nav`` sheet，收益、回撤和风险指标仍可计算，持仓、归因和交易类指标会跳过。
+该入口用于读取 ``BacktestBase.dump_to_excel()`` 的产物，恢复实际日收益、交易周期、
+研究区间和计算版本，使其与内存分析保持一致。若只有 ``nav`` sheet，收益、回撤和
+风险指标仍可计算。报告的“评价口径”和“诊断”记录版本与缺失数据说明。
 
 输出
 ----
@@ -81,7 +102,7 @@ Dashboard 集成
 常见问题
 --------
 
-* 持仓或归因指标缺失：确认回测实例包含 ``actual_weight``、``daily_position_value``、``daily_pnl``、``rebalance_log``。
+* 持仓或归因指标缺失：确认回测实例包含 ``daily_weight``、``daily_position_value``、``daily_pnl``、``rebalance_log``。
 * 中文名显示为原代码：数据库连接不可用或对应表缺少 ``name`` 记录，属于正常降级。
 * 交互 HTML 生成失败：安装 ``plotly`` 或 ``.[viz]`` 可选依赖。
 

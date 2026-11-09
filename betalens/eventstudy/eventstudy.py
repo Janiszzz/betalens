@@ -2,7 +2,7 @@
 事件研究模块 - 用于分析特定事件前后的收益率表现
 
 betalens API 使用:
-    - datafeed.query_time_range(): 查询时间范围内的数据
+    - datafeed.query_daily_market(): 按业务日期查询日频数据
 """
 import pandas as pd
 import numpy as np
@@ -30,7 +30,7 @@ def _normalize_date(value: pd.Timestamp) -> pd.Timestamp:
     """Normalize a timestamp to a timezone-naive calendar date."""
     timestamp = pd.Timestamp(value)
     if timestamp.tzinfo is not None:
-        timestamp = timestamp.tz_localize(None)
+        timestamp = timestamp.tz_convert('Asia/Shanghai').tz_localize(None)
     return timestamp.normalize()
 
 
@@ -41,8 +41,10 @@ def _get_day0_trade_day_loc(
 ) -> Optional[int]:
     """Locate the event's cost-price day on the standard trade calendar."""
     event_timestamp = pd.Timestamp(event_date)
+    if event_timestamp.tzinfo is not None:
+        event_timestamp = event_timestamp.tz_convert('Asia/Shanghai').tz_localize(None)
     event_day = _normalize_date(event_timestamp)
-    side = "left" if event_timestamp.hour < market_close_hour else "right"
+    side = "left" if event_timestamp < event_day + pd.Timedelta(hours=market_close_hour) else "right"
     location = int(trade_days.searchsorted(event_day, side=side))
     if location >= len(trade_days):
         return None
@@ -242,6 +244,19 @@ class EventStudy:
     def __init__(self, datafeed):
         self.datafeed = datafeed  # [betalens API] datafeed 实例
 
+    def _daily_prices(self, code, start, end, metric):
+        if hasattr(self.datafeed, 'query_daily_market'):
+            data = self.datafeed.query_daily_market(codes=[code], start_date=start, end_date=end, metrics=[metric])
+            if data.empty:
+                return pd.Series(dtype=float)
+            return data.set_index('trade_date')['value'].sort_index().astype(float)
+        # Compatibility for external in-memory feeds whose datetime is an observation day.
+        data = self.datafeed.query_time_range(codes=[code], start_date=start, end_date=end, metric=metric)
+        if data.empty:
+            return pd.Series(dtype=float)
+        key = 'trade_date' if 'trade_date' in data else 'datetime'
+        return data.set_index(key)['value'].sort_index().astype(float)
+
     def _get_stock_window_returns(
         self,
         code: str,
@@ -255,25 +270,17 @@ class EventStudy:
         trade_days: pd.DatetimeIndex,
         benchmark_returns: Optional[pd.Series] = None,
         benchmark_prices: Optional[pd.Series] = None
-    ) -> tuple[pd.DataFrame, pd.DataFrame, Optional[str]]:
+    ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, Optional[str]]:
         """获取单个股票在所有事件窗口的收益率矩阵
 
         Returns:
-            (returns, normalized prices, error)
+            (daily excess returns, normalized prices, raw asset returns, error)
         """
         try:
-            data = self.datafeed.query_time_range(
-                codes=[code],
-                start_date=start,
-                end_date=end,
-                metric=metric
-            )
-
-            if data.empty:
-                return pd.DataFrame(), pd.DataFrame(), 'no data'
-
-            prices = data.set_index('datetime')['value'].sort_index()
-            prices = prices.astype(float)
+            prices = self._daily_prices(code, start, end, metric)
+            if prices.empty:
+                return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), 'no data'
+            raw_windows = {}
             event_windows = {}
             price_windows = {}
             for event_id, ed in enumerate(event_dates):
@@ -287,6 +294,7 @@ class EventStudy:
                     prices, ed, window_before, window_after,
                     market_close_hour, trade_days,
                 )
+                raw_windows[event_id] = wr.copy()
                 if benchmark_returns is not None and benchmark_prices is not None:
                     benchmark_wr = _get_window_returns(
                         benchmark_prices,
@@ -298,14 +306,16 @@ class EventStudy:
                     )
                     if benchmark_wr is None or benchmark_wr.empty or benchmark_wr.isna().all():
                         continue
-                    wr = wr.subtract(benchmark_wr, fill_value=np.nan).dropna()
+                    wr = wr.subtract(benchmark_wr, fill_value=np.nan)
+                    benchmark_wp = _get_window_prices(benchmark_prices, ed, window_before, window_after, market_close_hour, trade_days)
+                    wp = wp - benchmark_wp if benchmark_wp is not None else wp * np.nan
                     if wr.empty:
                         continue
                 event_windows[event_id] = wr
                 price_windows[event_id] = wp
 
             if not event_windows:
-                return pd.DataFrame(), pd.DataFrame(), 'no matching events'
+                return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), 'no matching events'
             result = pd.DataFrame(event_windows).sort_index()
             # Keep columns tied to the input event order.  A target can be
             # missing one event window without shifting every later event.
@@ -313,10 +323,11 @@ class EventStudy:
             result.columns.name = 'event_id'
             prices_result = pd.DataFrame(price_windows).sort_index().reindex(columns=range(len(event_dates)))
             prices_result.columns.name = 'event_id'
-            return result, prices_result, None
+            raw_result = pd.DataFrame(raw_windows).reindex(index=result.index, columns=result.columns)
+            return result, prices_result, raw_result, None
 
         except Exception as exc:
-            return pd.DataFrame(), pd.DataFrame(), str(exc)
+            return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), str(exc)
 
     def _calc_holding_returns(
         self,
@@ -374,7 +385,8 @@ class EventStudy:
         market_close_hour: int = 15,
         benchmark_code: Optional[str] = None,
         multi_asset_mode: Literal['aggregate', 'compare'] = 'aggregate',
-        exchange: str = 'SHSE',
+        exchange: str = 'SSE',
+        price_time_map: Optional[dict] = None,
     ) -> dict:
         """
         分析事件前后的收益率表现
@@ -392,16 +404,23 @@ class EventStudy:
             market_close_hour: 市场收盘时间（小时），默认15点
             benchmark_code: 可选的业绩比较基准代码，如提供则计算超额收益=持有标的收益-基准收益
             multi_asset_mode: 多标的处理模式，aggregate=等权平均，compare=同时返回逐标的比较
-            exchange: 标准交易日历的交易所代码，默认SHSE
+            exchange: 标准交易日历的交易所代码，默认SSE，兼容SHSE别名
+            price_time_map: 自定义价格字段的观测时刻，格式为 {字段: 'HH:MM'}
 
         Returns:
             包含 daily_stats, holding_stats, price_matrix 和 returns_matrix 的字典
             多标的模式额外包含: stock_returns_dict (每个股票的收益矩阵)
 
         Note:
-            Day 0日期判断：事件在收盘前使用当日，收盘后使用下一交易日。
-            Day 0收益为该交易日自身的收盘价涨跌幅。
+            Day 0日期判断：事件严格早于观测时刻使用当日，否则使用下一交易日。
+            Day 0收益为该交易日自身的价格涨跌幅。
         """
+        exchange = {'SHSE': 'SSE', 'XSHG': 'SSE', 'XSHE': 'SZSE'}.get(exchange, exchange)
+        clocks = {'open': '09:30', 'close': f'{int(market_close_hour):02d}:00', **(price_time_map or {})}
+        if metric not in clocks:
+            raise ValueError('请通过 price_time_map 指定事件研究价格观察时点')
+        clock = clocks[metric]
+        market_close_hour = pd.Timedelta(clock + ':00' if len(clock) == 5 else clock).total_seconds() / 3600
         event_dates = _get_event_dates(events)
         if event_dates.empty:
             return {'error': 'no events'}
@@ -442,24 +461,26 @@ class EventStudy:
         benchmark_returns = None
         benchmark_prices = None
         if benchmark_code:
-            benchmark_data = self.datafeed.query_time_range(
-                codes=[benchmark_code],
-                start_date=start,
-                end_date=end,
-                metric=metric,
-            )
-            if benchmark_data.empty:
+            benchmark_prices = self._daily_prices(benchmark_code, start, end, metric)
+            if benchmark_prices.empty:
                 return {'error': 'no benchmark data'}
-            benchmark_prices = benchmark_data.set_index('datetime')['value'].sort_index().astype(float)
             benchmark_returns = _calc_returns(benchmark_prices)
+
+        benchmark_holding = None
+        if benchmark_prices is not None:
+            bm_windows = {i: _get_window_returns(benchmark_prices, ed, window_before, calculation_after,
+                          market_close_hour, trade_days) for i, ed in enumerate(event_dates)}
+            bm_matrix = pd.DataFrame({i: w for i, w in bm_windows.items() if w is not None})
+            benchmark_holding, _ = self._calc_holding_returns(bm_matrix, holding_periods, holding_start_offset)
 
         codes = code if is_multi_stock else [code]
         stock_returns_full = {}
+        stock_raw_returns = {}
         stock_price_dict = {}
         valid_codes = []
         skipped_codes = []
         for stock_code in codes:
-            stock_returns, stock_prices, error = self._get_stock_window_returns(
+            stock_returns, stock_prices, raw_returns, error = self._get_stock_window_returns(
                 stock_code, event_dates, start, end, metric,
                 window_before, calculation_after, market_close_hour,
                 trade_days, benchmark_returns, benchmark_prices,
@@ -468,6 +489,7 @@ class EventStudy:
                 skipped_codes.append({'code': stock_code, 'reason': error or 'no valid data'})
                 continue
             stock_returns_full[stock_code] = stock_returns
+            stock_raw_returns[stock_code] = raw_returns
             stock_price_dict[stock_code] = stock_prices.loc[-window_before:window_after]
             valid_codes.append(stock_code)
 
@@ -483,10 +505,21 @@ class EventStudy:
         price_matrix = price_matrix.reindex(columns=returns_full.columns)
 
         overall_stats = _stats_frame(returns_df)
-        holding_returns, holding_stats = self._calc_holding_returns(
-            returns_full, holding_periods, holding_start_offset
-        )
-        
+        stock_holding = {}
+        for stock_code, raw_returns in stock_raw_returns.items():
+            held, _ = self._calc_holding_returns(raw_returns, holding_periods, holding_start_offset)
+            if benchmark_holding is not None:
+                held = held.subtract(benchmark_holding)
+            stock_holding[stock_code] = held
+        stacked_holding = pd.concat(stock_holding, names=['code', 'holding_day'])
+        holding_returns = stacked_holding.groupby(level='holding_day').mean().sort_index()
+        holding_stats = _stats_frame(holding_returns) if not holding_returns.empty else pd.DataFrame()
+        holding_coverage = stacked_holding.groupby(level='holding_day').count() / len(codes)
+        if not holding_stats.empty:
+            labels = {int(d): f'{int(d)}日' for d in holding_periods.get('days', [])}
+            labels.update({int(m) * 21: f'{int(m)}个月' for m in holding_periods.get('months', [])})
+            holding_stats.insert(0, 'holding_period', [labels.get(int(d) - holding_start_offset, str(d)) for d in holding_stats.index])
+
         result = {
             'daily_stats': overall_stats,
             'holding_stats': holding_stats,
@@ -495,6 +528,8 @@ class EventStudy:
             'trade_days': trade_days,
             'returns_matrix': returns_df,
             'holding_returns_matrix': holding_returns,
+            'holding_coverage': holding_coverage,
+            'return_model': 'per_asset_interval_then_average',
             'price_matrix': price_matrix,
         }
 
@@ -513,9 +548,10 @@ class EventStudy:
                 total_events = len(event_dates)
                 for stock_code, stock_returns in stock_returns_full.items():
                     stock_daily_stats = _stats_frame(stock_returns)
-                    stock_holding_returns, stock_holding_stats = self._calc_holding_returns(
-                        stock_returns, holding_periods, holding_start_offset,
-                    )
+                    stock_holding_returns = stock_holding[stock_code]
+                    stock_holding_stats = _stats_frame(stock_holding_returns)
+                    if not stock_holding_stats.empty:
+                        stock_holding_stats.insert(0, 'holding_period', holding_stats.holding_period.reindex(stock_holding_stats.index))
                     event_ids = [
                         int(event_id)
                         for event_id in stock_returns.columns

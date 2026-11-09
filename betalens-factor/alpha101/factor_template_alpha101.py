@@ -308,6 +308,10 @@ class TimingFactorPipeline:
         universe: list | None = None,
         n_quantiles: int = 10,
         initial_amount: float = 1e8,
+        risk: dict | None = None,
+        price_time_map: dict | None = None,
+        ftc: float = 0.0,
+        ptc: float = 0.0,
         benchmark_code: str | None = None,
         output_dir: str = ".",
         include_profiling: bool = False,
@@ -340,6 +344,8 @@ class TimingFactorPipeline:
 
         sp = self.spec
         params = dict(sp.compute_kwargs or {})
+        from betalens.backtest import validate_risk_config
+        validate_risk_config(risk, params)
         target_codes = _timing_codes(params, universe)
         if not sp.index_code:
             raise ValueError("Alpha101 timing requires factor_spec.index_code for cross-sectional computation")
@@ -422,18 +428,11 @@ class TimingFactorPipeline:
             direction=sp.direction,
         )
         weights = signal_result.weights
-        # Signals are computed on the previous trading day and executed at the
-        # rebalance date, ten minutes after the open, consistent with mining.
-        mapping = {
-            pd.Timestamp(signal).normalize(): pd.Timestamp(rebalance).normalize()
-            for signal, rebalance in zip(signal_dates, valid_rebalance_dates)
-        }
-        normalized = pd.DatetimeIndex(weights.index).normalize()
-        keep = normalized.isin(mapping)
-        weights = weights.loc[keep].copy()
-        weights.index = pd.DatetimeIndex([
-            mapping[day] + pd.Timedelta(minutes=10) for day in normalized[keep]
-        ])
+        # Signals map explicitly to rebalance-date 00:10 targets. The selected
+        # price field determines the actual execution clock, as in mining.
+        from betalens.factor.research import build_rebalance_schedule, weights_on_schedule
+        research_schedule = build_rebalance_schedule(signal_dates, valid_rebalance_dates, wides=wides)
+        weights = weights_on_schedule(weights, research_schedule)
         factor_values = signal_result.factor_values
         if weights.empty:
             raise ValueError("empty timing weights")
@@ -441,7 +440,6 @@ class TimingFactorPipeline:
         out_dir = Path(output_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
         weights.to_csv(out_dir / f"{sp.name}_weights.csv", encoding="utf-8-sig")
-        factor_values.to_csv(out_dir / f"{sp.name}_factor_values.csv", index=False, encoding="utf-8-sig")
         for code, events in signal_result.events.items():
             safe_code = str(code).replace(".", "_")
             events.to_csv(out_dir / f"{sp.name}_{safe_code}_trigger_events.csv", index=False, encoding="utf-8-sig")
@@ -452,16 +450,20 @@ class TimingFactorPipeline:
             amount=initial_amount,
             metric=sp.backtest_metric,
             table_name=sp.table_name,
-            time_tolerance=24 * 11,
+            end_date=end_date, risk=risk, price_time_map=price_time_map, ftc=ftc, ptc=ptc,
             verbose=verbose,
         )
+        from betalens.factor.research import attach_research
+        factor_values = attach_research(bt, factor_values, research_schedule,
+                                        metric=sp.backtest_metric, price_time_map=price_time_map)
+        factor_values.to_csv(out_dir / f"{sp.name}_factor_values.csv", index=False, encoding="utf-8-sig")
         bt.requested_start_date = requested_start_date
         bt.effective_start_date = start_date
         analyst = Analyst.from_backtest(
             bt,
             name=sp.name,
             benchmark_code=benchmark_code,
-            benchmark_metric=sp.backtest_metric,
+            benchmark_metric="close",
             factor_values=factor_values,
         )
         analyst.report(

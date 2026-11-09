@@ -8,11 +8,14 @@ from .backtest import (
     DateMismatchError,
     CodeMismatchError,
 )
+from .risk import RiskConfig, validate_risk_config
 
 __all__ = [
     'BacktestBase',
     'BacktestDataError',
     'DateMismatchError',
     'CodeMismatchError',
+    'RiskConfig',
+    'validate_risk_config',
 ]
 

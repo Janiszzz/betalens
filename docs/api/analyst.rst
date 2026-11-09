@@ -15,7 +15,8 @@ Analyst
 
    .. py:classmethod:: from_backtest(bt, benchmark=None, risk_free_rate=0.0, annualizer=252, window=30, name='组合')
 
-      从回测实例构建，自动抽取 ``nav``、``actual_weight``、``daily_position_value``、``daily_pnl`` 和 ``rebalance_log``。
+      从回测实例构建，使用实际日收益、漂移仓位、交易周期和显式研究区间。
+      代码基准默认使用后复权收盘价，含开始日前一个业务日的收盘点。
 
    .. py:classmethod:: from_excel(filepath, benchmark=None, name='组合', **kwargs)
 
@@ -49,11 +50,15 @@ PortfolioAnalyzer
    :param risk_free_rate: 年化无风险利率。
    :param annualizer: 年化因子，默认 252。
    :param window: 滚动统计窗口。
-   :param weight: 调仓权重。
+   :param weight: 实际日频权重（兼容旧调仓权重）。
    :param daily_position_value: 日频持仓金额。
    :param daily_pnl: 日频逐标的损益。
    :param rebalance_log: 调仓记录。
    :param benchmark: 基准净值。
+
+   另支持关键字参数 ``daily_returns``、``daily_amount``、``synthetic_settlements``、
+   ``risk_events``、``forward_returns``、``research_schedule`` 和 ``trade_cycles``。
+   完整交易周期含实际费用和再投余份结算；未平仓和旧记录的统计限制见 :doc:`../guide/analyst`。
 
    .. py:method:: summary()
 
@@ -105,3 +110,12 @@ analyst.plotting
 .. automodule:: betalens.analyst.plotting
    :members:
    :undoc-members:
+
+analyst.evaluation / analyst.trades
+----------------------------------
+
+.. automodule:: betalens.analyst.evaluation
+   :members:
+
+.. automodule:: betalens.analyst.trades
+   :members:

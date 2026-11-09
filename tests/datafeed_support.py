@@ -52,6 +52,7 @@ class MemoryReader:
     namespace = "test"
 
     def __init__(self, tables=None, types=None):
+        self.pit_policy = "strict"  # Original fixtures explicitly exercise the strict contract.
         self.tables = deepcopy(tables or {})
         self.types = deepcopy(types or {})
         self.calls = []

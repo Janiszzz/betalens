@@ -136,7 +136,7 @@ class DatabaseManagerService(ManagerKernel):
                     if name=='fundamental_periodic':protected={'announcement_date','actual_announcement_date','end_type','statement_type','version_id','rd_exp','research_and_development_expense','research_and_development_investment'}
                     partial={k:v for k,v in partial.items() if k not in protected}
                     if name in DETAILS.values():
-                        if name=='industry_membership_record':partial['scheme_code']='SW2021' if endpoint=='index_member_all' else 'CITIC'
+                        if name=='industry_membership_record':partial['scheme_code']='SW2021' if endpoint=='index_member_all' else 'CITICS'
                         partial['record_version']=digest(partial)
                         event=next((source.get(k) for k in ('trade_date','end_date','start_date','nav_date','in_date') if source.get(k)),None)
                         available=None;basis='unknown'
@@ -303,10 +303,10 @@ class DatabaseManagerService(ManagerKernel):
                     records.append(('meta_source_mapping',digest([item['id'],table,b['source_id'],b['endpoint'],rule['source_field'],rule['column']]),row))
         self.state.ledger_put_many(records,task_targets={item['id']:item['plan']['request']['targets']})
 
-    def replan_retrieval(self,job):
+    def replan_retrieval(self,job,execution_options=None):
         self.state.ensure_execution(job)
         from .retrieval_replan import replan
-        return replan(self,job)
+        return replan(self,job,execution_options)
 
     def replay_archive(self,job):
         self.state.ensure_execution(job)

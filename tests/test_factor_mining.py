@@ -30,6 +30,18 @@ from betalens.factor.mining_optuna import (
 )
 
 
+def _mock_evaluation(nav, weights=None):
+    from betalens.analyst.evaluation import BacktestEvaluation
+    from betalens.analyst.trades import COLUMNS
+    nav = nav.copy()
+    nav.attrs['calculation_version'] = 'backtest-v2-drift-risk'
+    returns = nav.pct_change(fill_method=None).dropna()
+    stock = weights.reindex(returns.index, method='ffill') if weights is not None else pd.DataFrame({'A': 1.}, index=returns.index)
+    logs = pd.DataFrame(columns=['datetime', 'value', 'equity_before'])
+    return BacktestEvaluation(nav, returns, stock, nav.reindex(returns.index) * 100_000,
+        logs, pd.DataFrame(), pd.DataFrame(), pd.DataFrame(columns=COLUMNS))
+
+
 def test_alpha101_compact_factor_list_expands_automatic_configs(monkeypatch):
     alpha_directory = Path(__file__).parents[1] / "betalens-factor" / "alpha101"
     monkeypatch.syspath_prepend(str(alpha_directory))
@@ -349,14 +361,14 @@ def test_execution_modes_compute_once_and_isolate_windows(monkeypatch):
         lambda *args, **kwargs: pd.DataFrame({"A": 1.0}, index=index),
     )
 
-    def vector_nav(weights, price):
+    def vector_nav(weights, data, *args):
+        price = data.price
         calls["nav"] += 1
-        return pd.Series(range(1, len(price) + 1), index=price.index, dtype=float)
+        return _mock_evaluation(pd.Series(range(1, len(price) + 1), index=price.index, dtype=float), weights)
 
-    monkeypatch.setattr(mining, "_vector_nav", vector_nav)
+    monkeypatch.setattr(mining, "_evaluate_backtest", vector_nav)
     evaluation = {
         "span": ["2024-01-01", "2024-01-15"],
-        "engine": "vector",
         "rebal_freq": "D",
     }
     rows = mining._evaluate_candidate(
@@ -428,11 +440,12 @@ def test_precomputed_window_transform_reuses_factor_and_retests_each_window(monk
         lambda *args, **kwargs: pd.DataFrame({"A": 1.0}, index=data.price.index),
     )
 
-    def vector_nav(weights, price):
+    def vector_nav(weights, data, *args):
+        price = data.price
         calls["nav"] += 1
-        return pd.Series(range(1, len(price) + 1), index=price.index, dtype=float)
+        return _mock_evaluation(pd.Series(range(1, len(price) + 1), index=price.index, dtype=float), weights)
 
-    monkeypatch.setattr(mining, "_vector_nav", vector_nav)
+    monkeypatch.setattr(mining, "_evaluate_backtest", vector_nav)
     rows = mining._evaluate_candidate(
         module.__name__,
         "TRANSFORM",
@@ -440,7 +453,7 @@ def test_precomputed_window_transform_reuses_factor_and_retests_each_window(monk
         "coarse",
         windows,
         data,
-        {"span": ["2024-01-01", "2024-01-15"], "engine": "vector", "rebal_freq": "D"},
+        {"span": ["2024-01-01", "2024-01-15"], "rebal_freq": "D"},
     )
     assert calls == {"compute": 1, "transform": 2, "nav": 2}
     assert all(row["error"] is None for row in rows)
@@ -571,37 +584,26 @@ def test_effective_workers_are_capped_by_physical_cores(monkeypatch):
     assert mining._effective_workers(16, data, 0.7) == 3
 
 
-def test_exact_engine_uses_preloaded_frames():
-    index = pd.date_range("2024-01-02", periods=12, freq="B") + pd.Timedelta(hours=15)
-    price = pd.DataFrame(
-        {
-            "A": [10 + value * 0.1 for value in range(12)],
-            "B": [20 - value * 0.1 for value in range(12)],
-        },
-        index=index,
-    )
-    status = pd.DataFrame(1, index=index.normalize(), columns=["A", "B"])
-    rebalance = pd.DatetimeIndex([index[1].normalize(), index[6].normalize()]) + pd.Timedelta(minutes=10)
-    weights = pd.DataFrame(
-        {"A": [0.5, 0.5], "B": [-0.5, -0.5], "cash": [1.0, 1.0]},
-        index=rebalance,
-    )
-    data = mining.MiningData(
-        inputs={},
-        price=price,
-        execution_price=price,
-        trade_status=status,
-        pit=None,
-        universe=["A", "B"],
-    )
-    factor = SimpleNamespace(
-        name="EXACT_SMOKE",
-        backtest_metric="close",
-        table_name="market_daily_post_adjusted",
-    )
-    nav = mining._exact_nav(weights, data, mining.MiningSpec(factor), 1_000_000, 24)
-    assert not nav.empty
-    assert nav.notna().all()
+def test_unified_adapter_uses_database_interface(monkeypatch):
+    from betalens import backtest
+    captured = {}
+    class Engine:
+        calculation_version = "backtest-v2-drift-risk"
+        def __init__(self, weights, **kwargs):
+            captured.update(kwargs)
+            self.nav = pd.Series([1., 1.1], index=pd.bdate_range("2024-01-02", periods=2))
+    monkeypatch.setattr(backtest, "BacktestBase", Engine)
+    from betalens.analyst.evaluation import BacktestEvaluation
+    monkeypatch.setattr(BacktestEvaluation, 'from_backtest', classmethod(lambda cls, bt: _mock_evaluation(bt.nav)))
+    data = _synthetic_data()
+    factor = SimpleNamespace(name="test", compute_kwargs={}, backtest_metric="close")
+    weights = pd.DataFrame({"A": [1.]}, index=pd.to_datetime(["2024-01-02"]))
+    nav = mining._backtest_nav(weights, data, mining.MiningSpec(factor), 1_000_000, "2024-01-03")
+    assert len(nav) == 2
+    assert captured["end_date"] == "2024-01-03"
+    assert not any(key.startswith("preloaded_") for key in captured)
+    assert "time_tolerance" not in captured
+    assert nav.attrs["calculation_version"] == "backtest-v2-drift-risk"
 
 
 def test_run_logging_is_live_and_persisted(tmp_path, monkeypatch, capsys):
@@ -632,10 +634,10 @@ def test_run_logging_is_live_and_persisted(tmp_path, monkeypatch, capsys):
     )
     monkeypatch.setattr(
         mining,
-        "_vector_nav",
-        lambda weights, price: pd.Series(
-            np.linspace(1.0, 1.2, len(price)), index=price.index
-        ),
+        "_evaluate_backtest",
+        lambda weights, data, *args: _mock_evaluation(pd.Series(
+            np.linspace(1.0, 1.2, len(data.price)), index=data.price.index
+        ), weights),
     )
     parameter_path = tmp_path / "parameter_space.yaml"
     performance_path = tmp_path / "performance.yaml"
@@ -656,8 +658,7 @@ def test_run_logging_is_live_and_persisted(tmp_path, monkeypatch, capsys):
                 },
                 "evaluation": {
                     "span": ["2024-01-01", "2024-01-15"],
-                    "engine": "vector",
-                    "rebal_freq": "D",
+                                "rebal_freq": "D",
                 },
                 "windows": {"lengths": [4], "steps": [4]},
                 "search": {
@@ -765,8 +766,8 @@ def test_multistage_search_runs_qmc_tpe_expansion_grid_and_stability(tmp_path, m
     )
     monkeypatch.setattr(
         mining,
-        "_vector_nav",
-        lambda weights, price: pd.Series(np.linspace(1.0, 1.2, len(price)), index=price.index),
+        "_evaluate_backtest",
+        lambda weights, data, *args: _mock_evaluation(pd.Series(np.linspace(1.0, 1.2, len(data.price)), index=data.price.index), weights),
     )
     monkeypatch.setattr(
         mining_optuna,
@@ -791,7 +792,7 @@ def test_multistage_search_runs_qmc_tpe_expansion_grid_and_stability(tmp_path, m
                     "parameter_limits": {"window": {"low": 1, "high": 8}},
                 }
             },
-            "evaluation": {"span": ["2024-01-01", "2024-01-15"], "engine": "vector", "rebal_freq": "D"},
+            "evaluation": {"span": ["2024-01-01", "2024-01-15"], "rebal_freq": "D"},
             "windows": {"lengths": [4], "steps": [4]},
             "search": {
                 "coarse": {"sampler": "qmc", "qmc_type": "sobol", "n_trials": 4, "seed": 1},
