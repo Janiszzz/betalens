@@ -7,6 +7,7 @@ from .resource_budget import BUDGET,shared_slot
 from .target_lanes import target_lanes
 from datetime import date
 from decimal import Decimal
+from pathlib import Path
 import uuid
 from .canonical import registry_context,catalog_snapshot
 from .comparison import row_key,content_hash,row_hash,typed,typed_row_hash,typed_content_hash
@@ -100,6 +101,8 @@ class ValidationRunner:
         if parent['status'] in {'running','downloading','committing'}:raise ValueError('请等待写入结束后运行事后校验')
         if parent['plan']['revision']=='reference-v1':return self._reference(parent,rules,targets,report)
         dependencies=self._dependencies(parent) if 'relations' in rules else {}
+        if dependencies.get('cache_purged'):
+            report['checks'].append({'stage':'source_dependencies','unknown':1,'reason':'任务下载缓存已清理，部分来源关系依据不可用'})
         watermarks=self.s.state.validation_watermarks(tables,targets)
         def merge(future, name, target):
             try:part=future.result()
@@ -136,9 +139,15 @@ class ValidationRunner:
                         if not expected:continue
                         if 'readback' in rules and child_item is None:
                             child_item=self.s._job(child,True)
-                            from .pipeline_options import source_replay
-                            with shared_slot(self.s.settings.state_dir,'cpu',BUDGET.cpu_workers),source_replay():_,rejected=self.s._build_canonical(child_item)
-                            if rejected:report['checks'].append({'stage':'source_replay','child_id':child,'failed':len(rejected),'samples':rejected[:20]})
+                            purged=bool(parent.get('download_cache_cleanup')) and any(
+                                p.get('archive') and not Path(p['archive']).is_file() for p in child_item['slices'])
+                            if purged:
+                                child_item['_source_cache_purged']=True
+                                report['checks'].append({'stage':'source_replay','child_id':child,'unknown':1,'reason':'任务下载缓存已清理，仍核验目标库与写入镜像'})
+                            else:
+                                from .pipeline_options import source_replay
+                                with shared_slot(self.s.settings.state_dir,'cpu',BUDGET.cpu_workers),source_replay():_,rejected=self.s._build_canonical(child_item)
+                                if rejected:report['checks'].append({'stage':'source_replay','child_id':child,'failed':len(rejected),'samples':rejected[:20]})
                         for target in targets:
                             # Incremental L3 field evidence for the same child is
                             # deliberately serialized; L1/L2 batches are parallel.
@@ -190,7 +199,7 @@ class ValidationRunner:
                     if len(sample)<20:sample.append({'row_key':key,'security_code':current.get('security_code',current.get('code')),'problems':problems})
         result['checks'].append({'table':name,'target':target,'rows':len(expected),**dict(counts)})
         result['samples'].extend(sample)
-        if 'readback' in rules and journal:
+        if 'readback' in rules and journal and not child_item.get('_source_cache_purged'):
             from .field_lineage import record_readback
             record_readback(self.s,child_item,target,spec,journal,live)
             fields=[r for r in self.s.state.ledger_rows('field_verification',child) if r['table']==name and r['target']==target]
@@ -208,6 +217,9 @@ class ValidationRunner:
         result={'calendar':{},'lifecycle':{},'balance':{}}
         for part in parent['slices']:
             if part['dataset'] not in {'trade_cal','stock_basic','balancesheet','balancesheet_vip'} or part['status'] not in {'downloaded','paged'}:continue
+            if parent.get('download_cache_cleanup') and part.get('archive') and not Path(part['archive']).is_file():
+                result['cache_purged']=True
+                continue
             data=read_archive(part['archive'],part['sha'])
             for values in data['items']:
                 r=dict(zip(data['fields'],values))

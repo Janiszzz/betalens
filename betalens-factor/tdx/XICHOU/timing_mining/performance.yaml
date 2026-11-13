@@ -11,9 +11,14 @@ cache:
 universe: ["000300.SH"]
 
 output:
-  directory: outputs/mining
+  directory: ../../../../outputs/mining/tdx
 
 logging:
   level: INFO
   task_logs: true
   heartbeat_seconds: 30
+
+experiment_export:
+  enabled: false
+  store_path: outputs/experiments.lmdb
+  capture_selected: true

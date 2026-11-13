@@ -25,7 +25,9 @@ class DownloadBuffer:
         for unit in units:
             if unit['kind']=='normalize' and unit['status']=='completed':
                 child=(unit.get('result') or {}).get('child_id')
+                self.writes[unit['id']].update(t for t in request['targets'] if (child,t) in stored)
                 if all((child,t) in stored for t in request['targets']):self.released.add(unit['id'])
+        self.completed=len(self.released.intersection(groups))
         context=copy_context()
         self.thread=Thread(target=lambda:context.run(self._run),name='archive-producer')
 
@@ -58,7 +60,10 @@ class DownloadBuffer:
                 if not self.request['auto_commit']:
                     raise RuntimeError('待提交缓存达到积压上限，请提交已有缓存或分段执行')
                 if self.pipeline.failed_targets:
-                    raise RuntimeError('目标库失败且缓存达到积压上限，请修复失败目标后恢复')
+                    labels={'postgres':'PostgreSQL','clickhouse':'ClickHouse'}
+                    failures=getattr(self.pipeline,'target_errors',{})
+                    details='；'.join(labels.get(t,t)+': '+failures.get(t,'请查看目标库失败日志') for t in sorted(self.pipeline.failed_targets))
+                    raise RuntimeError('目标库失败且缓存达到积压上限，请修复失败目标后恢复：'+details)
                 # Finish the already-started head: otherwise the consumer may
                 # never receive the group needed to release the byte budget.
                 if group not in self.released and not (group==head and group in self.allowed_to_finish):return False
@@ -92,6 +97,9 @@ class DownloadBuffer:
             self.writes[group].add(target)
             if all(t in self.writes[group] for t in self.request['targets']):self.release(group)
 
+    def pending_targets(self,group):
+        with self.lock:return [t for t in self.request['targets'] if t not in self.writes[group]]
+
     def publish(self,force=False):
         with self.lock:
             if not force and time.monotonic()-self.last_publish<5:return
@@ -107,7 +115,10 @@ class DownloadBuffer:
         iterator=None
         try:
             self.publish(force=True)
-            iterator=self.downloader.run_groups(self.groups,self.request['download_workers'],lookahead=BUDGET.download_group_lookahead,flow=self)
+            # Durable success on every requested target is a completed checkpoint.
+            # Resume only unfinished groups; completed receipts stay authoritative.
+            pending={key:roots for key,roots in self.groups.items() if key not in self.released}
+            iterator=self.downloader.run_groups(pending,self.request['download_workers'],lookahead=BUDGET.download_group_lookahead,flow=self)
             for key,_,failures in iterator:
                 self.completed+=1;self.failures+=len(failures)
                 while True:

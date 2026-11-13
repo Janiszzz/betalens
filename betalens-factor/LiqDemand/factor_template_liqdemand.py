@@ -45,7 +45,7 @@ from __future__ import annotations
 
 import sys
 from collections import defaultdict
-from datetime import date, timedelta
+from datetime import date
 from pathlib import Path
 
 import numpy as np
@@ -56,20 +56,8 @@ _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from factor_template import (  # noqa: E402  re-export 通用主干
-    FactorSpec, FactorPipeline, RunResult,
-    fetch_daily_wide, wide_to_prequery, build_pit_universe,
-    filter_long_by_pit_universe, infer_warmup_days,
-    validate_weights_in_pit_universe, _labeled_to_factor_values,
-    _expand_weights_to_factor_universe,
-    append_grouped_profiling_excel,
-)
-from betalens.datafeed import get_absolute_trade_days  # noqa: E402
-from betalens.factor.factor import (  # noqa: E402
-    single_characteristic, get_single_factor_weight,
-)
-from betalens.backtest import BacktestBase  # noqa: E402
-from betalens.analyst import Analyst  # noqa: E402
+from factor_template import FactorSpec, FactorPipeline, RunResult, infer_warmup_days
+from betalens.datafeed import get_absolute_trade_days
 
 __all__ = [
     "FactorSpec", "RunResult", "FactorPipeline",
@@ -109,195 +97,35 @@ def get_pretom_dates(start_date: str, end_date: str,
 class LiqDemandPipeline(FactorPipeline):
     """LiqDemand 类管线：在通用 FactorPipeline 主干上扩展 warmup 预热 + PreTOM 择时。
 
-    主干（取数→算子→profiling→中性化→分组→权重→回测→报告）逐字沿用通用实现，
+    主干（取数→算子→profiling→中性化→分组→权重→回测→报告）复用通用实现，
     仅插入两处本类逻辑，便于与 alpha101/tdx 口径对齐：
       1. 取数区间向前扩 warmup_days 天，使 rolling(window) 在回测首日已就绪；
       2. pretom_only=True 时，把非 PreTOM 交易日的权重整行清零（空仓）。
     """
 
     def run(self, start_date: str, end_date: str, *,
-            rebal_freq: str = "D",
-            grouping_mode: str = "equal_count",
-            warmup_days: int = 400,
-            pretom_only: bool = True,
-            pretom_lo: int = 9,
-            pretom_hi: int = 4,
-            universe: list | None = None,
-            n_quantiles: int = 20,
-            initial_amount: float = 1e8,
-            risk: dict | None = None,
-            price_time_map: dict | None = None,
-            ftc: float = 0.0,
-            ptc: float = 0.0,
-            benchmark_code: str | None = None,
-            output_dir: str = ".",
-            extra_inputs: dict[str, pd.DataFrame] | None = None,
-            include_profiling: bool = True,
-            dump_excel: bool = True,
-            verbose: bool = True) -> RunResult:
-        sp = self.spec
+            rebal_freq: str = "D", warmup_days: int | None = 400,
+            pretom_only: bool = True, pretom_lo: int = 9, pretom_hi: int = 4,
+            **kwargs) -> RunResult:
+        if not 1 <= int(pretom_hi) <= int(pretom_lo):
+            raise ValueError("PreTOM 要求 1 <= pretom_hi <= pretom_lo")
+        warmup = max(400 if warmup_days is None else int(warmup_days),
+                     infer_warmup_days(self.spec.compute_kwargs))
 
-        # 取数起始向前扩：显式 warmup_days 与自动窗口推断取较大值。
-        effective_warmup = max(int(warmup_days), infer_warmup_days(sp.compute_kwargs))
-        fetch_start = (pd.Timestamp(start_date) - pd.Timedelta(days=effective_warmup)).strftime("%Y-%m-%d")
+        def transform(weights):
+            if not pretom_only:
+                return weights
+            # Complete boundary months are needed even for partial-month runs.
+            first = pd.Timestamp(start_date).replace(day=1).strftime("%Y-%m-%d")
+            last = (pd.Timestamp(end_date) + pd.offsets.MonthEnd(0)).strftime("%Y-%m-%d")
+            dates = get_pretom_dates(first, last, lo=pretom_lo, hi=pretom_hi)
+            result = weights.copy()
+            stocks = [code for code in result if code != "cash"]
+            keep = [ts.date() in dates for ts in result.index]
+            result.loc[np.logical_not(keep), stocks] = 0.0
+            result["cash"] = 1.0 - result[stocks].sum(axis=1)
+            return result
 
-        # 调仓日 / 信号日：始终落在 [start_date, end_date]（不含预热期）
-        rebalance_dates = get_absolute_trade_days(start_date, end_date, rebal_freq)
-        all_trade_days = get_absolute_trade_days(fetch_start, end_date, "D")
-        if verbose:
-            print(f"取数起始(含预热): {fetch_start}  warmup_days={effective_warmup}  调仓日数量: {len(rebalance_dates)}")
-
-        # 0. 信号日 = 调仓日前一交易日（与通用主干一致，防前视）
-        td = sorted(all_trade_days)
-        td_idx = {d: i for i, d in enumerate(td)}
-        signal_dates = []
-        valid_rebalance_dates = []
-        for rd in rebalance_dates:
-            i = td_idx.get(rd)
-            if i is not None and i > 0:
-                signal_dates.append(td[i - 1])
-                valid_rebalance_dates.append(rd)
-
-        # 1. 股票池：时变成分股（PIT）或静态 universe
-        pit_universe = None
-        if sp.index_code:
-            pit_universe = build_pit_universe(signal_dates, sp.index_code)
-            universe = sorted({c for codes in pit_universe.values() for c in codes})
-            if verbose:
-                print(f"  {sp.index_code} 成分股并集: {len(universe)} 只 (逐期 PIT 过滤)")
-        elif universe is None:
-            raise ValueError("未设 index_code 时必须传入静态 universe")
-
-        # 2. 批量抓宽表（用 fetch_start 取到预热期，rolling 才完整）
-        wides = {}
-        for arg_name, metric in sp.inputs.items():
-            w = fetch_daily_wide(metric, universe=universe,
-                                 start_date=fetch_start, end_date=end_date,
-                                 table_name=sp.table_name, filters=sp.query_filters)
-            if verbose:
-                print(f"  {arg_name} ({metric}): {w.shape}")
-            wides[arg_name] = w
-        if extra_inputs:
-            wides.update(extra_inputs)
-
-        # 3. 调用算子（在含预热期的完整宽表上算，rolling(252) 在 start_date 已就绪）
-        factor_wide = sp.compute(**wides, **sp.compute_kwargs)
-
-        # 4. 宽 → 长（仅 signal_dates，预热期自然被排除）
-        prequery = wide_to_prequery(factor_wide, sp.name, signal_dates)
-
-        # 4b. 时变成分股逐期过滤
-        if pit_universe is not None:
-            n0 = len(prequery)
-            prequery = filter_long_by_pit_universe(prequery, pit_universe)
-            if verbose:
-                print(f"  成分股过滤: {n0} → {len(prequery)} 行")
-
-        # 4c. 中性化（去极值→标准化→行业/市值中性化）+ 诊断；
-        #     未开 use_industry/use_mktcap 时仅由分组前的 single_characteristic 处理，
-        #     截面 zscore 在 _preprocess_with_stats 内做（与通用主干一致）。
-        neu_stats = None
-        if sp.use_industry or sp.use_mktcap:
-            mktcap_col = None
-            if sp.use_mktcap:
-                mktcap_wide = fetch_daily_wide("circulating_market_value", universe=universe,
-                                               start_date=fetch_start, end_date=end_date,
-                                               table_name=sp.table_name, filters=sp.query_filters)
-                if not mktcap_wide.empty:
-                    log_mktcap = np.log(mktcap_wide.replace(0, np.nan))
-                    lm_long = wide_to_prequery(log_mktcap, "log_mktcap", signal_dates)
-                    prequery = prequery.merge(
-                        lm_long[['input_ts', 'code', 'log_mktcap']],
-                        on=['input_ts', 'code'], how='left')
-                    mktcap_col = 'log_mktcap'
-            prequery, neu_stats = self._preprocess_with_stats(
-                prequery, sp.name,
-                industry_scheme=sp.industry_scheme if sp.use_industry else None,
-                mktcap_col=mktcap_col, verbose=verbose)
-
-        # 5. 分组
-        labeled = single_characteristic(
-            prequery,
-            sp.name,
-            {sp.name: n_quantiles},
-            grouping_mode=grouping_mode,
-        )
-        factor_values = _labeled_to_factor_values(labeled, sp.name)
-
-        # 5a. Profiling：基于 single_characteristic 的全量 n 分组矩阵。
-        profiling = None
-        if include_profiling:
-            grouped_wide = labeled[sp.name].unstack('code')
-            profiling = self._run_profiling(grouped_wide, sp.name, output_dir, verbose)
-            profiling.update(append_grouped_profiling_excel(output_dir, sp.name, labeled))
-
-        # 6. 权重（日频多空）
-        long_groups, short_groups = self._resolve_groups(n_quantiles)
-        weights = get_single_factor_weight(labeled, {
-            'factor_key': sp.name, 'mode': sp.weight_mode,
-            'long': long_groups, 'short': short_groups,
-            'grouping_mode': grouping_mode,
-            'group_weights': sp.group_weights,
-            'intra_group_allocation': sp.intra_group_allocation,
-        })
-        pit_validation = validate_weights_in_pit_universe(weights, pit_universe)
-        if verbose and pit_universe is not None and not pit_validation.empty:
-            bad = int((~pit_validation['passed']).sum())
-            print(f"  PIT 权重校验: {len(pit_validation)-bad}/{len(pit_validation)} 期通过")
-            if bad:
-                print("  [WARN] 存在调仓股票不在当期 PIT 股票池内，请检查 pit_validation")
-        from betalens.factor.research import build_rebalance_schedule, weights_on_schedule
-        research_schedule = build_rebalance_schedule(signal_dates, valid_rebalance_dates, wides=wides)
-        weights = weights_on_schedule(weights, research_schedule)
-
-        # 6b. PreTOM 择时掩码：非窗口交易日整行清零（空仓）。论文核心日历叠加。
-        if pretom_only:
-            pretom = get_pretom_dates(start_date, end_date, lo=pretom_lo, hi=pretom_hi)
-            keep = np.array([ts.date() in pretom for ts in weights.index])
-            n_keep = int(keep.sum())
-            stocks = [c for c in weights if c != 'cash']
-            weights.loc[~keep, stocks] = 0.0
-            weights['cash'] = 1.0 - weights[stocks].sum(axis=1)
-            if verbose:
-                print(f"  PreTOM zeshi: {keep.size} rebal-days -> keep {n_keep} "
-                      f"([tau-{pretom_lo}, tau-{pretom_hi}], ~{n_keep / max(keep.size,1):.0%})")
-            if weights.empty:
-                raise ValueError("PreTOM 窗口内无调仓日，请检查区间或窗口参数")
-
-        # 7. 回测
-        from betalens.backtest import validate_risk_config
-        validate_risk_config(risk, sp.compute_kwargs)
-        bt = BacktestBase(weights, metric=sp.backtest_metric, symbol=sp.name,
-                          amount=initial_amount, end_date=end_date, risk=risk,
-                          price_time_map=price_time_map, ftc=ftc, ptc=ptc, verbose=verbose)
-
-        from betalens.factor.research import attach_research
-        factor_values = attach_research(bt, factor_values, research_schedule, n_quantiles,
-                                        metric=sp.backtest_metric, price_time_map=price_time_map)
-
-        # 8. 绩效评价
-        analyst = Analyst.from_backtest(
-            bt,
-            name=sp.name,
-            benchmark_code=benchmark_code,
-            benchmark_metric="close",
-            factor_values=factor_values,
-        )
-        summary = analyst.report(
-            to_excel=f"{output_dir}/{sp.name}_report.xlsx",
-            to_html=f"{output_dir}/{sp.name}_report.html",
-        )
-        if verbose:
-            print(f"  {sp.name} 指标项数: {len(summary)}  报告: {sp.name}_report.xlsx / .html")
-
-        if dump_excel:
-            dump_path = f'{output_dir}/{sp.name}_dump.xlsx'
-            bt.dump_to_excel(dump_path)
-            with pd.ExcelWriter(dump_path, engine='openpyxl', mode='a',
-                                if_sheet_exists='replace') as writer:
-                factor_values.to_excel(writer, sheet_name='factor_values', index=False)
-
-        return RunResult(backtest=bt, analyst=analyst,
-                         profiling=profiling, neutralize_stats=neu_stats,
-                         factor_values=factor_values,
-                         pit_validation=pit_validation)
+        kwargs.setdefault("report_html", True)
+        return super().run(start_date, end_date, rebal_freq=rebal_freq,
+                           warmup_days=warmup, weight_transform=transform, **kwargs)

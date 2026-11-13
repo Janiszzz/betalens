@@ -4,7 +4,7 @@ import asyncio
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from fastapi import Body, FastAPI, Request
+from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -15,6 +15,7 @@ from .inspection import coverage, sample, tables
 from .mapping import all_source_mappings, source_capabilities
 from .manager import DatabaseManagerService
 from .util import dumps, digest
+from .download_cache import cache_lock
 
 
 def create_app(service: DatabaseManagerService | None = None) -> FastAPI:
@@ -258,14 +259,17 @@ def create_app(service: DatabaseManagerService | None = None) -> FastAPI:
         service._job(job); service.state.cancel(job); return response({"cancel_requested": True})
 
     @app.get("/api/jobs/{job}/audit")
-    def audit(job: str, after: int = 0, limit: int = 100):
-        service._job(job); return response(service.audit(job,after,limit))
+    def audit(job: str, after: int = 0, limit: int = 100, offset: int | None = Query(default=None, ge=0)):
+        service._job(job); return response(service.audit(job,after,limit,offset=offset))
 
     @app.get("/api/jobs/{job}/archive/{slice_id}")
+    @cache_lock(service.state.root)
     def archive(job: str, slice_id: str, wire: bool = False):
         item = service._job(job); part = next((p for p in item["slices"] if p["id"] == slice_id), None)
         if not part or not part["archive"]: raise ValueError("归档不存在")
         path=service.settings.state_dir / part["archive"]
+        if not path.exists() and item.get('download_cache_cleanup'):
+            raise HTTPException(status_code=410,detail='任务已结束，下载缓存已清理；写入审计和回退镜像仍保留')
         if wire:
             import json
             metadata=json.loads(path.with_suffix(".meta.json").read_text())

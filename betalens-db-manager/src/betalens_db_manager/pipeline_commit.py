@@ -32,10 +32,14 @@ def write_cohorts(pipeline,parent,items,target):
     service=DatabaseManagerService(pipeline.s.settings);store=pipeline.store
     db=service.pg if target=='postgres' else service.ch
     with registry_context(service.registry),catalog_snapshot(service.registry),target_lock(service,target):
-        request=service._job(parent,True)['plan']['request']
-        for child,_ in items:service._job(child,True)
+        # Writers consume verified normalized files. Contract checks need the
+        # frozen metadata, not the parent's entire growing archive/request graph.
+        request=service._job(parent,True,metadata_only=True)['plan']['request']
+        for child,_ in items:service._job(child,True,metadata_only=True)
         row_limit=request['commit_batch_rows'];byte_limit=request['commit_batch_bytes']
-        names=list(dict.fromkeys(name for _,snapshot in items for name in snapshot['tables']))
+        # A cached cohort can predate an explicit destination removal. The
+        # current parent scope is the write boundary, including on recovery.
+        names=list(dict.fromkeys(name for _,snapshot in items for name in snapshot['tables'] if name in request['tables']))
         prepared=[];dirty_names=set();last_sync=monotonic();pending_ack=0
 
         def sync_results(force=False):
@@ -111,6 +115,10 @@ def write_cohorts(pipeline,parent,items,target):
                                       'cancel_job':snapshot.get('review_operation_job',parent)})
                         keys.update(identities);count+=len(rows);size+=used
                 apply_group(spec,group)
+        except Exception as exc:
+            service.state.log(parent,'pipeline_table_write_failed',target=target,table=name,
+                              child_ids=[child for child,_ in items],error=service.safe_error(exc))
+            raise
         finally:
             if dirty_names:service.state.invalidate_validation_reports(sorted(dirty_names),[target])
             sync_results(force=True)

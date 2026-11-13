@@ -57,8 +57,8 @@ def memory_guard(request,root):
     finally:stop.set();thread.join()
 
 
-NORMALIZATION_POLICY_VERSION='normalization-v2-bounded-index-20261109'
-NORMALIZATION_IMPLEMENTATION='verified-parent-and-archive-closure-20261104'
+NORMALIZATION_POLICY_VERSION='normalization-v3-bounded-history-20261112'
+NORMALIZATION_IMPLEMENTATION='bounded-sw-history-and-archive-closure-20261112'
 
 
 _normalization_service=None
@@ -77,6 +77,10 @@ def _retrieval_rows(key,parts,children,counts):
 def _normalization_items(service,item,max_rows=25000):
     """Large index histories consume complete disjoint retrieval branches."""
     plan=item['plan']
+    sw_rows=sum(p['rows'] or 0 for p in item['slices'] if p['dataset']=='sw_daily' and p['status']!='split')
+    if sw_rows>100000:
+        yield from _snapshot_normalization_items(service,item)
+        return
     if plan['request']['tables']!=['index_membership']:
         yield item;return
     source=[p for p in item['slices'] if p['dataset']=='index_weight']
@@ -106,6 +110,48 @@ def _normalization_items(service,item,max_rows=25000):
         yield {**item,'plan':local,'slices':selected}
 
 
+def _snapshot_normalization_items(service,item,max_rows=100000):
+    """Keep a frozen cohort intact while converting bounded SW archive branches."""
+    from .response_validation import validate_archives
+    if validate_archives(service,item):
+        yield item;return  # Return the ordinary full-cohort integrity rejection.
+    plan=item['plan'];source=[p for p in item['slices'] if p['dataset']=='sw_daily']
+    # Other snapshot tables need their complete joint context, including industry
+    # parent aliases. Convert them once rather than repeating them per price chunk.
+    base={**plan,'requests':[r for r in plan['requests'] if r['endpoint']!='sw_daily']}
+    if base['requests']:
+        yield {**item,'plan':base,'slices':[p for p in item['slices'] if p['dataset']!='sw_daily']}
+    names=[name for name in plan['request']['tables'] if any(
+        b['endpoint']=='sw_daily' for b in plan['mapping_snapshots'][name]['bindings'])]
+    if not names:raise ValueError('申万历史行情缺少目标表映射')
+    context={'stock_basic','fund_basic','index_basic','trade_cal'}
+    context_requests=[r for r in plan['requests'] if r['endpoint'] in context]
+    preparer=TaskDownloader(service,{**item,'slices':[]})
+    parts={p['id']:p for p in source};children={};counts={}
+    for key,part in parts.items():
+        children[key]=[TaskDownloader.key(preparer.prepared(r)[0]) for r in (part.get('result') or {}).get('children',[])]
+    roots=[TaskDownloader.key(preparer.prepared(r)[0]) for r in plan['requests'] if r['endpoint']=='sw_daily']
+    pending=list(reversed(roots))
+    while pending:
+        key=pending.pop();size=_retrieval_rows(key,parts,children,counts)
+        if size>max_rows:
+            if parts[key]['status']!='split':raise ValueError('单个完整申万分页链超过转换行数上限，需进一步按日期分区')
+            pending.extend(reversed(children[key]));continue
+        selected=set();queue=[key]
+        while queue:
+            current=queue.pop()
+            if current in selected:continue
+            selected.add(current);queue.extend(reversed(children[current]))
+        local={**plan,'request':{**plan['request'],'tables':names},
+               'mapping_snapshots':{n:plan['mapping_snapshots'][n] for n in names},
+               'canonical_contracts':{n:plan['canonical_contracts'][n] for n in names},
+               'requests':[parts[key]['request'],*context_requests]}
+        # Preserve archive order and every original source identity/hash. Pages,
+        # including terminal empty pages, stay with their complete branch.
+        selected_parts=[p for p in item['slices'] if p['id'] in selected or p['dataset'] in context]
+        yield {**item,'plan':local,'slices':selected_parts}
+
+
 def normalize_child(settings,job):
     with shared_slot(settings.state_dir,'cpu',BUDGET.cpu_workers):
         return _normalize_child(settings,job)
@@ -132,11 +178,12 @@ def _normalize_child(settings,job):
             return saved
     started=time.monotonic()
     with memory_guard(item['plan']['request'],root),registry_context(service.registry),catalog_snapshot(service.registry),light_normalization():
-        result={'cache_key':cache_key,'normalization_policy':NORMALIZATION_POLICY_VERSION,'normalization_implementation':NORMALIZATION_IMPLEMENTATION,'tables':{},'rejected':0,'reject_sample':[]}
+        result={'cache_key':cache_key,'normalization_policy':NORMALIZATION_POLICY_VERSION,'normalization_implementation':NORMALIZATION_IMPLEMENTATION,'tables':{},'rejected':0,'reject_sample':[],'normalization_chunks':0}
         reasons=collections.Counter()
         import pyarrow as pa
         from .pipeline_cache import schema
         for local in _normalization_items(service,item):
+            result['normalization_chunks']+=1
             tables,rejects=service._build_canonical(local)
             result['rejected']+=len(rejects)
             result['reject_sample'].extend(rejects[:max(0,100-len(result['reject_sample']))])
@@ -223,20 +270,24 @@ class Pipeline:
                 unit['result']={k:result[k] for k in ('child_id','normalization_seconds','rejected') if k in result}
         return item
 
-    def audit(self,job,after=0,limit=100):
+    def audit(self,job,after=0,limit=100,offset=None):
         """Expand only the requested page from immutable journals; no row JSON mirror."""
         import heapq
-        candidates=[];receipts=self.store.receipts(job)
+        size=max(1,min(limit,1000));start=max(0,offset or 0)
+        if offset is not None:after=0
+        candidates=[];receipts=self.store.receipts(job);total=0
         for receipt in receipts:
             if receipt['batch'].startswith('rollback:'):continue
             from .pipeline_cache import file_sha
             record=receipt['manifest']
             if file_sha(record['path'])!=record['sha256']:raise ValueError('审计清单哈希不符')
             metadata=json.loads(Path(record['path']).read_text())
+            total+=len(metadata['changes'])
             for index,change in enumerate(metadata['changes']):
                 ident=int(digest([job,receipt['target'],receipt['batch'],change['row_key']])[:15],16)
                 if ident>after:candidates.append((ident,len(candidates),receipt,index))
-        page=heapq.nsmallest(max(1,min(limit,1000)),candidates);loaded={};rows=[]
+        window=heapq.nsmallest(start+size+1,candidates)
+        page=window[start:start+size];loaded={};rows=[]
         with registry_context(self.s.registry):
             for ident,_,receipt,index in page:
                 key=(receipt['batch'],receipt['target'])
@@ -245,7 +296,8 @@ class Pipeline:
                 rows.append({'id':ident,'task_id':job,'target':receipt['target'],'table_name':receipt['manifest']['table'],'row_key':c['row_key'],
                     'operation':'deleted' if c['after'] is None else 'inserted' if c['before'] is None else 'updated',
                     'before_hash':c['before_hash'],'after_hash':c['after_hash'],'before_value':c['before'],'after_value':c['after'],'receipt_status':receipt['status'],'created_at':receipt['updated']})
-        return {'changes':rows,'receipts':receipts,'next_after':rows[-1]['id'] if rows else after,
+        return {'changes':rows,'receipts':receipts,'total':total,'offset':offset,'limit':size,
+                'next_after':rows[-1]['id'] if rows and len(window)>start+size else None,
                 'rollbacks':[r for r in receipts if r['batch'].startswith('rollback:')],
                 'verification':self.s.state.ledger_rows('pipeline_reconciliation',job)}
 
@@ -328,7 +380,7 @@ class Pipeline:
                 # acquisition and archive validation use, including limit/offset.
                 queue.extend(TaskDownloader.key(preparer.prepared(c)[0]) for c in (p.get('result') or {}).get('children',[]))
         endpoint_pairs={(r['source_id'],r['endpoint']) for r in roots}
-        names=[name for name,m in plan['mapping_snapshots'].items() if any((b['source_id'],b['endpoint']) in endpoint_pairs for b in m['bindings'])]
+        names=[name for name,m in plan['mapping_snapshots'].items() if name in plan['request']['tables'] and any((b['source_id'],b['endpoint']) in endpoint_pairs for b in m['bindings'])]
         if not names:names=list(plan['request']['tables'])
         plan['request']['tables']=names;plan['mapping_snapshots']={n:plan['mapping_snapshots'][n] for n in names};plan['canonical_contracts']={n:plan['canonical_contracts'][n] for n in names}
         plan['requests']=list(roots)+[p['request'] for p in selected if p['id'] in dependency_ids]
@@ -422,7 +474,7 @@ class Pipeline:
         if initial_errors:raise ValueError('来源清单不完整，无法冻结任务总量；请修复来源后恢复任务')
         freeze(self.s,item,groups,downloader)
         errors=initial_errors;futures=[];write_futures=[];failed_targets=set();guard=threading.Lock()
-        self.failed_targets=failed_targets;downloads=None;child_groups={}
+        self.failed_targets=failed_targets;self.target_errors={};downloads=None;child_groups={}
         from .pipeline_batching import WriteLane
         def target_work(items,target):
             if target in failed_targets:return [{'status':'blocked','target':target} for _ in items]
@@ -433,8 +485,12 @@ class Pipeline:
                     self.store.put(job,marker,'stored',{'child_id':child,'target':target});self.store.finish(job,marker,result)
                     downloads.written(child_groups[child],target)
                 return results
-            except BaseException:
-                with guard:failed_targets.add(target)
+            except BaseException as exc:
+                message=self.s.safe_error(exc)
+                with guard:
+                    failed_targets.add(target);self.target_errors[target]=message
+                self.s.state.log(job,'pipeline_target_failed',target=target,
+                                 child_ids=[child for child,_ in items],error=message)
                 raise
         executors={t:WriteLane(lambda items,target=t:target_work(items,target),max_wait=req['commit_batch_max_wait_seconds'],
                                row_limit=req['commit_batch_rows'],name='write-'+t) for t in req['targets']}
@@ -458,7 +514,7 @@ class Pipeline:
                             if result['rejected']:
                                 errors.append({'bucket':key,'error':'存在转换拒收，本转换批次未写入','rejected':result['rejected']});downloads.release(key)
                             if req['auto_commit'] and not result['rejected']:
-                                for target in req['targets']:write_futures.append(executors[target].submit(child,result))
+                                for target in downloads.pending_targets(key):write_futures.append(executors[target].submit(child,result))
                         except Exception as exc:
                             message=self.s.safe_error(exc);errors.append({'bucket':key,'error':message});self.store.finish(job,key,error=message);downloads.release(key)
                 for key,failures in downloads:
@@ -473,7 +529,7 @@ class Pipeline:
                         result=unit['result']
                         if result.get('rejected'):downloads.release(key)
                         if req['auto_commit'] and not result.get('rejected'):
-                            for target in req['targets']:write_futures.append(executors[target].submit(child,result))
+                            for target in downloads.pending_targets(key):write_futures.append(executors[target].submit(child,result))
                         continue
                     token=self.store.claim(job,key)
                     if token:futures.append((key,child,pool.submit(normalize_child,self.s.settings,child)))

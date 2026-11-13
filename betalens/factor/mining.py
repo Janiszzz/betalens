@@ -18,6 +18,7 @@ import uuid
 import warnings
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime
 from logging.handlers import QueueHandler, QueueListener
@@ -39,6 +40,7 @@ _LOGGER_NAME = "betalens.factor.mining"
 _LOGGER = logging.getLogger(_LOGGER_NAME)
 _TASK_LOGS = False
 _HEARTBEAT_SECONDS = 30.0
+_ARCHIVE_CAPTURE: ContextVar[Any] = ContextVar("mining_archive_capture", default=None)
 
 
 class _ChineseLogFormatter(logging.Formatter):
@@ -318,9 +320,11 @@ class CandidateEvaluation(list):
         self,
         window_rows: Sequence[Mapping[str, Any]] = (),
         rank_ic_series: Sequence[Mapping[str, Any]] = (),
+        config: Mapping[str, Any] | None = None,
     ) -> None:
         super().__init__(window_rows)
         self.rank_ic_series = list(rank_ic_series)
+        self.config = dict(config or {})
 
 
 def _load_yaml(path: str | Path) -> dict[str, Any]:
@@ -1422,6 +1426,14 @@ def _evaluate_backtest(weights: pd.DataFrame, data: MiningData, spec: MiningSpec
         table_name="market_daily_post_adjusted", end_date=end_date, risk=risk,
         price_time_map=price_time_map, ftc=ftc, ptc=ptc, verbose=False,
     )
+    capture = _ARCHIVE_CAPTURE.get()
+    if capture is not None:
+        from betalens.experiments.snapshot import capture_backtest
+        snapshot = capture_backtest(engine)
+        factor = capture.get("factor_wide")
+        if isinstance(factor, pd.DataFrame):
+            snapshot.tables["factor_wide"] = factor.copy(deep=True)
+        capture["scopes"][capture["scope"]] = snapshot
     from betalens.analyst.evaluation import BacktestEvaluation
     return BacktestEvaluation.from_backtest(engine)
 
@@ -1458,6 +1470,27 @@ def _evaluate_candidate(module: str, factor_id: str, params: Mapping[str, Any], 
     price_time_map = evaluation.get("price_time_map")
     ftc, ptc = float(evaluation.get("ftc", 0.0)), float(evaluation.get("ptc", 0.0))
     params_json = json.dumps(params, ensure_ascii=False, sort_keys=True, default=str)
+    from betalens.experiments.snapshot import describe_spec
+    try:
+        factor_context = describe_spec(spec.factor_spec)
+        context_error = None
+    except Exception as exc:
+        # Optional metadata collection must not turn a valid old-style
+        # computation into a failed search candidate.
+        factor_context = {}
+        context_error = f"{type(exc).__name__}: {exc}"
+    effective_config = {"factor_spec": factor_context,
+                        "run": {**{"initial_amount": amount, "rebal_freq": frequency, "ftc": ftc, "ptc": ptc},
+                                **{key: value for key, value in evaluation.items() if not str(key).startswith("_")}},
+                        "weight": {key.removeprefix("weight_"): getattr(spec.factor_spec, key) for key in
+                                   ("weight_mode", "long_groups", "short_groups", "group_weights", "intra_group_allocation")
+                                   if hasattr(spec.factor_spec, key)},
+                        "parameters": params}
+    if context_error:
+        effective_config["archive_context_error"] = context_error
+    capture = _ARCHIVE_CAPTURE.get()
+    if capture is not None:
+        capture["config"] = effective_config
     window_pairs = {
         window.window_id: _signal_pairs(
             window.start,
@@ -1527,6 +1560,8 @@ def _evaluate_candidate(module: str, factor_id: str, params: Mapping[str, Any], 
                 f"factor_shape={getattr(full_factor, 'shape', None)}"
             )
         if spec.window_transform is None:
+            if capture is not None:
+                capture.update(scope="total", factor_wide=full_factor)
             nav_started = time.perf_counter()
             with _heartbeat("candidate.nav", stage=stage, candidate=candidate, engine=engine):
                 full_evaluation = _evaluate_backtest(full_weights, data, spec, amount, evaluation["span"][1], risk, price_time_map, ftc, ptc)
@@ -1566,6 +1601,8 @@ def _evaluate_candidate(module: str, factor_id: str, params: Mapping[str, Any], 
     rows = []
     windows_started = time.perf_counter()
     for position, window in enumerate(windows, 1):
+        if capture is not None:
+            capture.update(scope=window.window_id, factor_wide=full_factor)
         window_started = time.perf_counter()
         report_progress = _TASK_LOGS and _progress_due(position, len(windows), updates=20)
         if report_progress:
@@ -1605,6 +1642,8 @@ def _evaluate_candidate(module: str, factor_id: str, params: Mapping[str, Any], 
                     raise TypeError("fit_window must return DataFrame or mapping")
                 if weights is None and factor is not None:
                     weights = _build_weights(factor, active_spec, params, window_data, window.start, window.end, frequency)
+                if capture is not None:
+                    capture["factor_wide"] = factor
                 if factor is not None:
                     active_rank_ic_observations = _rank_ic_observations(
                         factor,
@@ -1649,6 +1688,12 @@ def _evaluate_candidate(module: str, factor_id: str, params: Mapping[str, Any], 
                 backtest_result = full_evaluation
             if nav is None or len(nav) == 0:
                 raise ValueError("empty nav")
+            if capture is not None:
+                capture["window_refs"][window.window_id] = {
+                    "scope": window.window_id if window.window_id in capture["scopes"] else "total",
+                    "start": window.start, "end": window.end,
+                    "semantics": "independent" if window.window_id in capture["scopes"] else "shared_path_slice",
+                }
             window_weights = _slice_frame(weights, window.start, window.end)
             signal_count = _timing_metrics(window_weights, None)['signal_count']
             metrics = backtest_result.window(window.start, window.end).metrics(signal_count=signal_count)
@@ -1699,7 +1744,24 @@ def _evaluate_candidate(module: str, factor_id: str, params: Mapping[str, Any], 
             failed,
             _elapsed(candidate_started),
         )
-    return CandidateEvaluation(rows, rank_ic_rows)
+    return CandidateEvaluation(rows, rank_ic_rows, config=effective_config)
+
+
+def _capture_selected_candidate(module, factor_id, params, windows, data, evaluation):
+    """Upstream-only rerun; retain detached snapshots and original window semantics."""
+    capture = {"scopes": {}, "window_refs": {}, "scope": "total"}
+    token = _ARCHIVE_CAPTURE.set(capture)
+    try:
+        rows = _evaluate_candidate(module, factor_id, params, "capture", windows, data, evaluation)
+        capture["window_metrics"] = pd.DataFrame(rows)
+        errors = [row["error"] for row in rows if row.get("error")]
+        if errors:
+            capture["error"] = "; ".join(errors)
+        if not capture["scopes"]:
+            capture["error"] = capture.get("error", "No original backtest snapshots were captured")
+        return {k: v for k, v in capture.items() if k not in {"scope", "factor_wide"}}
+    finally:
+        _ARCHIVE_CAPTURE.reset(token)
 
 
 def _safe_evaluate(module: str, factor_id: str, params: Mapping[str, Any], stage: str, windows: Sequence[MiningWindow], data: MiningData, evaluation: Mapping[str, Any]) -> list[dict[str, Any]]:
@@ -1962,6 +2024,8 @@ def _evaluate_stage(
     )
 
     def report(completed: int, index: int, rows: list[dict[str, Any]], candidate_started: float) -> None:
+        if getattr(rows, "config", None):
+            task.candidate_configs[_candidate_id(factor_id, candidates[index])] = rows.config
         failed = sum(row.get("error") is not None for row in rows)
         sharpe_values = [float(row["sharpe"]) for row in rows if row.get("error") is None and pd.notna(row.get("sharpe"))]
         elapsed_seconds = time.perf_counter() - stage_started
@@ -2485,6 +2549,7 @@ def _run_factor(
     performance: Mapping[str, Any],
     evaluation: Mapping[str, Any],
     windows: Sequence[MiningWindow],
+    *, capture_selected: bool = False,
 ) -> FactorMiningResult:
     from betalens.factor.mining_optuna import (
         create_fine_grid_study,
@@ -2810,7 +2875,31 @@ def _run_factor(
         stability_window_results=stability, stability_summary=stability_summary,
         stage_window_results=stage_frames, stage_summaries=stage_summaries,
         selected_candidates=selected,
+        candidate_configs=task.candidate_configs,
+        rank_ic_series=task.store.read("rank_ic_series"),
+        archive_context={"factor_class": parameters_config.get("factor_class", ""),
+                         "strategy_type": strategy_type or "cross_sectional",
+                         "name": getattr(imported_spec.factor_spec, "name", str(factor_id)),
+                         "factor_metadata": {"module": module, "git": task.metadata.get("git", {})},
+                         "selection": selection,
+                         "evaluation": factor_evaluation},
     )
+    if capture_selected:
+        for row in selected.to_dict(orient="records"):
+            candidate_id = str(row["candidate_id"])
+            try:
+                # Keep the exact candidate payload, including fixed context
+                # such as factor_id; searched dimensions alone are insufficient.
+                params = json.loads(row["params_json"]) if row.get("params_json") else _row_parameter_values(row, parameter_specs)
+                params.setdefault("factor_id", str(factor_id))
+                _LOGGER.info("归档捕获：补跑选中候选 %s", candidate_id)
+                captured = _capture_selected_candidate(module, str(factor_id), params, windows, data, factor_evaluation)
+                result.selected_results[candidate_id] = captured
+                if captured.get("error"):
+                    result.capture_errors[candidate_id] = captured["error"]
+            except Exception as exc:
+                result.capture_errors[candidate_id] = f"{type(exc).__name__}: {exc}"
+                _LOGGER.exception("归档捕获失败：候选=%s", candidate_id)
     _LOGGER.info(
         "因子挖掘完成：因子=%s，宽搜候选=%d，细搜候选=%d，最终入选=%d，耗时=%s",
         factor_id, len(broad_summary), len(fine_summary), len(selected), _elapsed(started),
@@ -2888,8 +2977,12 @@ def _validate_search_config(parameters: Mapping[str, Any]) -> None:
             raise ValueError("search.stability.max_objective_degradation must be >= 0")
 
 
-def run_mining(parameter_config_path: str | Path, performance_config_path: str | Path) -> MiningResult:
-    """Run one isolated mining task per factor and return the launch result."""
+def run_mining(parameter_config_path: str | Path, performance_config_path: str | Path, *, capture_selected: bool = False) -> MiningResult:
+    """Run mining; optionally rerun winners for detached archival snapshots.
+
+    Capturing never writes an experiment archive. Pass the returned object to
+    ``ExperimentStore.save_mining``. Capture failures preserve search results.
+    """
     parameter_path = Path(parameter_config_path).resolve()
     performance_path = Path(performance_config_path).resolve()
     factor_directory = parameter_path.parent.parent
@@ -2974,6 +3067,7 @@ def run_mining(parameter_config_path: str | Path, performance_config_path: str |
             result = _run_factor(
                 task, str(factor_id), factor_config, resolved_parameters_config,
                 performance, evaluation, windows,
+                **({"capture_selected": True} if capture_selected else {}),
             )
             task.finish(result, status="complete", windows={"lengths": lengths, "steps": steps, "count": len(windows)})
             factor_runs.append(result)

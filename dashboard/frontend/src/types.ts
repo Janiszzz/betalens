@@ -30,6 +30,12 @@ export type RunState = {
   elapsed_seconds: number;
   error: string | null;
   log_size: number;
+  experiment_export?: {
+    status: 'disabled' | 'saved' | 'complete' | 'partial' | 'failed';
+    experiment_id?: string | null;
+    batch_id?: string | null;
+    error?: string | null;
+  };
 };
 
 export type Metric = {

@@ -48,4 +48,7 @@ run:
   include_profiling: true
   dump_excel: true
   warmup_days: null
-  output_dir: outputs/runs/manual
+  output_dir: ../../../outputs/runs/alpha101/ALPHA21
+experiment_export:
+  enabled: false
+  store_path: outputs/experiments.lmdb

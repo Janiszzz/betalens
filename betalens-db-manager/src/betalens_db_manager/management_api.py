@@ -7,6 +7,7 @@ import yaml
 from fastapi import Body,WebSocket,WebSocketDisconnect
 from .canonical import registry_context
 from .util import digest,now,parse_date
+from .download_cache import cache_lock
 
 
 def table_list(service):
@@ -202,6 +203,7 @@ def install_routes(app,service,response):
         return response(rows[0].get('rows',[]) if rows else [])
 
     @app.get('/api/tasks/{job}/cache')
+    @cache_lock(service.state.root)
     def cache(job:str,offset:int=0,limit:int=100,dataset:str|None=None):
         item=service._job(job);offset=max(0,offset);size=max(1,min(limit,1000));samples=[];cursor=0
         from .source import read_archive
@@ -214,7 +216,9 @@ def install_routes(app,service,response):
             for n,values in enumerate(data['items'][start:start+size-len(samples)],start+1):samples.append({'endpoint':part['dataset'],'source_row':n,**dict(zip(data['fields'],values))})
             cursor+=count
             if len(samples)>=size:break
-        return response({'rows':samples,'total':total,'offset':offset,'next':offset+size if offset+size<total else None,'cache_purged':bool(item['plan'].get('cache_purged'))})
+        cleanup=item.get('download_cache_cleanup')
+        return response({'rows':samples,'total':total,'offset':offset,'next':offset+size if offset+size<total else None,
+                         'cache_purged':bool(item['plan'].get('cache_purged') or cleanup and cleanup.get('files')),'cleanup':cleanup})
 
     @app.post('/api/sessions')
     def open_session():

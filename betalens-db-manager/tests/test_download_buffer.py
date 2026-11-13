@@ -105,6 +105,73 @@ def test_source_rate_wait_observes_producer_local_stop(tmp_path):
     with pytest.raises(InterruptedError):real._wait(60)
 
 
+def test_target_failure_keeps_original_error_in_backpressure_message(tmp_path):
+    pipeline,downloader,groups,request,source=setup(tmp_path,count=1,high=1)
+    pipeline.failed_targets={'postgres'}
+    pipeline.target_errors={'postgres':'fund_nav_daily: write unavailable'}
+    with downloader:
+        buffer=DownloadBuffer(pipeline,downloader,groups,request);buffer.bytes=1
+        with pytest.raises(RuntimeError,match='PostgreSQL: fund_nav_daily: write unavailable'):
+            buffer.admit('0','0')
+
+
+def test_pipeline_records_target_failure_before_backlog_limit_is_reached(tmp_path,monkeypatch):
+    from concurrent.futures import Future
+    import json
+    from test_manager import manager
+    from test_retrieval import ArchivedSource
+    class Pool:
+        def __init__(self,**_):pass
+        def __enter__(self):return self
+        def __exit__(self,*_):pass
+        def submit(self,*_):
+            value=Future();value.set_result({'tables':{},'rejected':0});return value
+    def response(endpoint,params):
+        if endpoint=='daily':return [{'ts_code':'000001.SZ','trade_date':params['trade_date'],'close':'10'}]
+        if endpoint=='trade_cal':return [{'exchange':params['exchange'],'cal_date':'20261020','is_open':'1'}]
+        if endpoint=='stock_basic' and params.get('list_status')=='L':return [{'ts_code':'000001.SZ','name':'test','list_date':'20000101'}]
+        return []
+    service=manager(tmp_path);service.source=ArchivedSource(response)
+    job=service.plan({'tables':['market_daily_raw'],'source_id':'tushare','endpoints':['daily'],
+        'asset_types':['stock'],'start_date':'2026-10-20','end_date':'2026-10-20','targets':['postgres'],'auto_commit':True})
+    pipeline=Pipeline(service)
+    def fail(*_):raise RuntimeError('write unavailable')
+    monkeypatch.setattr('betalens_db_manager.pipeline.ProcessPoolExecutor',Pool)
+    monkeypatch.setattr(pipeline,'_write_many',fail)
+    monkeypatch.setattr(pipeline,'reconcile',lambda *_:[])
+    result=pipeline.run(job['id'])
+    assert result['status']=='partial'
+    assert pipeline.target_errors=={'postgres':'write unavailable'}
+    with service.state.connect() as c:
+        event=json.loads(c.execute("SELECT value FROM event_log WHERE job=? AND event='pipeline_target_failed'",(job['id'],)).fetchone()[0])
+    assert event['target']=='postgres' and event['error']=='write unavailable' and event['child_ids']
+
+
+def test_resume_skips_completed_groups_and_releases_after_only_missing_target_finishes(tmp_path):
+    pipeline,downloader,groups,request,source=setup(tmp_path,count=2)
+    request['targets']=['postgres','clickhouse']
+    for group in groups:
+        child='child-'+group
+        pipeline.store.put(downloader.job,group,'normalize',{})
+        pipeline.store.finish(downloader.job,group,{'child_id':child})
+        for target in request['targets']:
+            if group=='1' and target=='clickhouse':continue
+            key='stored:'+child+':'+target
+            pipeline.store.put(downloader.job,key,'stored',{'child_id':child,'target':target})
+            pipeline.store.finish(downloader.job,key,{'status':'completed'})
+    with downloader,DownloadBuffer(pipeline,downloader,groups,request) as buffer:
+        assert buffer.pending_targets('0')==[]
+        assert buffer.pending_targets('1')==['clickhouse']
+        assert buffer.done.wait(8)
+        assert [key for key,errors in buffer if not errors]==['1']
+        assert len(source.calls)==2
+        assert buffer.bytes>0 and buffer.completed==len(groups)
+        buffer.written('1','clickhouse')
+        assert buffer.bytes==0 and buffer.pending_targets('1')==[]
+        progress=pipeline.s.state.ledger_get('pipeline_progress',downloader.job)
+        assert progress['completed_groups']==progress['total_groups']==2
+
+
 def test_bootstrap_directory_filters_run_in_parallel(tmp_path):
     paired=Barrier(2)
     def response(endpoint,params):

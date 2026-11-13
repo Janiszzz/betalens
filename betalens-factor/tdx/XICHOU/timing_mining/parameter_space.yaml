@@ -1,5 +1,5 @@
 # XICHOU timing 单标的参数挖掘。
-# 目标标的来自 daily_index：000300.SH（沪深300指数）。
+# 目标标的使用 market_daily_post_adjusted 的指数行情：000300.SH（沪深300指数）。
 version: 1
 factor_class: tdx
 

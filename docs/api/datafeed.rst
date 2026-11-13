@@ -11,6 +11,8 @@ Datafeed API
 价格口径由表名决定，不再接受 ``adjustment``。默认 research，可显式指定 strict。
 日历新增 table_name，默认 trade_calendar；strict 须显式使用 trade_calendar_versions。
 query_trade_risks 分别返回上市、ST、停牌的可空标志及假设说明，不决定回测成交。
+``query_trade_status_matrix(codes, dates)`` 在停牌参考表上返回可空 Int8 状态矩阵，
+兼容逐日及压缩日期段凭证，并在重新核验版本后复用订阅内缓存。
 范围、日期、名称和交易日接口支持 ``as_of``。
 ``query_daily_market(codes=None, start_date=None, end_date=None, metrics=("close",), *, as_of=None, filters=None)``
 返回以 ``trade_date`` 为业务日期的日频长表，并保留 ``available_at``、资产类型和质量字段。

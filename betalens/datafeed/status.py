@@ -77,7 +77,20 @@ def _risk_inputs(reader, table_name, codes, dates):
             "availability_basis": "text", "data_quality_status": "text"})
         for row in reader.rows("suspension_event", ["security_code", "trade_date", "suspend_type", "suspend_timing", "available_at", "availability_basis", "data_quality_status"], filters=filters):
             events.setdefault((row["security_code"], row["trade_date"]), []).append(row)
-    return codes, lifecycle, statuses, events
+    quotes = {}
+    calendar = {}
+    quote_columns = {'security_code': 'text', 'asset_type': 'text', 'trade_date': 'date',
+                     'volume': 'numeric', 'available_at': 'timestamp', 'availability_basis': 'text',
+                     'data_quality_status': 'text'}
+    if reader.columns('market_daily_raw') and reader.columns('trade_calendar'):
+        require_columns(reader, 'market_daily_raw', quote_columns)
+        require_columns(reader, 'trade_calendar', {'exchange': 'text', 'trade_date': 'date', 'is_open': 'integer'})
+        for row in reader.rows('market_daily_raw', list(quote_columns), filters=[*filters, ('asset_type', '=', 'stock')]):
+            quotes.setdefault((row['security_code'], row['trade_date']), []).append(row)
+        for row in reader.rows('trade_calendar', ['exchange', 'trade_date', 'is_open'],
+                               filters=[('trade_date', 'IN', sorted({local_time(at).date() for at in dates}))]):
+            calendar.setdefault((row['exchange'], row['trade_date']), set()).add(row['is_open'])
+    return codes, lifecycle, statuses, events, quotes, calendar
 
 
 def query_trade_risks(source, table_name="trade_status_daily", codes=None, dates=None, *, pit_policy=None):
@@ -89,7 +102,7 @@ def query_trade_risks(source, table_name="trade_status_daily", codes=None, dates
     if not dates or codes == []:
         return frame([], RISK_COLUMNS, integers=("is_listed", "is_st", "is_suspended"), times=("datetime",))
     if table_name == "stock_suspension_intervals_versions":
-        status = _strict_trade_status(source, table_name, codes, dates)
+        status = _strict_trade_status(source, table_name, codes, dates, pit_policy=policy)
         records = []
         for row in status.to_dict("records"):
             value = row["value"]
@@ -104,7 +117,13 @@ def query_trade_risks(source, table_name="trade_status_daily", codes=None, dates
         raise PITUnavailableError("strict 风险查询须显式使用 stock_suspension_intervals_versions")
     reader = get_reader(source)
     with reader.snapshot():
-        codes, lifecycle, statuses, events = _risk_inputs(reader, table_name, codes, dates)
+        codes, lifecycle, statuses, events, quotes, calendar = _risk_inputs(reader, table_name, codes, dates)
+        from .reference import load_reference, suspension_status
+        from .suspension import SuspensionScopes
+        reference_tables = ['stock_suspension_intervals_versions', 'reference_revision', 'reference_scope', 'reference_publication_event']
+        days = [local_time(at).date().isoformat() for at in dates]
+        scopes = load_reference(reader, 'suspension', codes=codes, start=min(days), end=max(days)) if all(reader.columns(t) for t in reference_tables) else []
+        suspension_index = SuspensionScopes(scopes)
         names = _name_rows(reader, codes)
     records = []
     for at in dates:
@@ -119,9 +138,22 @@ def query_trade_risks(source, table_name="trade_status_daily", codes=None, dates
             values = {r["is_tradable"] for r in daily if r["is_tradable"] in (0, 1)}
             if len(values) > 1:
                 raise VersionConflictError("交易状态冲突: " + code)
-            if not known_events and values:
+            scope = suspension_index.at(code, at, policy)
+            if scope:
+                value, reason = suspension_status(scope, at, policy)
+                suspended = 1 - value if value in (0, 1) else None
+                life = scope['evidence'].get('lifecycle') or {}
+                if life.get('complete') and life.get('list_date'):
+                    is_listed = int(life['list_date'] <= day.isoformat() and
+                                    (not life.get('delist_date') or day.isoformat() < life['delist_date']))
+            elif not known_events and values:
                 suspended = 1 - values.pop()
                 reason = "源端日频状态；不承诺订单可成交"
+            elif not known_events and not daily:
+                observations = [r for r in quotes.get((code, day), []) if available(r, at, policy)]
+                exchange = {'SH': 'SSE', 'SZ': 'SZSE', 'BJ': 'BSE'}.get(code.rsplit('.', 1)[-1])
+                if calendar.get((exchange, day)) == {1} and any(r.get('volume') is not None and r['volume'] > 0 for r in observations):
+                    suspended, reason = 0, '当日成交推定；未核验完整日内停牌范围'
             name = historical_name(names, code, at, policy)
             st = int(bool(re.match(r"^(?:S\*?ST|\*?ST)", name))) if name else None
             records.append({"code": code, "datetime": local_time(at), "name": name,
@@ -138,7 +170,7 @@ def query_trade_status(source, table_name="trade_status_daily", codes=None, date
     if metric != "交易状态":
         raise NotImplementedError("状态接口仅支持 交易状态")
     if table_name == "stock_suspension_intervals_versions":
-        return _strict_trade_status(source, table_name, codes, dates)
+        return _strict_trade_status(source, table_name, codes, dates, pit_policy=policy)
     risks = query_trade_risks(source, table_name, codes, dates, pit_policy=policy)
     records = []
     for row in risks.to_dict("records"):

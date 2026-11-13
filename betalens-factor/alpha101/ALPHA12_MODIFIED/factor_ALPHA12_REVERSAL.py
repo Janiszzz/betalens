@@ -19,7 +19,6 @@ from alpha12_modified_common import (  # noqa: E402
     build_factor_spec,
     compute_reversal,
     load_factor_config,
-    run_factor_from_config,
 )
 
 _CONFIG_FILE = _FACTOR_DIR / "factor_ALPHA12_REVERSAL.yaml"
@@ -52,7 +51,8 @@ spec = build_spec(load_factor_config(_CONFIG_FILE))
 
 
 def run_from_config(config_path: str | Path = _CONFIG_FILE):
-    return run_factor_from_config(config_path, build_spec)
+    from factor_runtime import run_factor_from_config
+    return run_factor_from_config(config_path, build_spec, FactorPipeline)
 
 
 def main() -> None:

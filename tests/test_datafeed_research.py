@@ -158,6 +158,29 @@ def test_malformed_suspension_does_not_fall_back_to_daily_normal():
     assert empty.columns.tolist() == ['code','datetime','is_listed','is_st','is_suspended','name','remark']
 
 
+def test_sparse_status_can_derive_quote_observation_without_writing_daily_rows():
+    reader=status_reader()
+    code='000001.SZ';day=date(2024,1,2)
+    reader.tables['security_dim']=[dict(security_code=code,asset_type='stock',list_date=date(2020,1,1),delist_date=None)]
+    reader.tables['suspension_event']=[]
+    reader.types['market_daily_raw']={'security_code':'text','asset_type':'text','trade_date':'date','volume':'numeric',
+        'available_at':'timestamp','availability_basis':'text','data_quality_status':'text'}
+    reader.tables['market_daily_raw']=[dict(security_code=code,asset_type='stock',trade_date=day,volume=100,
+        **evidence('2024-01-02 09:45',availability_basis='source_version_publication_time'))]
+    reader.types['trade_calendar']={'exchange':'text','trade_date':'date','is_open':'integer'}
+    reader.tables['trade_calendar']=[dict(exchange='SZSE',trade_date=day,is_open=1)]
+    result=query_trade_risks(reader,'trade_status_daily',[code],['2024-01-02 10:00'])
+    assert result.is_suspended.tolist()==[0] and '推定' in result.remark.iloc[0]['reason']
+    assert reader.tables['trade_status_daily']==[]
+    assert query_trade_risks(reader,'trade_status_daily',[code],['2024-01-02 09:30']).is_suspended.isna().all()
+    reader.tables['trade_calendar'][0]['is_open']=0
+    assert query_trade_risks(reader,'trade_status_daily',[code],['2024-01-02 10:00']).is_suspended.isna().all()
+    reader.tables['trade_calendar'][0]['is_open']=1
+    reader.tables['suspension_event']=[dict(security_code=code,trade_date=day,suspend_type='S',suspend_timing='unparseable',
+        **evidence('2024-01-02',availability_basis='suspension_effective_date_assumed'))]
+    assert query_trade_risks(reader,'trade_status_daily',[code],['2024-01-02 10:00']).is_suspended.isna().all()
+
+
 def test_index_uses_last_available_complete_snapshot_and_never_future_snapshot():
     reader=research_reader()
     reader.types['index_membership']={'index_code':'text','security_code':'text','trade_date':'date',

@@ -116,15 +116,15 @@ def execute_task(settings,task):
         control('operation_error',lambda:service.state.update_job(task['job'],error=error))
         control('execution_failed',lambda:service.state.log(task['job'],'execution_failed',error=error))
     control('attempt_finished',lambda:service.state.ledger_put('execution_attempt',attempt,{**(service.state.ledger_get('execution_attempt',attempt) or {}),'finished_at':now(),'status':status,'error':error}))
+    clean_cache(service,job=task['job'])
 
 
-def clean_cache(service):
-    """All task archives are retained as durable audit evidence.
-
-    Historical v1 evidence is read-only; v2 cache retention is explicit and
-    separate from worker scheduling. Never expire either automatically.
-    """
-    return None
+def clean_cache(service,job=None):
+    """A cleanup failure must never change a successful ingestion result."""
+    from .download_cache import cleanup_download_cache
+    try:return cleanup_download_cache(service,job=job)
+    except Exception as exc:
+        diagnostic(service.settings,'download_cache_cleanup_failed',job=job,error=str(exc))
 
 
 def interrupt_attempts(service,job,reason):
@@ -166,7 +166,7 @@ def work(service: DatabaseManagerService, once: bool = False):
         with worker_lock(service):
             owned=True
             for job in control('recover',recover):control('recover_attempts',lambda:interrupt_attempts(service,job,'执行器已退出，目标写入待核验'))
-            was_online=False;beat=0
+            was_online=False;beat=0;last_cleanup=0
             config_stamp=service.settings.env_file.stat().st_mtime_ns if service.settings.env_file and service.settings.env_file.exists() else None
             while not stop or children:
                 online=True
@@ -207,6 +207,9 @@ def work(service: DatabaseManagerService, once: bool = False):
                 if stop:
                     if children:time.sleep(.25)
                     continue
+                if not children and time.monotonic()-last_cleanup>=60:
+                    clean_cache(service)
+                    last_cleanup=time.monotonic()
                 if once and claimed_once:
                     if not children:break
                     time.sleep(.25);continue

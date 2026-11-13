@@ -294,8 +294,9 @@ def get_latest_date(source, table_name, code=None, metric=None, *, as_of=None, f
     return None if result.empty else result.datetime.iloc[0].to_pydatetime()
 
 
-def _strict_trade_status(source, table_name, codes, dates, metric="交易状态"):
-    from .reference import load_reference, known_scopes, suspension_status
+def _strict_trade_status(source, table_name, codes, dates, metric="交易状态", *, pit_policy='strict', matrix=False):
+    from .reference import load_reference, suspension_status
+    from .suspension import SuspensionScopes
 
     if table_name != "stock_suspension_intervals_versions" or metric != "交易状态":
         raise NotImplementedError("交易状态查询仅支持 stock_suspension_intervals_versions/交易状态")
@@ -303,25 +304,51 @@ def _strict_trade_status(source, table_name, codes, dates, metric="交易状态"
     if dates is None or isinstance(dates, str):
         raise ValueError("dates 必须是列表")
     dates = [timestamp(value) for value in dates]
+    if not dates or codes == []:
+        if matrix:
+            return pd.DataFrame(index=pd.DatetimeIndex([local_time(at) for at in dates], name='datetime'), columns=codes or [], dtype='Int8')
+        return frame([], STATUS_COLUMNS, integers=('value',), times=('datetime',))
+    if matrix and codes is not None:
+        codes = list(dict.fromkeys(codes))
     reader = get_reader(source)
     records = []
     with reader.snapshot():
-        scopes = load_reference(reader, "suspension", codes=codes) if dates and codes != [] else []
+        local_days = [local_time(at).date().isoformat() for at in dates]
+        scopes = load_reference(reader, "suspension", codes=codes, start=min(local_days), end=max(local_days)) if dates and codes != [] else []
+        index = SuspensionScopes(scopes)
         if codes is None:
             require_columns(reader, "security_dim", {"security_code": "text", "asset_type": "text"})
             securities = reader.rows("security_dim", ["security_code"], [("asset_type", "=", "stock")])
             codes = sorted({r["security_code"] for r in securities} | {s["selector"]["security_code"] for s in scopes})
-        names = _name_rows(reader, codes) if codes and dates else []
-        for date in dates:
+        versions = sorted({(s['revision_id'], s['_manifest_hash']) for s in scopes})
+        cache_key = None
+        if matrix:
+            from .contracts import digest
+            cache_key = digest([table_name, pit_policy, codes, [at.isoformat() for at in dates], versions])
+            cached = getattr(source, '_status_matrix_cache', None)
+            if cached and cached[0] == cache_key:
+                return cached[1].copy()
+            values = np.full((len(dates), len(codes)), -128, dtype=np.int8)
+        names = _name_rows(reader, codes) if codes and dates and not matrix else []
+        for position, date in enumerate(dates):
             at = timestamp(date)
             day = local_time(at).date().isoformat()
-            selected = {s["selector"]["security_code"]: s for s in known_scopes(scopes, at)
-                        if s["selector"].get("trade_date") == day}
-            for code in codes:
-                scope = selected.get(code)
-                value, reason = suspension_status(scope, at) if scope else (None, "缺少历史可知的完整停牌范围")
-                records.append({"code": code, "datetime": local_time(at), "value": value,
-                                "status_text": reason, "name": historical_name(names, code, at, "strict")})
+            for column, code in enumerate(codes):
+                scope = index.at(code, at, pit_policy)
+                value, reason = suspension_status(scope, at, pit_policy) if scope else (None, "缺少历史可知的完整停牌范围" if pit_policy=='strict' else "缺少可信完整停牌范围")
+                if matrix:
+                    if value is not None:values[position, column] = value
+                else:
+                    records.append({"code": code, "datetime": local_time(at), "value": value,
+                                    "status_text": reason, "name": historical_name(names, code, at, pit_policy)})
+    if matrix:
+        result = pd.DataFrame({code: pd.arrays.IntegerArray(values[:, column].copy(), values[:, column] == -128)
+                               for column, code in enumerate(codes)},
+                              index=pd.DatetimeIndex([local_time(at) for at in dates], name='datetime'))
+        result.attrs.update(reference_versions=versions, pit_policy=pit_policy)
+        if hasattr(source, '_status_matrix_cache') and result.memory_usage(index=False).sum() <= 32 * 1024**2:
+            source._status_matrix_cache = (cache_key, result.copy())
+        return result
     return frame(records, STATUS_COLUMNS, integers=("value",), times=("datetime",))
 
 

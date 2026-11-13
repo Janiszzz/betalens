@@ -1,4 +1,4 @@
-"""Render the reviewed shared WSL budget without changing the running deployment."""
+"""Render deployment CPU settings and 32 GiB memory ceilings without applying them."""
 import argparse
 import json
 from pathlib import Path
@@ -16,17 +16,18 @@ PG = {
     'fsync': 'on', 'full_page_writes': 'on', 'synchronous_commit': 'on', 'jit': 'off',
 }
 CH_SERVER = {
-    'max_server_memory_usage': 15*1024**3, 'mark_cache_size': 1024**3, 'uncompressed_cache_size': 0,
+    'max_server_memory_usage': 32*1024**3, 'max_server_memory_usage_to_ram_ratio': 1.0,
+    'mark_cache_size': 1024**3, 'uncompressed_cache_size': 0,
     'concurrent_threads_soft_limit_num': 4, 'max_concurrent_queries': 12,
     'background_pool_size': 6, 'background_merges_mutations_concurrency_ratio': 2,
     'merges_mutations_memory_usage_soft_limit': 2*1024**3,
 }
 CH_USER = {
     'max_threads': 3, 'max_insert_threads': 2, 'use_concurrency_control': 1,
-    'max_memory_usage': 4*1024**3, 'max_memory_usage_for_user': 10*1024**3,
+    'max_memory_usage': 32*1024**3, 'max_memory_usage_for_user': 32*1024**3,
     'max_concurrent_queries_for_user': 6,
     'max_bytes_before_external_group_by': 1024**3, 'max_bytes_before_external_sort': 1024**3,
-    'max_bytes_in_join': 1024**3,
+    'max_bytes_in_join': 32*1024**3,
 }
 
 
@@ -48,7 +49,7 @@ def prepare(infra, output, manager_root):
     parsed=yaml.safe_load(compose)
     # Preserve credentials, interpolation, mounts, image tags and all unrelated
     # settings byte-for-byte; do not serialize the whole private Compose file.
-    for name,cpu,memory in [('postgres','3.0','14g'),('clickhouse','4.0','20g')]:
+    for name,cpu,memory in [('postgres','3.0','32g'),('clickhouse','4.0','32g')]:
         assert name in parsed['services']
         pattern=r'(^  '+name+r':\n)(.*?)(?=^  [A-Za-z_][^\n]*:\n|^\S|\Z)'
         match=re.search(pattern,compose,re.M|re.S)
@@ -61,7 +62,7 @@ def prepare(infra, output, manager_root):
         compose=compose[:match.start(2)]+block+compose[match.end(2):]
     pg=(infra/'postgres/postgresql.conf').read_text()
     pg=re.sub(r'^#.*(?:only|twelve|only one database).*\n','',pg,flags=re.M)
-    pg='# PG + CH + manager share 10.8 CPUs / 42 GiB; PostgreSQL: 3 CPUs / 14 GiB.\n'+pg
+    pg='# PostgreSQL: 3 CPUs / 32 GiB container ceiling.\n'+pg
     for name,value in PG.items():
         if re.search(r'^'+name+r'\s*=',pg,re.M):pg=re.sub(r'^'+name+r'\s*=.*',name+' = '+value,pg,flags=re.M)
         else:pg+=name+' = '+value+'\n'
@@ -88,8 +89,8 @@ TimeoutStopSec=80
 KillMode=mixed
 MemoryAccounting=yes
 CPUQuota=380%
-MemoryHigh=7G
-MemoryMax=8G
+MemoryHigh=32G
+MemoryMax=32G
 MemorySwapMax=0
 TasksMax=256
 UMask=0077
@@ -98,9 +99,9 @@ UMask=0077
 WantedBy=default.target
 '''
     (output/'betalens-db-manager.service').write_text(unit)
-    summary={'profile':'throughput_90','cpu_total':10.8,'memory_gib_total':42,'postgres':PG,'clickhouse_server':CH_SERVER,'clickhouse_user':CH_USER}
+    summary={'profile':'throughput_90','cpu_total':10.8,'memory_gib_per_component':32,'postgres':PG,'clickhouse_server':CH_SERVER,'clickhouse_user':CH_USER}
     (output/'profile.json').write_text(json.dumps(summary,indent=2)+'\n')
-    print(json.dumps({'rendered':list(files)+['betalens-db-manager.service'],'output':str(output),'cpu_total':10.8,'memory_gib_total':42}))
+    print(json.dumps({'rendered':list(files)+['betalens-db-manager.service'],'output':str(output),'cpu_total':10.8,'memory_gib_per_component':32}))
 
 
 if __name__=='__main__':

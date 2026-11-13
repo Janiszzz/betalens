@@ -103,6 +103,27 @@ def test_zero_rows_still_requires_and_preserves_explicit_scope_evidence():
         store.stage(revision('empty'), [])
 
 
+def test_large_scope_batch_keeps_all_credentials_and_batches_target_inserts():
+    from datetime import date, timedelta
+    store = MemoryStore()
+    batches = []
+    original = store._insert
+    def insert(spec, rows, conn=None):
+        if spec.name == 'reference_scope' and rows:
+            batches.append(len(rows))
+        return original(spec, rows, conn)
+    store._insert = insert
+    scopes = [calendar_scope(str(date(2020, 1, 1) + timedelta(days=i))) for i in range(2050)]
+    manifest = store.stage(revision(), scopes)
+    assert manifest['scope_count'] == 2050
+    assert sum(batches) == 2050 and len(batches) <= 3 and max(batches) <= 1000
+    assert store.verify('r1')['verified']
+    store.publish('r1', {scope['scope_id']: None for scope in scopes})
+    assert len(store.snapshot()['scopes']) == 2050
+    assert store.stage(revision(), scopes) == manifest  # No repeated scope inserts on retry.
+    assert sum(batches) == 2050
+
+
 def test_same_request_idempotent_but_changed_input_cannot_reuse_revision():
     store = MemoryStore()
     scope = calendar_scope()

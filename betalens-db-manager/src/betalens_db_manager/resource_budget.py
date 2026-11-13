@@ -18,11 +18,11 @@ class ResourceBudget:
     readonly_per_target: int = 2
     pg_connections: int = 6
     ch_threads: int = 3
-    ch_read_memory_bytes: int = 2 * 1024**3
+    ch_read_memory_bytes: int = 32 * 1024**3
     ch_key_rows: int = 10000
     ch_key_bytes: int = 8 * 1024**2
-    processing_memory_bytes: int = 6 * 1024**3
-    manager_high_bytes: int = 7 * 1024**3
+    processing_memory_bytes: int = 32 * 1024**3
+    manager_high_bytes: int = 32 * 1024**3
     minimum_available_bytes: int = 4 * 1024**3
     pending_normalizations: int = 6
     pending_writes: int = 8

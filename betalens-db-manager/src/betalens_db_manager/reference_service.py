@@ -17,6 +17,7 @@ from .source import read_archive
 from .source_registry import source_identity, identity_matches
 from .retrieval import request_rate, tushare_policy
 from .util import digest, dumps, now, parse_date, atomic_json
+from .download_cache import cache_guard
 
 
 def normalize_request(value):
@@ -79,8 +80,8 @@ class ReferenceWorkflow:
         if target not in {'postgres','clickhouse'}:raise ValueError('目标库无效')
         return ReferenceStore(self.s,target)
 
-    def job(self,job,validate=True):
-        item=self.s.state.job(job)
+    def job(self,job,validate=True,*,metadata_only=False):
+        item=self.s.state.job(job,metadata_only=True) if metadata_only else self.s.state.job(job)
         if item['target']!=self.s.settings.fingerprint:raise ValueError('任务目标配置已变化')
         plan=item['plan']
         if plan.get('revision')!='reference-v1':raise ValueError('不是业务参考表任务')
@@ -146,6 +147,9 @@ class ReferenceWorkflow:
         plan={'revision':'reference-v1','request':request,'requests':roots,'source_contracts':contracts,
               'retrieval_policies':policies,'mapping_version':VERSION,'contract_hash':CONTRACT_HASH,
               'source_identity':source_identity(self.s.sources.values[sid]),'parent_task_id':request.get('parent_task_id')}
+        if 'suspension' in request['modules']:
+            from .suspension_ranges import FORMAT
+            plan['suspension_storage'] = FORMAT
         if request.get('pipeline_version')==2:
             plan['pipeline_version']=2
             plan['request']['requests_per_minute']=request_rate(request.get('requests_per_minute',self.s.settings.requests_per_minute))
@@ -226,9 +230,17 @@ class ReferenceWorkflow:
         item=self.job(job)
         if item['status'] in {'planned','downloading'}:raise ValueError('请先完成拉取')
         if item['status'] in {'interrupted','cancelled'}:raise ValueError('中断任务请建立关联新任务重新审计')
-        bundles=self.bundles(item);scopes=build_scopes(item['plan']['request'],bundles)
+        bundles=self.bundles(item)
+        request=item['plan']['request'];evidence_pool={}
+        from .suspension_ranges import FORMAT, build_scopes as range_scopes
+        if item['plan'].get('suspension_storage') == FORMAT:
+            others=[m for m in request['modules'] if m!='suspension']
+            scopes=build_scopes({**request,'modules':others},bundles) if others else []
+            compact,evidence_pool=range_scopes(request,bundles);scopes.extend(compact)
+        else:scopes=build_scopes(request,bundles)
         if not scopes:raise ValueError('未生成请求范围凭证')
         cache={'scopes':scopes,'bundles':bundles,'contract_hash':CONTRACT_HASH,'mapping_version':VERSION}
+        if evidence_pool:cache['evidence_pool']=evidence_pool
         cache_hash=digest(cache)
         path=self.s.settings.state_dir/'reference-cache'/job/'audit.json'
         atomic_json(path,cache)
@@ -239,27 +251,52 @@ class ReferenceWorkflow:
             from collections import defaultdict
             from .resource_budget import BUDGET,shared_slot
             with shared_slot(self.s.settings.state_dir,'read-'+target,BUDGET.readonly_per_target):
-                previous=self.store(target).snapshot(scope_ids=[s['scope_id'] for s in scopes])
+                store=self.store(target)
+                previous=store.snapshot_for(request) if evidence_pool and hasattr(store,'snapshot_for') else store.snapshot(scope_ids=None if evidence_pool else [s['scope_id'] for s in scopes])
             heads={s['scope_id']:previous['heads'].get(s['scope_id']) for s in usable}
             by_scope=defaultdict(list)
             for row in previous['rows']:by_scope[row['scope_id']].append(row)
+            from .reference_domains import _trusted_heads
+            from .suspension_ranges import SuspensionIndex
+            range_index=SuspensionIndex(_trusted_heads(previous)[0].values()) if evidence_pool else None
             differences=[]
             for scope in scopes:
                 fields=[f['name'] for f in TABLES[MODULE_TABLE[scope['module']]].fields if f['name'] not in {f['name'] for f in COMMON}]
                 before=[{k:r.get(k) for k in fields} for r in by_scope[scope['scope_id']]]
+                before_revisions=set()
+                if scope.get('format')==FORMAT:
+                    first=parse_date(scope['selector']['start_date']);last=parse_date(scope['selector']['end_date'])
+                    before=[]
+                    while first<last:
+                        head=range_index.head(scope['selector']['security_code'],first.isoformat())
+                        if head:
+                            before_revisions.add(head[2]['revision_id'])
+                            before.extend({k:r.get(k) for k in fields} for r in head[3])
+                        first+=timedelta(days=1)
                 after=[{k:r.get(k) for k in fields} for r in scope['rows']]
+                from .reference_storage import _typed
+                business=[f for f in TABLES[MODULE_TABLE[scope['module']]].fields if f['name'] in fields]
+                normalize=lambda rows:[{f['name']:_typed(f,row.get(f['name'])) for f in business} for row in rows]
+                before,after=normalize(before),normalize(after)
                 content=lambda rows:sorted(dumps(row) for row in rows)
                 differences.append({'target':target,'module':scope['module'],'scope_id':scope['scope_id'],
                     'selector':scope['selector'],'complete':scope['complete'],'reasons':scope.get('reasons',[]),
                     'before_revision':heads.get(scope['scope_id']),
-                    'operation':'no_business_change' if content(before)==content(after) else 'replace_scope' if heads.get(scope['scope_id']) else 'new_scope',
+                    'before_revisions':sorted(before_revisions),
+                    'operation':'no_business_change' if content(before)==content(after) else 'replace_scope' if heads.get(scope['scope_id']) or before_revisions else 'new_scope',
                     'before':before,'after':after,'rows':len(after)})
-            return heads,differences
+            overlap_heads={}
+            if evidence_pool:
+                from .suspension_ranges import coverage_heads
+                overlap_heads=coverage_heads(previous.get('scopes',[]),previous['heads'],usable)
+            return heads,differences,digest(overlap_heads)
+        target_coverage_hashes={}
         for outcome in target_lanes(item['plan']['request']['targets'],preview_target):
             if outcome.error is not None:
                 checks.append({'target':outcome.target,'status':'unavailable','reason':self.s.safe_error(outcome.error)})
             else:
-                heads,differences=outcome.value;target_heads[outcome.target]=heads;changes.extend(differences)
+                heads,differences,overlaps=outcome.value;target_heads[outcome.target]=heads;changes.extend(differences)
+                target_coverage_hashes[outcome.target]=overlaps
                 checks.append({'target':outcome.target,'status':'ready','scope_count':len(usable)})
         from itertools import islice
         raw=list(islice(({'endpoint':b['endpoint'],'parameters':b['parameters'],**r} for b in bundles for r in b['rows']),200))
@@ -272,9 +309,11 @@ class ReferenceWorkflow:
                 'source_report':[{k:b[k] for k in ('endpoint','parameters','complete','reason','archive_sha')}|{'rows':len(b['rows'])} for b in bundles],
                 'rejected':sum(not s['complete'] for s in scopes),'blocking':not usable,
                 'scope_count':len(scopes),'row_count':row_count}
+        if evidence_pool:result['target_coverage_hashes']=target_coverage_hashes
         result['token']=digest(result)
         self.s.state.update_job(job,status='blocked' if result['blocking'] else 'previewed',preview=result)
-        self.s.state.ledger_put('reference_audit',job,{'task_id':job,'cache_hash':cache_hash,'scopes':scopes,'created_at':now()})
+        self.s.state.ledger_put('reference_audit',job,{'task_id':job,'cache_hash':cache_hash,'scopes':scopes,
+            **({'evidence_pool':evidence_pool} if evidence_pool else {}),'created_at':now()})
         self.s.state.log(job,'reference_audit_ready',scope_count=len(scopes),row_count=row_count,rejected=result['rejected'])
         return result
 
@@ -320,6 +359,10 @@ class ReferenceWorkflow:
                                 'source_id':item['plan']['request']['source_id'],
                                 'downloaded_at':max(b['downloaded_at'] for b in cache['bundles']),
                                 'request':item['plan']['request'],'cache_hash':item['preview']['cache_hash']}
+                            if module=='suspension' and cache.get('evidence_pool'):
+                                from .suspension_ranges import referenced_pool
+                                revision={**revision,'evidence_pool':referenced_pool(scopes,cache['evidence_pool']),
+                                    'expected_coverage_hash':item['preview']['target_coverage_hashes'][target]}
                             self.s.state.ledger_put('reference_revision',key,revision)
                             store=self.store(target)
                             expected={s['scope_id']:item['preview']['target_heads'].get(target,{}).get(s['scope_id']) for s in scopes}
@@ -375,6 +418,7 @@ class ReferenceWorkflow:
         item=self.job(job);request={**item['plan']['request'],'parent_task_id':job}
         return self.plan(request)
 
+    @cache_guard
     def baseline(self,request,source_task_ids):
         """Borrow verifiable archives, never old business rows or task statuses.
 
@@ -485,12 +529,27 @@ class ReferenceWorkflow:
         histories={}
         for job in jobs:
             task_request=job['request']
-            for scope in build_scopes(task_request,[]):
-                for target in task_request['targets']:
-                    histories.setdefault((target,scope['scope_id']),[]).append({'task_id':job['id'],'status':job['status']})
+            codes=[c for c in request['security_codes'] if c in task_request.get('security_codes',[])]
+            for module in set(request['modules']).intersection(task_request['modules']):
+                if module!='calendar' and not codes:continue
+                scoped={**task_request,'modules':[module],'security_codes':codes,
+                    'schemes':[s for s in request['schemes'] if s in task_request['schemes']],
+                    'levels':[level for level in request['levels'] if level in task_request['levels']],
+                    'exchanges':[e for e in request['exchanges'] if e in task_request['exchanges']]}
+                if module=='industry' and (not scoped['schemes'] or not scoped['levels']):continue
+                if module=='calendar' and not scoped['exchanges']:continue
+                if module!='industry':
+                    scoped['start_date']=max(request['start_date'],task_request['start_date'])
+                    scoped['end_date']=min(request['end_date'],task_request['end_date'])
+                    if scoped['start_date']>scoped['end_date']:continue
+                else:scoped.update(start_date=request['start_date'],end_date=request['start_date'])
+                for scope in build_scopes(scoped,[]):
+                    for target in set(request['targets']).intersection(task_request['targets']):
+                        histories.setdefault((target,scope['scope_id']),[]).append({'task_id':job['id'],'status':job['status']})
         for target in request['targets']:
             try:
-                snapshot=self.store(target).snapshot(audit=True)
+                store=self.store(target)
+                snapshot=store.snapshot_for(request,audit=True) if hasattr(store,'snapshot_for') else store.snapshot(audit=True)
                 result=check_integrity(request,snapshot)
                 for row in result['rows']:
                     selector={k:row[k] for k in ({'calendar':('exchange','trade_date'),'industry':('security_code','scheme_code','level'),'suspension':('security_code','trade_date')}[row['module']])}
@@ -505,9 +564,13 @@ class ReferenceWorkflow:
                                        'unpublished' if state in {'committing','partial','completed'} else 'not_requested')
                         row['latest_task_id']=history[0]['task_id']
                         audit=self.s.state.ledger_get('reference_audit',history[0]['task_id']) or {}
-                        failed=next((s for s in audit.get('scopes',[]) if s['scope_id']==sid and not s['complete']),None)
+                        from .suspension_ranges import contains
+                        failed=next((s for s in audit.get('scopes',[]) if not s['complete'] and (s['scope_id']==sid or
+                            (row['module']=='suspension' and s['module']=='suspension' and contains(s['selector'],row['security_code'],row['trade_date'])))),None)
                         if failed:
                             queries=failed.get('evidence',{}).get('queries',[])
+                            if failed.get('format')=='suspension-ranges-v2':
+                                queries=audit.get('evidence_pool',{}).get(failed['evidence']['queries_ref'],[])
                             messages='；'.join(str(q.get('reason') or '') for q in queries)
                             row.update(reason='source_permission_denied' if any(w in messages for w in ('权限','积分','permission')) else 'request_failed',
                                        unknown_reasons=failed.get('reasons',[]),request_errors=[q for q in queries if not q.get('complete')])

@@ -17,7 +17,6 @@ for _path in (_REPO_ROOT, _CLASS_DIR):
 from betalens.factor.config import (  # noqa: E402
     factor_spec_options,
     load_yaml_config,
-    run_parameters,
     section,
 )
 from factor_template_tdx import FactorPipeline, FactorSpec, REF, SMA, clean_inf  # noqa: E402
@@ -51,12 +50,8 @@ spec = build_spec(load_config())
 
 
 def run_from_config(config_path: str | Path = _CONFIG_FILE):
-    config = load_config(config_path)
-    kwargs = run_parameters(config, config_path)
-    start_date = kwargs.pop("start_date")
-    end_date = kwargs.pop("end_date")
-    Path(kwargs["output_dir"]).mkdir(parents=True, exist_ok=True)
-    return FactorPipeline(build_spec(config, config_path)).run(start_date, end_date, **kwargs)
+    from factor_runtime import run_factor_from_config
+    return run_factor_from_config(config_path, build_spec, FactorPipeline)
 
 
 def main() -> None:

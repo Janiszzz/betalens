@@ -28,14 +28,34 @@ def encode(value: Any) -> Any:
 def dumps(value: Any) -> str:
     def safe(item):
         if isinstance(item,int) and not isinstance(item,bool) and abs(item)>9007199254740991:return str(item)
-        if isinstance(item,dict):return {key:safe(value) for key,value in item.items()}
-        if isinstance(item,(list,tuple)):return [safe(value) for value in item]
+        # Audit scopes can contain hundreds of thousands of ordinary JSON
+        # objects. Copy only branches that actually contain unsafe integers.
+        if isinstance(item,dict):
+            result=None
+            for key,value in item.items():
+                converted=safe(value)
+                if converted is not value:
+                    if result is None:result=item.copy()
+                    result[key]=converted
+            return item if result is None else result
+        if isinstance(item,(list,tuple)):
+            result=None
+            for index,value in enumerate(item):
+                converted=safe(value)
+                if converted is not value:
+                    if result is None:result=list(item)
+                    result[index]=converted
+            return item if result is None else result
         return item
     return json.dumps(safe(value), ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=encode, allow_nan=False)
 
 
 def digest(value: Any) -> str:
-    return hashlib.sha256(dumps(value).encode()).hexdigest()
+    text=dumps(value)
+    if len(text)<=65536:return hashlib.sha256(text.encode()).hexdigest()
+    result=hashlib.sha256()
+    for start in range(0,len(text),65536):result.update(text[start:start+65536].encode())
+    return result.hexdigest()
 
 
 def atomic_json(path: Path, value: Any) -> None:

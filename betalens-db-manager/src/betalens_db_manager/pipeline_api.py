@@ -54,7 +54,7 @@ def install_routes(app,service,response):
 
     @app.post('/api/tasks/{job}/start')
     def start(job:str):
-        item=service._job(job,True)
+        item=service._job(job,True,metadata_only=True)
         if item['plan'].get('pipeline_version')!=2:raise ValueError('旧任务需创建显式的新管线任务')
         if item['plan'].get('pipeline_parent'):raise ValueError('内部转换批次只能由所属父任务启动')
         if item['status'] in {'completed','rolled_back','partially_rolled_back'}:raise ValueError('结束或回退的任务不可启动')
@@ -65,14 +65,14 @@ def install_routes(app,service,response):
 
     @app.post('/api/tasks/{job}/pipeline/commit')
     def commit(job:str):
-        item=service._job(job,True)
+        item=service._job(job,True,metadata_only=True)
         if item['plan'].get('pipeline_version')!=2 or item['plan']['request']['auto_commit']:raise ValueError('仅适用于选择手动提交的新任务')
         if item['status'] not in {'ready_to_commit','partial','paused','interrupted'}:raise ValueError('尚无可提交的标准化缓存')
         return response({'task':service.state.enqueue(job,'pipeline_commit',{'background':item['plan']['request']['run_in_background']})})
 
     @app.post('/api/tasks/{job}/validations')
     def validate(job:str,payload:dict=Body(default={})):
-        item=service._job(job)
+        item=service._job(job,metadata_only=True)
         if item['plan'].get('pipeline_version')!=2:raise ValueError('该入口仅适用于新管线任务')
         if not isinstance(payload.get('rules',list(RULES)),list) or not payload.get('rules',list(RULES)) or set(payload.get('rules',RULES))-set(RULES):raise ValueError('请选择有效校验规则')
         if set(payload)-{'rules','targets','tables','codes','start_date','end_date'}:raise ValueError('校验请求包含未知字段')
@@ -80,11 +80,11 @@ def install_routes(app,service,response):
 
     @app.get('/api/tasks/{job}/validations')
     def validations(job:str):
-        service._job(job);return response(sorted(service.state.ledger_rows('pipeline_validation',job),key=lambda r:r['started_at']))
+        service._job(job,metadata_only=True);return response(sorted(service.state.ledger_rows('pipeline_validation',job),key=lambda r:r['started_at']))
 
     @app.get('/api/tasks/{job}/validations/{report_id}')
     def validation_report(job:str,report_id:str,offset:int=0,limit:int=100,download:bool=False):
-        service._job(job);report=service.state.ledger_get('pipeline_validation',report_id)
+        service._job(job,metadata_only=True);report=service.state.ledger_get('pipeline_validation',report_id)
         if not report or report['task_id']!=job:raise ValueError('校验报告不存在')
         if download:return Response(dumps(report),media_type='application/json',headers={'Content-Disposition':'attachment; filename=validation-'+report_id+'.json'})
         start=max(0,offset);size=max(1,min(1000,limit))

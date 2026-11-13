@@ -101,12 +101,14 @@ def reference_reader(module, revisions):
     types = {**CONTROL_TYPES, TABLES[module]: {**REF_TYPES, **REF_BUSINESS[module]}}
     tables = {table: [] for table in types}
     reader = MemoryReader(tables, types)
-    for seq, (rid, scopes, event_type) in enumerate(revisions, 1):
-        append_revision(reader, module, rid, seq, scopes, event_type)
+    for seq, item in enumerate(revisions, 1):
+        rid, scopes, event_type, *extra = item
+        append_revision(reader, module, rid, seq, scopes, event_type,
+                        evidence_pool=extra[0] if extra else None)
     return reader
 
 
-def append_revision(reader, module, rid, seq, scopes, event_type="publish"):
+def append_revision(reader, module, rid, seq, scopes, event_type="publish", *, evidence_pool=None):
     from betalens.datafeed.reference import TABLES
     table = TABLES[module]
     docs = []
@@ -127,6 +129,8 @@ def append_revision(reader, module, rid, seq, scopes, event_type="publish"):
     docs.sort(key=lambda s: s["scope_id"])
     rev = {"revision_id": rid, "module": module, "ingestion_seq": seq,
            "scope_ids": [s["scope_id"] for s in docs], "row_count": sum(s["row_count"] for s in docs)}
+    if evidence_pool is not None:
+        rev['evidence_pool'] = evidence_pool
     rev["manifest_hash"] = digest({"revision": rev, "scopes": docs})
     reader.tables["reference_revision"].append({k: rev[k] for k in reader.types["reference_revision"] if k != "payload"} | {"payload": json.dumps(rev)})
     for scope in docs:

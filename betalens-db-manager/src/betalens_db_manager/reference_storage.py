@@ -270,10 +270,10 @@ class ReferenceStore:
                 self.db.execute(f'INSERT INTO {self.db.table(spec.name)} FORMAT JSONEachRow',
                                 '\n'.join(dumps(row) for row in normalized[offset:offset + 1000]) + '\n')
 
-    def _control(self, conn=None,scope_ids=None,revision_ids=None):
+    def _control(self, conn=None,scope_ids=None,revision_ids=None,request=None):
         if scope_ids is not None:
             selected=self._rows(METADATA['reference_scope'],conn,selection=('scope_id',scope_ids))
-            revision_ids={r['revision_id'] for r in selected}
+            revision_ids=set(revision_ids or ())|{r['revision_id'] for r in selected}
         def payloads(name):
             spec = METADATA[name]
             result = []
@@ -292,10 +292,46 @@ class ReferenceStore:
         # one repeatable-read transaction across all tables and verification.
         events = payloads('reference_publication_event')
         revisions = payloads('reference_revision')
+        if request is not None:
+            live_events={e['revision_id']:e for e in events if e['event_type']=='publish'}
+            revoked={e['revision_id'] for e in events if e['event_type']=='revoke'}
+            # Legacy events have no independent header signature. Do not use
+            # unverified request fields to exclude an allegedly trusted header.
+            for revision in revisions:
+                event=live_events.get(revision['revision_id'])
+                if event and revision['revision_id'] not in revoked:
+                    if not event.get('revision_hash'):return self._control(conn)
+                    if digest(revision)!=event['revision_hash']:return self._control(conn)
+            codes=set(request.get('security_codes') or [])
+            modules=set(request.get('modules') or MODULE_TABLE)
+            if 'suspension' in modules:modules.add('calendar')
+            def relevant(revision):
+                source=revision.get('request',{});module=revision['module']
+                if module not in modules:return False
+                securities=set(source.get('security_codes') or [])
+                if module!='calendar' and codes and securities and not codes.intersection(securities):return False
+                if module!='industry':
+                    if request.get('start_date') and source.get('end_date') and source['end_date']<request['start_date']:return False
+                    if request.get('end_date') and source.get('start_date') and source['start_date']>request['end_date']:return False
+                return True
+            revisions=[r for r in revisions if relevant(r)]
+            revision_ids={r['revision_id'] for r in revisions}
+            events=[e for e in events if e['revision_id'] in revision_ids]
         scopes = payloads('reference_scope')
+        if request is not None and any(s.get('dependencies') for s in scopes):
+            return self._control(conn)  # Preserve cross-module dependency checks for legacy explicit links.
         revisions.sort(key=lambda row: int(row['ingestion_seq']))
         events.sort(key=lambda row: int(row['event_seq']))
         return revisions, scopes, events
+
+    def _max_counter(self, table, column, conn=None):
+        if conn is None and not hasattr(self.db,'execute'):
+            return max((int(row[column]) for row in self._rows(METADATA[table],conn)),default=0)
+        if self.target=='postgres':
+            with conn.cursor() as cursor:
+                cursor.execute(sql.SQL('SELECT COALESCE(MAX({}),0) FROM {}').format(sql.Identifier(column),self._relation(table)))
+                return int(cursor.fetchone()[0])
+        return int(self.db.execute(f'SELECT ifNull(max(`{column}`),0) FROM {self.db.table(table)}'))
 
     @contextmanager
     def _read(self):
@@ -333,7 +369,8 @@ class ReferenceStore:
         for result in verification:
             revision = by_id[result['revision_id']]
             credentials = [e for e in events if e['revision_id'] == revision['revision_id'] and e['event_type'] == 'publish']
-            if any(e.get('manifest_hash') != revision['manifest_hash'] or e.get('scope_ids') != revision['scope_ids'] for e in credentials):
+            if any(e.get('manifest_hash') != revision['manifest_hash'] or e.get('scope_ids') != revision['scope_ids']
+                   or (e.get('revision_hash') and e['revision_hash']!=digest(revision)) for e in credentials):
                 result['verified'] = False
                 result['errors'].append('发布凭证与修订清单不一致')
         invalid = {v['revision_id'] for v in verification if not v['verified']}
@@ -362,6 +399,16 @@ class ReferenceStore:
             raise ValueError('修订必须有明确覆盖范围；空响应也需要范围凭证')
         if len({s['scope_id'] for s in scopes}) != len(scopes):
             raise ValueError('修订覆盖范围重复')
+        from .suspension_ranges import FORMAT, bounds, contains, referenced_pool
+        ranged = [s for s in scopes if s.get('format') == FORMAT]
+        if ranged:
+            referenced_pool(ranged, revision.get('evidence_pool', {}))
+            for scope in ranged:
+                selector = scope['selector'];first, last = bounds(selector)
+                if module != 'suspension' or first >= last or scope['scope_id'] != digest({'module':module,'selector':selector}):
+                    raise ValueError('停牌范围标识或日期无效')
+                if any(not contains(selector, row.get('security_code'), str(row.get('trade_date'))[:10]) for row in scope.get('rows', [])):
+                    raise ValueError('停牌事件超出覆盖范围')
         spec = TABLES[MODULE_TABLE[module]]
         prepared_scopes, all_rows = [], []
         for scope in scopes:
@@ -407,19 +454,22 @@ class ReferenceStore:
             if revision.get('module') not in MODULE_TABLE:
                 raise ValueError('未知业务模块: ' + str(revision.get('module')))
             self._assert_structure(conn, revision['module'])
-            revisions, stored_scopes, events = self._control(conn)
+            revisions, stored_scopes, events = self._control(conn,scope_ids=[s['scope_id'] for s in scopes],revision_ids=[revision['revision_id']])
             old = next((r for r in revisions if r['revision_id'] == revision['revision_id']), None)
             if old is not None:
                 if old['input_hash'] != self._input_hash(revision, scopes):
                     raise ValueError('修订编号已绑定不同输入，必须创建新修订')
                 sequence, ingested = int(old['ingestion_seq']), old['ingested_at']
             else:
-                sequence = max((int(r['ingestion_seq']) for r in revisions), default=0) + 1
+                sequence = self._max_counter('reference_revision','ingestion_seq',conn) + 1
                 ingested = _timestamp(now())
             manifest, scope_docs, rows = self._prepare(revision, scopes, sequence, ingested)
+            bindings = {}
+            for stored in stored_scopes:
+                bindings.setdefault(stored['scope_id'], set()).add((stored['module'], stored['selector_hash']))
             for scope in scope_docs:
-                if any(s['scope_id'] == scope['scope_id'] and (s['module'] != scope['module'] or s['selector_hash'] != scope['selector_hash'])
-                       for s in stored_scopes):
+                previous = bindings.get(scope['scope_id'])
+                if previous is not None and previous != {(scope['module'], scope['selector_hash'])}:
                     raise ValueError('覆盖范围编号已绑定不同的业务范围')
             if old is not None and old != manifest:
                 raise ValueError('修订清单与已保存内容不一致')
@@ -429,15 +479,20 @@ class ReferenceStore:
                     'payload': dumps(manifest),
                 }], conn)
             existing_scopes = {s['scope_id']: s for s in stored_scopes if s['revision_id'] == manifest['revision_id']}
+            pending_scopes = []
             for scope in scope_docs:
                 present = existing_scopes.get(scope['scope_id'])
                 if present is not None and present != scope:
                     raise ValueError('不可变覆盖凭证发生变化')
                 if present is None:
-                    self._insert(METADATA['reference_scope'], [{
+                    pending_scopes.append({
                         **{k: scope[k] for k in ('revision_id', 'scope_id', 'module', 'selector_hash', 'row_count', 'content_hash', 'key_hash')},
                         'complete': int(scope['complete']), 'payload': dumps(scope),
-                    }], conn)
+                    })
+                    if len(pending_scopes) >= 1000:
+                        self._insert(METADATA['reference_scope'], pending_scopes, conn)
+                        pending_scopes = []
+            self._insert(METADATA['reference_scope'], pending_scopes, conn)
             spec = TABLES[MODULE_TABLE[manifest['module']]]
             existing = {(r['scope_id'], r['record_id']): r for r in self._rows(spec, conn, manifest['revision_id'])}
             incoming = {(r['scope_id'], r['record_id']): r for r in rows}
@@ -475,7 +530,8 @@ class ReferenceStore:
                             'key_hash': actual_keys, 'content_hash': actual_hash})
             if not good:
                 errors.append('范围记录、键或内容核验不通过: ' + scope['scope_id'])
-        if len(rows) != int(revision['row_count']) or any(r['scope_id'] not in revision['scope_ids'] for r in rows):
+        scope_ids = set(revision['scope_ids'])
+        if len(rows) != int(revision['row_count']) or any(r['scope_id'] not in scope_ids for r in rows):
             errors.append('修订记录总数或范围不匹配')
         return {'target': self.target, 'revision_id': revision_id, 'verified': not errors,
                 'row_count': len(rows), 'scope_count': len(scope_docs), 'scope_results': results, 'errors': errors}
@@ -485,12 +541,12 @@ class ReferenceStore:
             return self._verify(revision_id, conn)
 
     def _append_event(self, revision, events, kind, rollback_task_id, conn=None):
-        sequence = max((int(e['event_seq']) for e in events), default=0) + 1
+        sequence = self._max_counter('reference_publication_event','event_seq',conn) + 1
         event_id = digest([revision['revision_id'], kind, rollback_task_id])
         event = {'event_id': event_id, 'event_seq': sequence, 'revision_id': revision['revision_id'],
                  'event_type': kind, 'rollback_task_id': rollback_task_id, 'created_at': _timestamp(now()),
                  'ingestion_seq': revision['ingestion_seq'], 'scope_ids': revision['scope_ids'],
-                 'manifest_hash': revision['manifest_hash']}
+                 'manifest_hash': revision['manifest_hash'], 'revision_hash':digest(revision)}
         self._insert(METADATA['reference_publication_event'], [{
             **{k: event[k] for k in ('event_id', 'event_seq', 'revision_id', 'event_type', 'rollback_task_id', 'created_at')},
             'payload': dumps(event),
@@ -499,7 +555,10 @@ class ReferenceStore:
 
     def publish(self, revision_id, expected_heads):
         with self._write('publish:' + revision_id) as conn:
-            revisions, scopes, events = self._control(conn)
+            selected,_,_=self._control(conn,revision_ids=[revision_id])
+            candidate=next((r for r in selected if r['revision_id']==revision_id),{})
+            request={**candidate.get('request',{}),'modules':['suspension']} if 'evidence_pool' in candidate else None
+            revisions, scopes, events = self._control(conn,request=request)
             revision = next((r for r in revisions if r['revision_id'] == revision_id), None)
             if revision is None:
                 raise ValueError('修订不存在: ' + revision_id)
@@ -509,7 +568,7 @@ class ReferenceStore:
                 raise ValueError('已撤销修订不能重新发布，必须创建新修订')
             if previous is not None:
                 verified = self._verify(revision_id, conn, control=(revisions, scopes, events))
-                if not verified['verified'] or previous.get('manifest_hash') != revision['manifest_hash'] or previous.get('scope_ids') != revision['scope_ids']:
+                if not verified['verified'] or previous.get('manifest_hash') != revision['manifest_hash'] or previous.get('scope_ids') != revision['scope_ids'] or (previous.get('revision_hash') and previous['revision_hash']!=digest(revision)):
                     raise ValueError('已发布版本的目标库核验失败，不能以重试掩盖不一致')
                 return dict(previous, target=self.target, status='published', published_at=previous['created_at'])
             if set(expected_heads) != set(revision['scope_ids']):
@@ -517,6 +576,12 @@ class ReferenceStore:
             current, existing_verification = self._valid_heads(revisions, scopes, events, conn)
             if any(current.get(scope_id) != expected_heads[scope_id] for scope_id in revision['scope_ids']):
                 raise ValueError('审计后范围版本头已变化，请重新审计')
+            if 'evidence_pool' in revision:
+                from .suspension_ranges import coverage_heads
+                wanted = [s for s in scopes if s['revision_id'] == revision_id]
+                actual = coverage_heads(scopes, current, wanted)
+                if digest(actual) != revision.get('expected_coverage_hash', digest(revision.get('expected_coverage_heads', {}))):
+                    raise ValueError('审计后重叠停牌范围版本头已变化，请重新审计')
             valid_revisions = {v['revision_id'] for v in existing_verification if v['verified']}
             for scope in (s for s in scopes if s['revision_id'] == revision_id):
                 for dependency in scope.get('dependencies', []):
@@ -540,7 +605,7 @@ class ReferenceStore:
         if not rollback_task_id:
             raise ValueError('撤销必须包含独立回退任务编号')
         with self._write('revoke:' + rollback_task_id) as conn:
-            revisions, scopes, events = self._control(conn)
+            revisions, scopes, events = self._control(conn,revision_ids=[revision_id])
             revision = next((r for r in revisions if r['revision_id'] == revision_id), None)
             if revision is None:
                 raise ValueError('修订不存在: ' + revision_id)
@@ -556,8 +621,12 @@ class ReferenceStore:
         with self._read() as conn:
             return self._snapshot(audit, conn,scope_ids)
 
-    def _snapshot(self, audit=False, conn=None,scope_ids=None):
-        revisions, scopes, events = self._control(conn,scope_ids=scope_ids)
+    def snapshot_for(self, request, audit=False):
+        with self._read() as conn:
+            return self._snapshot(audit,conn,request=request)
+
+    def _snapshot(self, audit=False, conn=None,scope_ids=None,request=None):
+        revisions, scopes, events = self._control(conn,scope_ids=scope_ids,request=request)
         current, verification = self._valid_heads(revisions, scopes, events, conn)
         invalid = {v['revision_id'] for v in verification if not v['verified']}
         if not audit:
@@ -576,6 +645,17 @@ class ReferenceStore:
             ids=[r['revision_id'] for r in revisions if r['module']==module]
             rows.extend(dict(row, module=module) for row in self._rows(TABLES[name], conn,selection=('revision_id',ids))
                         if (audit and scope_ids is None) or (row['revision_id'], row['scope_id']) in selected)
+        if not audit and any(s.get('format')=='suspension-ranges-v2' for s in scopes):
+            from .reference_domains import _trusted_heads
+            from .suspension_ranges import SuspensionIndex
+            index=SuspensionIndex(_trusted_heads({'revisions':revisions,'scopes':scopes,'rows':rows,'events':events})[0].values())
+            visible=[]
+            for row in rows:
+                if row['module']=='suspension':
+                    head=index.head(row['security_code'],row['trade_date'])
+                    if not head or (head[1]['scope_id'],head[2]['revision_id'])!=(row['scope_id'],row['revision_id']):continue
+                visible.append(row)
+            rows=visible
         return {'target': self.target, 'revisions': revisions, 'scopes': scopes,
                 'rows': sorted(rows, key=lambda r: (int(r['ingestion_seq']), r['scope_id'], r['record_id'])),
                 'events': events, 'heads': current, 'verification': verification,

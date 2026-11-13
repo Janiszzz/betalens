@@ -24,11 +24,7 @@ class FactorYamlDashboardTests(unittest.TestCase):
         self.assertEqual(disp.defaults["n_quantiles"], 20)
         self.assertEqual(disp.defaults["direction"], "negative")
         self.assertEqual(disp.strategy_type, "cross_sectional")
-        self.assertIn(("tdx", "XICHOU_timing"), names)
-        xichou = next(item for item in factors if item.factor_class == "tdx" and item.name == "XICHOU")
-        self.assertEqual(xichou.strategy_type, "cross_sectional")
-        xichou_timing = next(item for item in factors if item.factor_class == "tdx" and item.name == "XICHOU_timing")
-        self.assertEqual(xichou_timing.strategy_type, "timing")
+        self.assertTrue(all(not item.defaults["experiment_export_enabled"] for item in factors))
 
     def test_discover_factors_exposes_complete_alpha101_catalog(self) -> None:
         clear_factor_cache()
@@ -73,10 +69,10 @@ class FactorYamlDashboardTests(unittest.TestCase):
             self.assertEqual(factor_cfg["meta"]["name"], name)
 
     def test_get_factor_config_supports_multiple_yaml_specs_in_one_dir(self) -> None:
-        script, _class_cfg, factor_cfg = get_factor_config("tdx", "XICHOU_timing")
+        script, _class_cfg, factor_cfg = get_factor_config("alpha101", "ALPHA12_timing")
 
-        self.assertEqual(script.name, "factor_XICHOU_timing.py")
-        self.assertEqual(factor_cfg["meta"]["name"], "XICHOU_timing")
+        self.assertEqual(script.name, "factor_ALPHA12_timing.py")
+        self.assertEqual(factor_cfg["meta"]["name"], "ALPHA12_timing")
         self.assertEqual(factor_cfg["meta"]["strategy_type"], "timing")
 
         alpha_script, _alpha_class_cfg, alpha_factor_cfg = get_factor_config("alpha101", "ALPHA12_timing")
@@ -145,10 +141,10 @@ class FactorYamlDashboardTests(unittest.TestCase):
                 RunManager._build_run_config(factor_cfg, run, Path(tmp) / "run")
 
     def test_timing_run_config_allows_empty_freeplay_groups(self) -> None:
-        _script, _class_cfg, factor_cfg = get_factor_config("tdx", "XICHOU_timing")
+        _script, _class_cfg, factor_cfg = get_factor_config("alpha101", "ALPHA12_timing")
         request = RunRequest(
-            factor_class="tdx",
-            name="XICHOU_timing",
+            factor_class="alpha101",
+            name="ALPHA12_timing",
             parameters={
                 "weight_mode": "freeplay",
                 "long_groups": "",

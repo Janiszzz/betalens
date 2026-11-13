@@ -21,6 +21,7 @@ class Datafeed:
         self.backend = config["backend"]
         self._reader = PostgresReader(config) if self.backend == "postgres" else ClickHouseReader(config)
         self._closed = False
+        self._status_matrix_cache = None
 
     def __enter__(self):
         return self
@@ -50,6 +51,17 @@ class Datafeed:
     def query_trade_status(self, params=None):
         params = self._require(params, ("dates",))
         return query.query_trade_status(self, self.sheet, params.get("codes"), params["dates"], params.get("metric", "交易状态"))
+
+    def query_trade_status_matrix(self, codes, dates):
+        """Return a nullable Int8 matrix; each call verifies publication contents.
+
+        A bounded per-subscription cache reuses derived matrices only after the
+        current immutable manifests and rows have passed the normal checks.
+        """
+        if self.sheet != 'stock_suspension_intervals_versions':
+            raise NotImplementedError('状态矩阵仅支持可信停牌参考表')
+        return query._strict_trade_status(self, self.sheet, codes, dates,
+                                         pit_policy=self.pit_policy, matrix=True)
 
     def query_nearest_before(self, params=None):
         p = self._require(params, ("codes", "datetimes", "metric"))
@@ -123,6 +135,7 @@ class Datafeed:
         return params
 
     def close(self):
+        self._status_matrix_cache = None
         if not self._closed:
             self._reader.close()
             self._closed = True

@@ -15,7 +15,7 @@ cache:
 output:
   # 任务输出根目录；相对路径以本 performance.yaml 所在目录为基准。
   # 实际目录为 <directory>/<因子ID>/<本地时间_短ID>/。
-  directory: outputs/mining
+  directory: ../../../../outputs/mining/LiqDemand
 
 logging:
   # 可选：DEBUG | INFO | WARNING | ERROR | CRITICAL。
@@ -24,3 +24,8 @@ logging:
   task_logs: true
   # 长任务存活提示间隔（秒）；设为 0 可关闭。
   heartbeat_seconds: 30
+
+experiment_export:
+  enabled: false
+  store_path: outputs/experiments.lmdb
+  capture_selected: true

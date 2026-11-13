@@ -33,16 +33,15 @@ def task_history(service,limit=20,offset=0,status='',target='',table='',search='
 
 
 def task_detail(service,job):
-    item=service.state.job(job);item['target_matches']=item['target']==service.settings.fingerprint
-    if not item['target_matches']:return item
+    item=service.state.job(job,metadata_only=True);item['target_matches']=item['target']==service.settings.fingerprint
+    if not item['target_matches']:return {**service.state.job(job),'target_matches':False}
     if item['plan'].get('revision')=='reference-v1':
         from .reference_service import ReferenceWorkflow
         return {**ReferenceWorkflow(service).detail(job),'target_matches':True}
     if item['plan'].get('pipeline_version')==2:
         from .pipeline import Pipeline
         return {**Pipeline(service).detail(job,compact=True),'target_matches':True}
-    item['rollback_summary']=service.state.ledger_rows('import_rollback',job)
-    return item
+    return {**service.state.job(job),'target_matches':True,'rollback_summary':service.state.ledger_rows('import_rollback',job)}
 
 
 def install_routes(app,service,response):

@@ -20,6 +20,76 @@
 
 阈值仅为配置示例，不是建议参数。``risk=None`` 默认关闭风控。
 
+实验归档与离线看板
+------------------
+
+安装 ``betalens[experiments]`` 可使用 LMDB 实验库；安装
+``betalens[experiment-viewer]`` 同时提供本地只读看板。归档接口只接收完成的结果，
+不会发起回测或查询行情。调用方提供对象中没有的因子身份及完整有效配置。
+
+.. code-block:: python
+
+   from betalens.experiments import ExperimentStore, ExperimentInput
+
+   with ExperimentStore("outputs/experiments.lmdb") as store:
+       factor_id = store.register_factor(
+           key="momentum", name="动量因子", category="量价",
+           description="价格动量的参数与组合研究",
+       )
+       experiment_id = store.save_backtest(
+           bt, analyst=analyst, factor_id=factor_id,
+           config=effective_config, source_id="manual-20261110-01",
+       )
+       # FactorPipeline 的统一结果可直接保存：
+       # experiment_id = store.save_run(result, factor_id=factor_id, config=effective_config)
+
+       fixed_id = store.derive_factor(
+           factor_id, key="factor_momentum_20", name="20日动量",
+           locks={"factor_spec.compute_kwargs.window": 20},
+       )
+       records = store.query(factor_id=fixed_id, has_raw=True)
+       nav = store.read_table(experiment_id, "nav")
+       restored = store.to_analyst(experiment_id)
+       # 可在研究脚本中更换分析参数；不会修改归档指标。
+       revised = store.to_analyst(experiment_id, risk_free_rate=0.02)
+
+       batch = store.save_batch([
+           ExperimentInput(result_a, factor_id, config_a, source_id="a"),
+           ExperimentInput(result_b, other_factor_id, config_b, source_id="b"),
+       ], source_id="parallel-20261110-01")
+       # batch["status"] 为 complete / partial / failed；检查 batch["failures"]。
+
+``query`` 返回 ``items/total/page/page_size``；支持因子、批次、类型、参数、配置路径、
+指标条件、标签、入库时间和原始数据可用性筛选。
+例如 ``metrics={"夏普比率": {"gte": 1.0}}``、
+``config={"run.rebal_freq": "W"}``。
+``read_table`` 支持 ``offset/limit/columns/start/end``；
+``read_extras`` 提取 profiling、图表及附属研究产物。
+
+母因子下的派生条目为平铺关系，不能继续派生，也不能覆盖母因子已锁定的字段。
+条目自动展示库内所有匹配实验，包括登记前已入库的记录；不扫描旧文件。
+``update_factor`` 仅修改中文名称、说明和分类，不能修改锁字段。
+
+同一 ``source_id`` 在同一因子及批次中重复保存相同内容会返回原 ID；内容变化时抛出
+``ConflictError``。批量保存逐项提交并返回失败清单，修正失败项后使用同一批次来源标识重试。
+原始表缺失时抛出 ``MissingArtifactError``，不会用空表伪装。
+同一批次内相同母因子、有效配置及参数的重复结果合并为一个子实验；内容不一致时报告冲突。
+独立的随机种子、回测区间等应包含在有效配置或参数中，跨批次结果始终独立保存。
+
+.. code-block:: bash
+
+   python -m betalens.experiments serve --db outputs/experiments.lmdb --port 8020
+
+在浏览器打开 ``http://127.0.0.1:8020``。前端资源已随包提供，运行时无需 Node.js
+或互联网。看板仅提供读取接口；因子命名、登记与说明维护使用 Python API。
+开发前端时，在 ``experiment-dashboard/`` 执行 ``npm ci``、``npm run build``，
+构建结果写入 Python 包中的静态资源目录。
+
+多个存储实例在同一进程共享环境，跨进程独立打开；写入使用短事务排队。
+默认 ``map_size`` 为 128 GiB 虚拟映射上限，不预分配等量物理内存。
+容量不足时关闭全部访问进程，再用更大的 ``map_size`` 打开；不会自动跨进程扩容。
+库格式带版本号，未识别的版本会拒绝打开。
+
 目标权重和自然漂移
 ------------------
 

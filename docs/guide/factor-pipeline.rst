@@ -20,16 +20,18 @@
        <FACTOR_NAME>/
          factor_<FACTOR_NAME>.py
          factor_<FACTOR_NAME>.yaml
-         outputs/
-           legacy/
-           runs/
+   outputs/                           # 仓库根目录
+     runs/<class>/<factor>/<run_id>/
+     mining/<class>/<factor>/<run_id>/
+     experiments.lmdb/
+     cache/dashboard/<run_id>/
 
 规则：
 
 * 类目录必须有 ``class_<class>.yaml``。
 * 因子目录必须有 ``factor_<name>.py`` 和 ``factor_<name>.yaml``。
 * Dashboard 按 ``<class>/<name>/factor_<name>.py`` 动态导入脚本。
-* 新运行写入 ``outputs/runs/<run_id-or-manual>/``。
+* 新运行写入仓库级 ``outputs/runs/<class>/<factor>/<run_id>/``，每次使用独立目录；旧产物保留原位。
 * 参数挖掘在类目录的 ``mining/`` 中集中配置，单因子 YAML 不包含挖掘参数。
 
 YAML 结构
@@ -81,7 +83,7 @@ YAML 结构
      include_profiling: true
      dump_excel: true
      warmup_days: null
-     output_dir: outputs/runs/manual
+     output_dir: ../../../outputs/runs/tdx/RSI_FAST
 
 不做类级、因子级、脚本级多层覆盖；具体运行以完整 YAML 为唯一参数源。Dashboard 提交后会生成本次运行的 ``run_config.yaml``，再用这份文件构造 ``FactorSpec`` 和 run 参数。
 
@@ -94,7 +96,6 @@ YAML 结构
    from betalens.factor.config import (
        load_yaml_config,
        factor_spec_options,
-       run_parameters,
    )
    from factor_template import FactorPipeline, FactorSpec
 
@@ -117,11 +118,8 @@ YAML 结构
    spec = build_spec(load_config())
 
    def run_from_config(config_path: str | Path = _CONFIG_FILE):
-       config = load_config(config_path)
-       kwargs = run_parameters(config, config_path)
-       start = kwargs.pop("start_date")
-       end = kwargs.pop("end_date")
-       return FactorPipeline(build_spec(config, config_path)).run(start, end, **kwargs)
+       from factor_runtime import run_factor_from_config
+       return run_factor_from_config(config_path, build_spec, FactorPipeline)
 
 要求：
 
@@ -208,3 +206,61 @@ Dashboard 发现规则
 ------------------
 
 Dashboard 扫描类级和因子级 YAML，读取 ``meta``、``factor_spec``、``weight``、``run`` 默认值，并动态加载脚本 docstring 和 ``compute_kwargs``。新增因子后用 ``GET /api/factors?refresh=true`` 清缓存。
+
+
+实验入库与运行合同
+------------------
+
+所有因子脚本的 ``run_from_config`` 与 Dashboard 共用 ``factor_runtime``，保持
+``RunResult`` 及 ``bt, analyst = result`` 解包方式。直接调用管线仍返回计算结果；
+配置驱动入口负责运行目录、配置快照与可选入库。
+
+.. code-block:: yaml
+
+   experiment_export:
+     enabled: false
+     store_path: outputs/experiments.lmdb
+
+旧 YAML 缺少此节时默认关闭。``enabled`` 必须是布尔值；关闭时不打开实验库、
+不检查或加载 LMDB 可选依赖。开启前需安装 ``betalens[experiments]``。
+实验库相对路径固定按仓库根解析，与当前工作目录和 YAML 所在目录无关。
+``run.output_dir`` 继续按源 YAML 所在目录解析；库内默认目录会追加独立运行 ID，
+显式自定义目录保持有效。旧 ``outputs/runs/manual`` 默认值也会迁移至集中目录。
+
+运行目录保存 ``run_config.yaml`` 和 ``experiment_export.json``。入库失败时计算结果
+和报告继续保留，回执及 Dashboard 分别显示计算状态和入库状态。
+母因子键统一为 ``<class>:<name>:<strategy_type>``；截面类型归一为
+``cross_sectional``。同一运行 ID 重复保存相同内容返回相同实验 ID，内容不一致报冲突。
+有效配置、因子库源码内容哈希及回测计算版本随实验保留。
+
+输入面板的行是上海本地交易日，列是唯一证券代码；日期和证券轴共同对齐，
+缺失值保留 NaN。重复业务日/证券键及 compute 输出轴不一致直接报错。
+Alpha101 的数据库 ``pct_change`` 单位为百分数，公式入口仅除以 100 一次。
+截面 freeplay 的空多空分组在取数前拒绝；择时不受这一分组约束。
+行业继续使用显式版本表来源和 ``scheme_code/level``，不切换数据源掩盖覆盖缺口。
+LiqDemand 复用公共预处理、回测和评价步骤，PreTOM 按完整月份确定窗口，
+即使用户仅回测某月的一部分也保持月末定义一致。
+
+后期批量跟踪接口
+----------------
+
+本次只保留以下设计约定，不提交空实现或调度任务：
+
+* ``run_batch(batch_config)``：复用统一执行入口，逐因子记录状态与重试。
+* ``resume_tracking(tracking_id, end_date)``：关联连续策略实验。
+* ``checkpoint_ref``、``data_watermark``：引用计算检查点和输入数据边界。
+
+真正续算需要回测引擎公开现金、持仓、未完成订单、风控及指标状态的导出/恢复合同，
+并通过分段续算与全量运行的一致性验收。当前引擎从初始现金启动，本次未增加续算能力。
+
+
+本地验收边界（2026-11-12）
+--------------------------
+
+209 个条目的配置、导入和合成面板计算通过；单次/挖掘入库、Dashboard 执行及离线
+HTTP 回读均使用隔离实验库验证。两个前端通过类型检查与生产构建。
+真实 PostgreSQL 查询返回 2026-10-12 至 10-16、两只股票的 5×2 行情面板。
+完整真实回测尚未验收通过：较长预热区间缺少 SSE 日历覆盖，缩短范围后
+在 ``query_trade_status → load_reference`` 的 PostgreSQL 参考版本读取处超时。
+验收未修改数据库、核心包或可信范围规则。XICHOU 原始脚本仍缺失，外围挖掘入口
+会在搜索前报告具体依赖，通用发现测试使用可用条目和自包含样本。

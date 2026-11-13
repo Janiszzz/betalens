@@ -37,7 +37,7 @@ def test_derived_tables_reuse_one_source_conversion_and_keep_adjustment(tmp_path
     assert len(calls)==sum(bool(p['archive']) and p['status']!='split' for p in service.state.slices(job['id']))
     assert tables['market_daily_raw'][0]['close']==Decimal('11')
     assert tables['market_daily_post_adjusted'][0]['close']==Decimal('22')
-    assert tables['trade_status_daily'][0]['is_tradable'] is None  # Empty calendar cannot prove tradability.
+    assert not tables.get('trade_status_daily')  # Quote-only observations do not materialize daily status rows.
 
 
 def test_write_preconditions_validate_each_live_row_once_without_stale_hashes(monkeypatch):

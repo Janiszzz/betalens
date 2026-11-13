@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from .util import dumps, now, digest
+from .download_cache import cache_guard
 
 
 class State:
@@ -155,16 +156,17 @@ class State:
             conn.execute('DELETE FROM job_requests WHERE job=?',(job,))
             conn.execute('UPDATE jobs SET plan=? WHERE id=?',(self._store_plan(conn,job,packed),job))
 
-    def job(self, job: str) -> dict:
+    def job(self, job: str, *, metadata_only: bool = False) -> dict:
         with self.connect() as conn:
-            row = conn.execute("SELECT * FROM jobs WHERE id=?", (job,)).fetchone()
+            projection='id,created,updated,status,target,plan,NULL AS preview,error,cancel' if metadata_only else '*'
+            row = conn.execute("SELECT "+projection+" FROM jobs WHERE id=?", (job,)).fetchone()
             if row is None: raise ValueError("任务不存在")
             result = dict(row)
             for key in ("plan", "preview"):
                 result[key] = json.loads(result[key]) if result[key] else None
             if 'snapshot_ref' in result['plan']:
-                result['plan']=self._unpack_plan(conn,{**result['plan'],'_job_id':job})
-            result["slices"] = [dict(r) for r in conn.execute("SELECT * FROM slices WHERE job=? ORDER BY id", (job,))]
+                result['plan']=self._unpack_plan(conn,{**result['plan'],'_job_id':job},requests=not metadata_only)
+            result["slices"] = [] if metadata_only else [dict(r) for r in conn.execute("SELECT * FROM slices WHERE job=? ORDER BY id", (job,))]
             for item in result["slices"]:
                 item["request"] = json.loads(item["request"])
                 item["result"] = json.loads(item["result"]) if item["result"] else None
@@ -173,6 +175,9 @@ class State:
             result['audit_sync_status']='pending' if any(r['revision']>r['acknowledged'] for r in result['audit_sync']) else 'synced'
             recorded=conn.execute("SELECT value FROM ledger WHERE table_name='publication_result' AND row_key=?",(job,)).fetchone()
             result['data_status']=json.loads(recorded[0])['status'] if recorded else result['status']
+            cleanup_job=result['plan'].get('pipeline_parent') or job
+            cleanup=conn.execute("SELECT value FROM ledger WHERE table_name='download_cache_cleanup' AND row_key=?",(cleanup_job,)).fetchone()
+            result['download_cache_cleanup']=json.loads(cleanup[0]) if cleanup else None
             return result
 
     def jobs(self, limit: int = 100, target: str | None = None, offset: int = 0) -> list[dict]:
@@ -219,6 +224,7 @@ class State:
                 if "result" in values: values["result"] = dumps(values["result"])
                 conn.execute("UPDATE slices SET " + ",".join(k + "=?" for k in values) + " WHERE job=? AND id=?", (*values.values(), job, key))
 
+    @cache_guard
     def enqueue(self, job: str, operation: str, payload: dict | None = None) -> str:
         self.ensure_execution(job)
         from .execution_policy import LegacyPipelineError
@@ -246,6 +252,7 @@ class State:
             raise LegacyTaskError('旧任务仅保留查看和导出，不能继续执行、提交、回退或重试')
         ensure_available(self.root)
 
+    @cache_guard
     def claim(self,allow_ui=True) -> dict | None:
         from .execution_policy import maintenance,operation_scope,operations_conflict
         if maintenance(self.root):return None
@@ -388,16 +395,20 @@ class State:
         return json.loads(row[0]) if row else None
 
 
-    def audits(self, task: str, target: str | None = None, after: int = 0, limit: int | None = None):
+    def audits(self, task: str, target: str | None = None, after: int = 0, limit: int | None = None, offset: int = 0):
         query="SELECT value FROM ledger WHERE table_name='import_row_audit' AND json_extract(value,'$.task_id')=? AND CAST(json_extract(value,'$.id') AS INTEGER)>?"
         params=[task,after]
         if target:
             query+=" AND json_extract(value,'$.target')=?";params.append(target)
         query+=" ORDER BY CAST(json_extract(value,'$.id') AS INTEGER)"
-        if limit is not None:query+=' LIMIT ?';params.append(max(1,min(limit,1000)))
+        if limit is not None:query+=' LIMIT ? OFFSET ?';params.extend([max(1,min(limit,1000)),max(0,offset)])
         with self.connect() as conn:rows=[json.loads(row[0]) for row in conn.execute(query,params)]
         for row in rows:row['id']=int(row['id'])
         return rows
+
+    def audit_count(self, task: str, after: int = 0):
+        with self.connect() as conn:
+            return conn.execute("SELECT count(*) FROM ledger WHERE table_name='import_row_audit' AND json_extract(value,'$.task_id')=? AND CAST(json_extract(value,'$.id') AS INTEGER)>?",(task,after)).fetchone()[0]
 
     def table_commit_summary(self,task,target,table):
         with self.connect() as conn:

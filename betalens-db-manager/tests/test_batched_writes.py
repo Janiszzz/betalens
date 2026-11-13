@@ -52,7 +52,7 @@ def test_external_key_upload_is_bounded_typed_and_readonly(monkeypatch):
     rows[0]['code']="quoted'!code";rows.append(rows[0])
     assert db._find_existing(spec,rows)=={}
     assert len(calls)==10 and all(c['params'].get('query_id') is None for c in calls)
-    assert all(c['params']['max_threads']==3 and c['params']['max_memory_usage']==2*1024**3 for c in calls)
+    assert all(c['params']['max_threads']==3 and c['params']['max_memory_usage']==32*1024**3 for c in calls)
     query=calls[-1]['params']['query']
     assert 'INNER JOIN _betalens_keys' in query and "_partition_id IN ('202610')" in query
     assert "quoted'!code" not in query

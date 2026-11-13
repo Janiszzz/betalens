@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import contextlib
 import copy
-import inspect
 import io
 import shutil
-import tempfile
+import sys
 import threading
 import traceback
 import uuid
@@ -15,15 +14,19 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from betalens.factor.config import run_parameters, section, write_yaml_config
+from betalens.factor.config import section, write_yaml_config
 
-from .factors import get_factor_config, load_factor_module
+from .factors import FACTOR_ROOT, REPO_ROOT, get_factor_config, load_factor_module
 from .schemas import RunRequest, RunState, RunStatus
+
+if str(FACTOR_ROOT) not in sys.path:
+    sys.path.insert(0, str(FACTOR_ROOT))
+from factor_runtime import execute_factor, export_settings
 
 
 MAX_RUNS = 20  # 内存里最多保留最近 N 次回测,超出按 LRU 淘汰
 TABLE_KINDS = ("trades", "positions")
-_CACHE_ROOT = Path(tempfile.gettempdir()) / "betalens_dashboard_runs"
+_CACHE_ROOT = REPO_ROOT / "outputs" / "cache" / "dashboard"
 
 
 def _normalize_group_list(value: Any) -> list[Any] | None:
@@ -76,6 +79,7 @@ class DashboardRun:
         self.finished_at: datetime | None = None
         self.error: str | None = None
         self.result: Any = None
+        self.experiment_export: dict[str, Any] = {"status": "disabled"}
         self.backtest: Any = None
         self.analyst: Analyst | None = None
         self.factor_dir: str = ""
@@ -142,6 +146,7 @@ class DashboardRun:
             elapsed_seconds=self.elapsed_seconds(),
             error=self.error,
             log_size=self._log_len,
+            experiment_export=self.experiment_export,
         )
 
 
@@ -201,7 +206,7 @@ class RunManager:
             run.append_log("[dashboard] resolving factor config\n")
             script, _spec_data, factor_cfg = get_factor_config(run.factor_class, run.name)
             run.factor_dir = str(script.parent)
-            output_dir = Path(run.factor_dir) / "outputs" / "runs" / run.run_id
+            output_dir = REPO_ROOT / "outputs" / "runs" / run.factor_class / run.name / run.run_id
             output_dir.mkdir(parents=True, exist_ok=True)
             run.output_dir = str(output_dir)
             run_config = self._build_run_config(factor_cfg, run, output_dir)
@@ -211,14 +216,9 @@ class RunManager:
             run.append_log(f"[dashboard] wrote run YAML: {run_config_path}\n")
             run.append_log(f"[dashboard] loading factor module: {script}\n")
             mod = load_factor_module(script)
-            if hasattr(mod, "build_spec"):
-                factor_spec = mod.build_spec(run_config, run_config_path)
-            else:
-                factor_spec = getattr(mod, "spec")
             run.append_log("[dashboard] factor module loaded\n")
 
             class_dir = script.parent.parent
-            import sys
             for p in (class_dir.parent, class_dir):
                 if str(p) not in sys.path:
                     sys.path.insert(0, str(p))
@@ -232,20 +232,12 @@ class RunManager:
             if not start_date or not end_date:
                 raise ValueError("start_date and end_date are required")
 
-            kwargs = run_parameters(run_config, run_config_path)
-            start_date = kwargs.pop("start_date")
-            end_date = kwargs.pop("end_date")
-            run_signature = inspect.signature(FactorPipeline.run)
-            if not any(p.kind == inspect.Parameter.VAR_KEYWORD for p in run_signature.parameters.values()):
-                kwargs = {key: value for key, value in kwargs.items() if key in run_signature.parameters}
-            run.append_log(
-                "[dashboard] starting pipeline "
-                f"{start_date} -> {end_date}, kwargs={kwargs}, compute_kwargs={run.compute_kwargs}\n"
-            )
-
             log_writer = LogBuffer(run)
             with contextlib.redirect_stdout(log_writer), contextlib.redirect_stderr(log_writer):
-                result = FactorPipeline(factor_spec).run(str(start_date), str(end_date), **kwargs)
+                result = execute_factor(run_config, script.with_suffix(".yaml"),
+                    getattr(mod, "build_spec", lambda *_: mod.spec), FactorPipeline,
+                    run_id=run.run_id, output_dir=output_dir)
+            run.experiment_export = result.experiment_export or {"status": "disabled"}
             run.append_log("[dashboard] pipeline returned, serializing result\n")
             run.result = result
             run.backtest = result.backtest
@@ -384,6 +376,11 @@ class RunManager:
                 run_section[key] = run.parameters[key]
         run_section["dump_excel"] = False
         run_section["output_dir"] = str(output_dir.resolve())
+        export = dict(config.get("experiment_export") or {})
+        if "experiment_export_enabled" in run.parameters:
+            export["enabled"] = run.parameters["experiment_export_enabled"]
+        config["experiment_export"] = export
+        export_settings(config)  # strict validation, never bool("false")
         return config
 
     @staticmethod
@@ -392,6 +389,7 @@ class RunManager:
         weight = section(config, "weight")
         run_section = section(config, "run")
         flat = dict(run_section)
+        flat["experiment_export_enabled"] = export_settings(config)["enabled"]
         flat.update(
             {
                 "direction": factor_spec.get("direction"),

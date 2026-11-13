@@ -84,8 +84,8 @@ def _ensure_runtime():
         neutralize_factor as _neutralize_factor,
         query_industry_panel as _query_industry_panel,
     )
-    print("    import datafeed.validation", flush=True)
-    from datafeed.validation import fix_null_values as _fix_null_values, FillStrategy as _FillStrategy
+    print("    import betalens.datafeed.validation", flush=True)
+    from betalens.datafeed.validation import fix_null_values as _fix_null_values, FillStrategy as _FillStrategy
     print("    import betalens.backtest", flush=True)
     from betalens.backtest import BacktestBase as _BacktestBase
     print("    import betalens.analyst", flush=True)
@@ -152,9 +152,9 @@ def fetch_daily_wide(metric, universe=None, start_date=None, end_date=None,
     return daily_wide(frame, metric)
 
 
-def align_daily_wides(wides):
-    from betalens.factor.research import align_daily_wides as align
-    return align(wides)
+def align_daily_wides(wides, *, universe=None):
+    from factor_runtime.frames import align_daily_wides as align
+    return align(wides, universe=universe)
 
 
 def wide_to_prequery(wide_df, metric_name, signal_dates):
@@ -163,15 +163,8 @@ def wide_to_prequery(wide_df, metric_name, signal_dates):
     输出列与 pre_query_characteristic_data 对齐：input_ts/code/{metric}/datetime/
     diff_hours，可直接喂给 preprocess / single_characteristic。
     """
-    date_set = set(signal_dates)
-    mask = wide_df.index.map(lambda ts: ts.date() in date_set)
-    wide_df = wide_df.loc[mask]
-    long = wide_df.stack().reset_index()
-    long.columns = ['input_ts', 'code', metric_name]
-    long['input_ts'] = pd.to_datetime(long['input_ts'])
-    long['datetime'] = long['input_ts']
-    long['diff_hours'] = 0.0
-    return long
+    from factor_runtime.frames import wide_to_prequery as convert
+    return convert(wide_df, metric_name, signal_dates)
 
 
 def build_pit_universe(signal_dates, index_code, table_name="index_membership"):
@@ -216,15 +209,21 @@ def fetch_industry_wide(scheme, universe, dates, reference_index, chunk_size=30)
     finally:
         data.close()
     if not pieces:
-        return pd.DataFrame(index=reference_index, columns=universe, dtype=object)
+        raise ValueError("行业查询无可用标签，请检查发布范围、行业方案与数据覆盖")
     labels = pd.concat(pieces, ignore_index=True)
     labels["query_date"] = pd.to_datetime(labels["query_date"]).dt.normalize()
-    pivot = labels.pivot_table(
-        index="query_date", columns="code", values="ind_name", aggfunc="last"
-    )
+    if labels.duplicated(["query_date", "code"]).any():
+        raise ValueError("行业面板存在重复 (query_date, code)")
+    pivot = labels.pivot(index="query_date", columns="code", values="ind_name")
     normalized = pd.DatetimeIndex(reference_index).normalize()
     out = pivot.reindex(index=normalized, columns=universe)
     out.index = reference_index
+    if not out.notna().any().any():
+        raise ValueError("行业面板无可用标签，请检查行业方案、证券和日期覆盖")
+    missing = int(out.isna().sum().sum())
+    if missing:
+        import warnings
+        warnings.warn(f"行业面板缺失 {missing}/{out.size} 个标签，保留缺失值", UserWarning)
     return out
 
 
@@ -574,6 +573,7 @@ class RunResult:
     factor_values: pd.DataFrame | None = None
     pit_validation: pd.DataFrame | None = None
     chart_data: dict | None = None
+    experiment_export: dict | None = None
 
     def __iter__(self):
         return iter((self.backtest, self.analyst))
@@ -622,6 +622,13 @@ class FactorPipeline:
             ind_panel = query_industry_panel(
                 data, scheme=industry_scheme, industry_table="stock_industry_membership_versions",
                 verbose=False)
+            expected = pd.MultiIndex.from_frame(data[['input_ts', 'code']])
+            coverage = ind_panel.reindex(expected)
+            if not data.empty and coverage.notna().sum() == 0:
+                raise ValueError("行业中性化无可用标签，请检查行业发布范围和方案")
+            if coverage.isna().any():
+                import warnings
+                warnings.warn(f"行业中性化缺失 {int(coverage.isna().sum())}/{len(coverage)} 个标签", UserWarning)
 
         groups, neu_stats = [], []
         for ts, group in data.groupby('input_ts'):
@@ -798,6 +805,8 @@ class FactorPipeline:
             include_profiling: bool = True,
             dump_excel: bool = True,
             warmup_days: int | None = None,
+            weight_transform: Callable | None = None,
+            report_html: bool = False,
             verbose: bool = True) -> RunResult:
         """运行完整管线: 取数 → 算子 → [profiling] → 中性化 → 分组 → 权重 → 回测 → 报告
 
@@ -806,6 +815,9 @@ class FactorPipeline:
         中性化：use_industry / use_mktcap 控制，诊断收入 RunResult.neutralize_stats。
         dump_excel=False 时跳过 dump_to_excel（调用方可自行异步落盘，避免阻塞）。
         """
+        self._resolve_groups(n_quantiles)  # fail before imports/market queries
+        from pathlib import Path
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
         print("  加载运行依赖", flush=True)
         _ensure_runtime()
         print("  运行依赖已加载", flush=True)
@@ -858,7 +870,7 @@ class FactorPipeline:
             if verbose:
                 print(f"  完成取数: {arg_name} ({metric}) {w.shape}", flush=True)
             wides[arg_name] = w
-        wides = align_daily_wides(wides)
+        wides = align_daily_wides(wides, universe=universe)
         if sp.mask_inputs_by_pit and pit_universe is not None:
             wides = {
                 name: mask_wide_by_pit_universe(wide, pit_universe)
@@ -881,11 +893,13 @@ class FactorPipeline:
                 wides[arg_name] = industry_wide
         if extra_inputs:
             wides.update(extra_inputs)
+        wides = align_daily_wides(wides, universe=universe)
 
         # 3. 调用算子
         if verbose:
             print(f"  开始计算因子: {sp.name}", flush=True)
-        factor_wide = sp.compute(**wides, **sp.compute_kwargs)
+        from factor_runtime.frames import validate_factor_output
+        factor_wide = validate_factor_output(sp.compute(**wides, **sp.compute_kwargs), wides, sp.name)
         if verbose:
             print(f"  完成计算因子: {factor_wide.shape}", flush=True)
 
@@ -997,13 +1011,15 @@ class FactorPipeline:
         from betalens.factor.research import build_rebalance_schedule, weights_on_schedule
         research_schedule = build_rebalance_schedule(signal_dates, valid_rebalance_dates, wides=wides)
         weights = weights_on_schedule(weights, research_schedule)
+        if weight_transform is not None:
+            weights = weight_transform(weights)
 
         # 7. 回测
         if verbose:
             print("  开始回测", flush=True)
         from betalens.backtest import validate_risk_config
         validate_risk_config(risk, sp.compute_kwargs)
-        bt = BacktestBase(weights, metric=sp.backtest_metric, symbol=sp.name,
+        bt = BacktestBase(weights, metric=sp.backtest_metric, table_name=sp.table_name, symbol=sp.name,
                           amount=initial_amount, end_date=end_date, risk=risk,
                           price_time_map=price_time_map, ftc=ftc, ptc=ptc, verbose=verbose)
         from betalens.factor.research import attach_research
@@ -1025,6 +1041,7 @@ class FactorPipeline:
         )
         summary = analyst.report(
             to_excel=f"{output_dir}/{sp.name}_report.xlsx",
+            to_html=f"{output_dir}/{sp.name}_report.html" if report_html else None,
         )
         if verbose:
             print(f"  {sp.name} 指标项数: {len(summary)}  报告: {sp.name}_report.xlsx")

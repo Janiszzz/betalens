@@ -398,7 +398,7 @@ class TimingFactorPipeline:
 
         wides = {
             name: mask_wide_by_pit_universe(wide, formula_pit_universe)
-            for name, wide in align_daily_wides(wides).items()
+            for name, wide in align_daily_wides(wides, universe=calculation_universe).items()
         }
 
         reference_index = next(iter(wides.values())).index
@@ -416,7 +416,9 @@ class TimingFactorPipeline:
         if not any(p.kind == inspect.Parameter.VAR_KEYWORD for p in signature.parameters.values()):
             allowed = set(signature.parameters)
             compute_params = {key: value for key, value in compute_params.items() if key in allowed}
-        factor_wide = sp.compute(**wides, **compute_params)
+        from factor_runtime.frames import validate_factor_output
+        wides = align_daily_wides(wides, universe=calculation_universe)
+        factor_wide = validate_factor_output(sp.compute(**wides, **compute_params), wides, sp.name)
         if factor_wide is None or factor_wide.empty:
             raise ValueError(f"empty {sp.name} factor values")
         signal_result = build_signal_weights(

@@ -1,0 +1,1 @@
+import{j as o,c as r,P as i}from"./index-fpuPDGSD.js";const l=r(i);function a({data:t,layout:e,config:s}){return o.jsx(l,{data:t,layout:e,config:s,useResizeHandler:!0,className:"plot",style:{width:"100%",height:typeof e.height=="number"?`${e.height}px`:"100%"}})}export{a as default};

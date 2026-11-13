@@ -13,7 +13,7 @@ from typing import Callable, Literal, Mapping
 import numpy as np
 import pandas as pd
 
-from betalens.factor.config import factor_spec_options, load_yaml_config, run_parameters, section
+from betalens.factor.config import factor_spec_options, load_yaml_config, section
 from factor_template_alpha101 import FactorPipeline, FactorSpec, clean_inf
 
 Effect = Literal["momentum", "reversal"]
@@ -183,12 +183,9 @@ def build_factor_spec(config: Mapping[str, object], config_path: str | Path, *, 
 
 
 def run_factor_from_config(config_path: str | Path, build_spec: Callable):
-    config = load_factor_config(config_path)
-    kwargs = run_parameters(config, config_path)
-    start_date = kwargs.pop("start_date")
-    end_date = kwargs.pop("end_date")
-    Path(kwargs["output_dir"]).mkdir(parents=True, exist_ok=True)
-    return FactorPipeline(build_spec(config, config_path)).run(start_date, end_date, **kwargs)
+    from factor_runtime import run_factor_from_config as execute
+    return execute(config_path, build_spec, FactorPipeline)
+
 
 
 __all__ = [

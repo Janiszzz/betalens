@@ -13,7 +13,7 @@ for path in (REPO_ROOT, FACTOR_ROOT, CLASS_DIR):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-from betalens.factor.mining import run_mining  # noqa: E402
+from factor_runtime import run_mining_from_config  # noqa: E402
 
 
 def main() -> int:
@@ -29,7 +29,7 @@ def main() -> int:
         help="性能与输出配置文件路径",
     )
     args = parser.parse_args()
-    result = run_mining(args.parameters, args.performance)
+    result = run_mining_from_config(args.parameters, args.performance)
     for factor_run in result.factor_runs:
         print(
             f"挖掘程序已结束：因子={factor_run.factor_id}，"

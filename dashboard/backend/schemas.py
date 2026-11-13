@@ -64,6 +64,7 @@ class RunState(BaseModel):
     elapsed_seconds: float = 0
     error: str | None = None
     log_size: int = 0
+    experiment_export: dict[str, Any] = Field(default_factory=lambda: {"status": "disabled"})
 
 
 class DownloadInfo(BaseModel):

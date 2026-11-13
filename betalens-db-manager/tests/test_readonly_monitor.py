@@ -15,7 +15,7 @@ from betalens_db_manager.util import now
 def task(tmp_path):
     settings=Settings(state_dir=tmp_path/'state',config_dir=tmp_path/'config',token='private-monitor-test-token')
     state=State(settings.state_dir)
-    job=state.create_job({'request':{'tables':['quotes'],'targets':['postgres','clickhouse'],
+    job=state.create_job({'pipeline_version':2,'request':{'tables':['quotes'],'targets':['postgres','clickhouse'],
                                   'start_date':'2026-01-01','end_date':'2026-01-03'}},settings.fingerprint)
     state.update_job(job['id'],status='running')
     state.ledger_put('pipeline_work_plan',job['id'],{'basis':'logical_requests','request_ids':['one','two','three'],
@@ -77,3 +77,51 @@ def test_wrong_state_path_is_never_created_and_bad_ids_are_rejected(tmp_path):
         assert client.get('/api/tasks/invalid/status').status_code==404
         assert client.get('/api/tasks/invalid/logs').status_code==404
     assert not settings.state_dir.exists()
+
+
+def test_overview_follows_running_operations_instead_of_history_status(task):
+    settings,state,job=task
+    state.update_job(job,status='committing')
+    operation=state.enqueue(job,'pipeline_validate',{'background':True})
+    with state.connect() as conn:
+        conn.execute("UPDATE tasks SET status='running' WHERE id=?",(operation,))
+    queued=state.create_job({'pipeline_version':2,'request':{'modules':['suspension'],'targets':['postgres'],
+        'start_date':'2005-01-01','end_date':'2005-12-31'}},settings.fingerprint)
+    state.enqueue(queued['id'],'pipeline_validate',{'background':True})
+    paused=state.create_job({'request':{}},settings.fingerprint)
+    state.update_job(paused['id'],status='paused',preview={'secret':settings.token})
+    before=state.path.read_bytes()
+    with TestClient(create_monitor_app(settings)) as client:
+        response=client.get('/api/overview')
+        assert response.status_code==200
+        data=response.json()
+        assert data['counts']=={'running':1,'queued':1}
+        assert [(r['id'],r['status'],r['operation_status']) for r in data['active']]==[(job,'committing','running')]
+        assert data['queue'][0]['id']==queued['id']
+        assert data['queue'][0]['modules']==['suspension']
+        assert data['worker']['fresh']
+        assert settings.token not in response.text and paused['id'] not in response.text
+        assert client.post('/api/overview').status_code==405
+        assert '自动跟随当前执行任务' in client.get('/').text
+    assert state.path.read_bytes()==before
+
+
+def test_reference_progress_reports_archives_cache_and_target_publications(task):
+    settings,state,_=task
+    job=state.create_job({'revision':'reference-v1','request':{'modules':['suspension'],
+        'targets':['postgres','clickhouse'],'start_date':'2005-01-01','end_date':'2005-12-31'}},settings.fingerprint)['id']
+    state.update_job(job,status='committing')
+    state.slice(job,'one','suspend_d',{},status='downloaded',archive='saved.json.gz')
+    state.slice(job,'two','suspend_d',{},status='pending')
+    store=PipelineStore(state)
+    store.put(job,'reference-cache','reference_normalize',{})
+    store.finish(job,'reference-cache',{'path':'audit.json','hash':'retained'})
+    state.ledger_put('reference_result',job+':postgres:suspension',
+        {'task_id':job,'target':'postgres','module':'suspension','status':'published'})
+    before=state.path.read_bytes()
+    with TestClient(create_monitor_app(settings)) as client:
+        data=client.get('/api/tasks/'+job+'/status').json()
+        assert data['modules']==['suspension']
+        assert data['progress']=={'phase':'reference','sources':{'registered':2,'archived':1},
+            'cache':'completed','publications':[{'target':'postgres','module':'suspension','status':'published'}]}
+    assert state.path.read_bytes()==before

@@ -177,8 +177,8 @@ class ManagerKernel:
 
 
 
-    def _job(self, job: str, validate: bool = False) -> dict:
-        item = self.state.job(job)
+    def _job(self, job: str, validate: bool = False, *, metadata_only: bool = False) -> dict:
+        item = self.state.job(job,metadata_only=True) if metadata_only else self.state.job(job)
         if item["target"] != self.settings.fingerprint: raise ValueError("任务属于其他数据库配置")
         for name, value in item["plan"]["contracts"].items():
             spec=canonical(name) if item['plan']['request'].get('sources')==['file'] and name in load_canonical_catalog() else dataset(name)
@@ -421,8 +421,10 @@ class ManagerKernel:
         # Explicit stop/resume events and listing boundaries take precedence.
         status_spec=canonical('trade_status_daily')
         explicit={(r['asset_type'],r['security_code'],r['trade_date']):r for r in tables.get(status_spec.name,[])}
+        sparse_status=(item['plan'].get('status_storage')=='sparse-v2' or
+                       ('tables' in item['plan']['request'] and status_spec.name not in item['plan']['request']['tables']))
         open_dates=set(calendar)
-        for raw in raw_rows:
+        for raw in ([] if sparse_status else raw_rows):
             key=(raw['asset_type'],raw['security_code'],raw['trade_date'])
             if key in explicit:continue
             status={field:raw.get(field) for field in columns(status_spec)}
@@ -434,7 +436,7 @@ class ManagerKernel:
         selected=set(item['plan']['request']['datasets'])
         assets={asset for endpoint,asset in (('daily','stock'),('fund_daily','fund'),('index_daily','index'),('sw_daily','index'),('suspend_d','stock')) if endpoint in selected}
         scope=set(item['plan']['request'].get('codes',[]));start=parse_date(item['plan']['request']['start_date']);end=parse_date(item['plan']['request']['end_date'])
-        for security in securities:
+        for security in ([] if sparse_status else securities):
             asset=security.get('asset_type');code=security.get('security_code')
             if asset not in assets or (scope and code not in scope):continue
             for day in calendar:
@@ -484,11 +486,20 @@ class ManagerKernel:
 
 
 
-    def audit(self,job,after=0,limit=100):
-        rows=self.state.audits(job,after=after,limit=limit)
+    def audit(self,job,after=0,limit=100,offset=None):
+        size=max(1,min(limit,1000));start=max(0,offset or 0)
+        if offset is not None:after=0
+        rows=self.state.audits(job,after=after,limit=size,offset=start)
+        total=self.state.audit_count(job)
+        remaining=total if after==0 else self.state.audit_count(job,after=after)
+        paging={'total':total,'offset':offset,'limit':size,'next_after':rows[-1]['id'] if rows and start+len(rows)<remaining else None}
         receipts=self.state.ledger_rows('import_target_status',job)
-        if not rows and not receipts:
-            try: return {'changes':self.pg.audit(job,after,limit),'receipts':self.pg.receipts(job),'rollbacks':[]}
+        if not total and not receipts:
+            try:
+                pg_rows=self.pg.audit(job,after,size,offset=start);pg_total=self.pg.audit_count(job)
+                pg_remaining=pg_total if after==0 else self.pg.audit_count(job,after=after)
+                return {'changes':pg_rows,'receipts':self.pg.receipts(job),'rollbacks':[],
+                        'total':pg_total,'offset':offset,'limit':size,'next_after':pg_rows[-1]['id'] if pg_rows and start+len(pg_rows)<pg_remaining else None}
             except Exception: pass
         table_status=[]
         item=self.state.job(job)
@@ -496,7 +507,7 @@ class ManagerKernel:
             for spec in load_canonical_catalog().values():
                 record=self.state.table_commit_summary(job,target,spec.name)
                 if record:table_status.append({'target':target,'table':spec.name,'status':record['status'],**record.get('counts',{})})
-        return {'tables':table_status,'changes':[r for r in rows if r['id']>after][:max(1,min(limit,1000))],
+        return {'tables':table_status,'changes':rows,**paging,
                 'receipts':receipts,'rollbacks':self.state.ledger_rows('import_rollback',job),
                 'audit_sync':[r for task in {job}|{v['rollback_task_id'] for v in self.state.ledger_rows('import_rollback',job)} for r in self.state.sync_records(task)],
                 'cleanup':[r for task in {v['rollback_task_id'] for v in self.state.ledger_rows('import_rollback',job)} for r in self.state.ledger_rows('cleanup_pending',task)],

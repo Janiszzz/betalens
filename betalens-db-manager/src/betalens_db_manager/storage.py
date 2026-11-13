@@ -315,10 +315,15 @@ class Postgres:
             cur.execute(sql.SQL("SELECT * FROM {} WHERE task_id=%s ORDER BY target").format(relation(self.settings, "import_target_status")), (task,))
             return [dict(row) for row in cur.fetchall()]
 
-    def audit(self, task: str, after: int = 0, limit: int = 100) -> list[dict]:
+    def audit(self, task: str, after: int = 0, limit: int = 100, offset: int = 0) -> list[dict]:
         with self.connect(readonly=True) as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute(sql.SQL("SELECT * FROM {} WHERE task_id=%s AND id>%s ORDER BY id LIMIT %s").format(relation(self.settings, "import_row_audit")), (task, after, max(1, min(limit, 1000))))
+            cur.execute(sql.SQL("SELECT * FROM {} WHERE task_id=%s AND id>%s ORDER BY id LIMIT %s OFFSET %s").format(relation(self.settings, "import_row_audit")), (task, after, max(1, min(limit, 1000)), max(0,offset)))
             return [dict(row) for row in cur.fetchall()]
+
+    def audit_count(self, task: str, after: int = 0) -> int:
+        with self.connect(readonly=True) as conn, conn.cursor() as cur:
+            cur.execute(sql.SQL("SELECT count(*) FROM {} WHERE task_id=%s AND id>%s").format(relation(self.settings, "import_row_audit")), (task,after))
+            return cur.fetchone()[0]
 
 
     def control_write(self, table, rows):

@@ -216,6 +216,9 @@ def test_resource_defaults_cannot_exceed_shared_budget():
     value=options({})
     assert value['resource_profile']=='throughput_90'
     assert value['download_workers']==12 and value['normalization_workers']==3
-    assert value['memory_budget_bytes']==6*1024**3
-    for override in [{'normalization_workers':4},{'download_workers':17},{'memory_budget_bytes':8*1024**3}]:
+    assert value['memory_budget_bytes']==32*1024**3
+    assert options({'memory_budget_bytes':32*1024**3})['memory_budget_bytes']==32*1024**3
+    from betalens_db_manager.resource_budget import BUDGET
+    assert BUDGET.ch_read_memory_bytes==BUDGET.manager_high_bytes==32*1024**3
+    for override in [{'normalization_workers':4},{'download_workers':17},{'memory_budget_bytes':33*1024**3}]:
         with pytest.raises(ValueError):options(override)

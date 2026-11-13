@@ -92,6 +92,7 @@ Betalens 文档
    :maxdepth: 2
    :caption: 用户指南
 
+   guide/common-commands
    guide/datafeed
    guide/factor
    guide/backtest

@@ -1,15 +1,16 @@
 import React,{useEffect,useRef,useState} from 'react';
+import Pagination from './Pagination';
 import {api,Status,Table,Targets,Time,type R} from './ui';
 
 export default function RejectedReview({taskId,onBack}:{taskId?:string,onBack:()=>void}){
- const [listing,setListing]=useState<R>(),[detail,setDetail]=useState<R>(),[selected,setSelected]=useState(''),[offset,setOffset]=useState(0),[filter,setFilter]=useState('');
+ const [listing,setListing]=useState<R>(),[detail,setDetail]=useState<R>(),[selected,setSelected]=useState(''),[offset,setOffset]=useState(0),[listBusy,setListBusy]=useState(true),[filter,setFilter]=useState('');
  const [note,setNote]=useState(''),[targets,setTargets]=useState<string[]>([]),[repair,setRepair]=useState('{}'),[includeCached,setIncludeCached]=useState(true),[mode,setMode]=useState('release');
  const [preview,setPreview]=useState<R>(),[error,setError]=useState(''),[busy,setBusy]=useState(false),[accepted,setAccepted]=useState(false);
  const [acceptCoverage,setAcceptCoverage]=useState(false);
  const generation=useRef(0),selectedRef=useRef(selected),detailGeneration=useRef(0);selectedRef.current=selected;
  const base='/tasks/'+taskId+'/reviews';
  const loadDetail=async(batch:string)=>{const n=++detailGeneration.current;const d=await api(base+'/'+encodeURIComponent(batch));if(n===detailGeneration.current&&selectedRef.current===batch)setDetail(d);};
- const load=async()=>{if(!taskId)return;const n=++generation.current;try{const value=await api(base+'?limit=20&offset='+offset+'&status='+filter);if(n!==generation.current)return;setListing(value);if(!selectedRef.current&&value.rows.length)setSelected(value.rows[0].batch);if(selectedRef.current)await loadDetail(selectedRef.current);}catch(e:any){if(n===generation.current)setError(e.message);}};
+ const load=async()=>{if(!taskId)return;const n=++generation.current;setListBusy(true);try{const value=await api(base+'?limit=20&offset='+offset+'&status='+filter);if(n!==generation.current)return;const last=Math.max(0,Math.ceil(value.total/20)-1)*20;if(offset>last){setOffset(last);return;}setListing({...value,offset});if(!selectedRef.current&&value.rows.length)setSelected(value.rows[0].batch);if(selectedRef.current)await loadDetail(selectedRef.current);}catch(e:any){if(n===generation.current)setError(e.message);}finally{if(n===generation.current)setListBusy(false);}};
  useEffect(()=>{setListing(undefined);setSelected('');setDetail(undefined);setOffset(0);setError('');},[taskId]);
  useEffect(()=>{load();const t=setInterval(load,5000);return()=>{clearInterval(t);generation.current++;detailGeneration.current++;};},[taskId,offset,filter]);
  useEffect(()=>{setDetail(undefined);setNote('');setPreview(undefined);setAccepted(false);setAcceptCoverage(false);setError('');if(selected){loadDetail(selected).then(()=>{}).catch(e=>setError(e.message));}},[selected]);
@@ -29,7 +30,7 @@ export default function RejectedReview({taskId,onBack}:{taskId?:string,onBack:()
  <div className="workspace-toolbar"><label>审计状态<select aria-label="筛选人工审计状态" value={filter} onChange={e=>{setFilter(e.target.value);setOffset(0);}}><option value="">全部状态</option>{[['pending','待审计'],['queued','排队中'],['running','执行中'],['released','已放行'],['repaired','已修补'],['rejected','已拒绝'],['failed','执行失败']].map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></label><button disabled={busy} onClick={()=>run(load)}>刷新拒收清单</button></div>
  <div className="scroll"><table><thead><tr><th>批次</th><th>审计状态</th><th>拒收原因</th><th>可放行缓存</th><th>操作</th></tr></thead><tbody>{listing?.rows.map((r:R)=><tr key={r.batch} className={r.batch===selected?'selected-task-row':''}><td><button onClick={()=>setSelected(r.batch)}>{r.batch}</button></td><td><Status value={r.status}/></td><td>{r.reasons.slice(0,3).join('；')||r.error}</td><td>{r.cached_rows} 行</td><td><button onClick={()=>setSelected(r.batch)}>审计此批次</button></td></tr>)}</tbody></table></div>
  {listing&&!listing.rows.length&&<p className="muted">没有符合条件的拒收批次。</p>}
- <div className="actions"><span>共 {listing?.total||0} 个批次</span><button disabled={!offset} onClick={()=>setOffset(Math.max(0,offset-20))}>上一页拒收</button><button disabled={!listing||offset+20>=listing.total} onClick={()=>setOffset(offset+20)}>下一页拒收</button></div></section>
+ <Pagination label="拒收批次" page={Math.floor((listing?.offset??offset)/20)+1} pageSize={20} total={listing?.total||0} unit="个批次" disabled={busy||listBusy||!listing} onChange={page=>setOffset((page-1)*20)} previousLabel="上一页拒收" nextLabel="下一页拒收"/></section>
  {detail&&<section aria-label="拒收批次审计详情"><div className="heading"><h2>批次 {detail.batch}</h2><Status value={detail.status}/></div><p>{detail.reasons.join('；')||detail.error}</p>
  <h3>拒收记录样例</h3><Table rows={detail.samples}/>{detail.samples_are_partial&&<p className="muted">这里只保留前 100 条样例，请结合原始响应核对完整范围。</p>}
  <details><summary>原始响应与归档证据 · {detail.sources.length} 份</summary>{detail.sources.map((s:R)=><div key={s.slice_id}><a href={s.url}>{s.endpoint} · {s.parameters.ts_code||s.parameters.index_code||s.parameters.trade_date||s.slice_id} · {s.rows} 行 · 下载原始归档</a><Status value={s.status}/></div>)}</details>

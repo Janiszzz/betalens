@@ -51,4 +51,7 @@ run:
   include_profiling: false
   dump_excel: true
   warmup_days: null
-  output_dir: outputs/runs/manual
+  output_dir: ../../../outputs/runs/alpha101/ALPHA55_timing
+experiment_export:
+  enabled: false
+  store_path: outputs/experiments.lmdb

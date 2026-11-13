@@ -247,6 +247,37 @@ def _parse_intervals(day, timing):
     return parsed, None
 
 
+def _suspension_rows(code, day, source_rows):
+    rows = []
+    for b, n, r in source_rows:
+        if r.get("ts_code") != code or _date(r.get("trade_date")) != day:
+            continue
+        event_type, raw = str(r.get("suspend_type") or "").upper(), r.get("suspend_timing")
+        base = {"security_code": code, "trade_date": day.isoformat(), "suspend_type": event_type,
+                "raw_timing": raw, "start_at": None, "end_at": None, "is_full_day": 0,
+                "time_precision": "unknown", "parse_status": "unknown", "parse_reason": None,
+                "raw_record": dumps(r), **_source(b, r, n, day.isoformat())}
+        if event_type == "S" and (raw is None or str(raw).strip() == ""):
+            first = datetime.combine(day, time.min, SHANGHAI).astimezone(UTC)
+            rows.append({**base, "start_at": first.isoformat(), "end_at": (first+timedelta(days=1)).isoformat(),
+                         "is_full_day": 1, "time_precision": "day", "parse_status": "parsed",
+                         "parse_reason": "source_full_day_suspension"})
+        elif event_type == "S":
+            intervals, error = _parse_intervals(day, raw)
+            if error:
+                rows.append({**base, "parse_reason": error, "data_quality_status": "unknown"})
+            else:
+                for first, last, precision in intervals:
+                    rows.append({**base, "start_at": first, "end_at": last, "time_precision": precision,
+                                 "parse_status": "parsed", "parse_reason": "source_range_normalized_left_closed_right_open"})
+        else:
+            rows.append({**base, "parse_reason": "resumption_time_unknown" if event_type == "R" else "unknown_event_type",
+                         "data_quality_status": "unknown"})
+    # Distinguish distinct intervals split from a single raw event.
+    unique = {digest({k: r[k] for k in ("source_record_hash", "start_at", "end_at")}): r for r in rows}
+    return list(unique.values())
+
+
 def _suspension_scope(code, day, bundles):
     candidates = [b for b in bundles if b.get("endpoint") == "suspend_d" and _covers(b, code=code, day=day)]
     complete_bundles = [b for b in candidates if b.get("complete")]
@@ -255,35 +286,7 @@ def _suspension_scope(code, day, bundles):
     exchange = "BSE" if code.endswith(".BJ") else "SSE" if code.endswith(".SH") else "SZSE" if code.endswith(".SZ") else None
     calendar = _calendar_scope(exchange, day, bundles) if exchange else None
     lifecycle = _lifecycle(code, bundles)
-    rows = []
-    for b in candidates:
-        for n, r in enumerate(b.get("rows", []), 1):
-            if r.get("ts_code") != code or _date(r.get("trade_date")) != day:
-                continue
-            event_type, raw = str(r.get("suspend_type") or "").upper(), r.get("suspend_timing")
-            base = {"security_code": code, "trade_date": day.isoformat(), "suspend_type": event_type,
-                    "raw_timing": raw, "start_at": None, "end_at": None, "is_full_day": 0,
-                    "time_precision": "unknown", "parse_status": "unknown", "parse_reason": None,
-                    "raw_record": dumps(r), **_source(b, r, n, day.isoformat())}
-            if event_type == "S" and (raw is None or str(raw).strip() == ""):
-                first = datetime.combine(day, time.min, SHANGHAI).astimezone(UTC)
-                rows.append({**base, "start_at": first.isoformat(), "end_at": (first+timedelta(days=1)).isoformat(),
-                             "is_full_day": 1, "time_precision": "day", "parse_status": "parsed",
-                             "parse_reason": "source_full_day_suspension"})
-            elif event_type == "S":
-                intervals, error = _parse_intervals(day, raw)
-                if error:
-                    rows.append({**base, "parse_reason": error, "data_quality_status": "unknown"})
-                else:
-                    for first, last, precision in intervals:
-                        rows.append({**base, "start_at": first, "end_at": last, "time_precision": precision,
-                                     "parse_status": "parsed", "parse_reason": "source_range_normalized_left_closed_right_open"})
-            else:
-                rows.append({**base, "parse_reason": "resumption_time_unknown" if event_type == "R" else "unknown_event_type",
-                             "data_quality_status": "unknown"})
-    # Distinguish distinct intervals split from a single raw event.
-    unique = {digest({k: r[k] for k in ("source_record_hash", "start_at", "end_at")}): r for r in rows}
-    rows = list(unique.values())
+    rows = _suspension_rows(code, day, ((b, n, r) for b in candidates for n, r in enumerate(b.get('rows', []), 1)))
     reasons = [] if query_complete else ["query_incomplete" if candidates else "not_requested"]
     if not rows and query_complete:
         reasons.append("source_no_record")
@@ -387,8 +390,11 @@ def _dependency_reason(scope, heads, published, revoked):
     return None
 
 
-def _unpublished_reason(sid, snapshot):
-    scopes = [s for s in snapshot.get("scopes", []) if s.get("scope_id") == sid]
+def _unpublished_reason(sid, snapshot, selector=None):
+    from .suspension_ranges import contains
+    scopes = [s for s in snapshot.get("scopes", []) if s.get("scope_id") == sid or
+              (selector and s.get('module')=='suspension' and
+               contains(s['selector'],selector['security_code'],selector['trade_date']))]
     if not scopes:
         return "not_requested"
     revs = {r["revision_id"]: r for r in snapshot.get("revisions", [])}
@@ -539,11 +545,13 @@ def check_integrity(request: dict, snapshot: dict) -> dict:
     days = _days(request)
     selectors = build_scopes(request, [])
     heads, published, revoked = _trusted_heads(snapshot)
+    from .suspension_ranges import SuspensionIndex
+    suspension_index = SuspensionIndex(heads.values())
     results = []
     for wanted in selectors:
         module, selector, sid = wanted["module"], wanted["selector"], wanted["scope_id"]
-        head = heads.get(sid)
-        reason = _dependency_reason(head[1], heads, published, revoked) if head else _unpublished_reason(sid, snapshot)
+        head = suspension_index.head(selector['security_code'],selector['trade_date']) if module=='suspension' else heads.get(sid)
+        reason = _dependency_reason(head[1], heads, published, revoked) if head else _unpublished_reason(sid, snapshot, selector if module=='suspension' else None)
         if not reason and module == "suspension":
             calendar = head[1].get("evidence", {}).get("calendar") or {}
             calendar_head = heads.get(calendar.get("scope_id"))
@@ -586,6 +594,11 @@ def check_integrity(request: dict, snapshot: dict) -> dict:
         if sid in affected:
             result["warnings"] = [{"reason": "target_verification_failed", "revision_id": revision}
                                   for revision in sorted(affected[sid])]
+        if result['module']=='suspension' and invalid:
+            from .suspension_ranges import contains
+            broken={s['revision_id'] for s in snapshot.get('scopes',[]) if s['module']=='suspension'
+                    and s.get('revision_id') in invalid and contains(s['selector'],result['security_code'],result['trade_date'])}
+            if broken:result['warnings']=[{'reason':'target_verification_failed','revision_id':rid} for rid in sorted(broken)]
     counts = Counter(r["status"] for r in results)
     response = {"rows": results, "complete": bool(results) and counts["complete"] == len(results),
                 "summary": {"total": len(results), "complete": counts["complete"], "unknown": counts["unknown"],

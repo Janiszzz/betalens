@@ -38,6 +38,8 @@ db = [
     "xlrd>=2.0.0",
 ]
 mining = ["optuna>=4.9,<5", "psutil>=5.9.0"]
+experiments = ["lmdb>=1.5,<4", "pyarrow>=14.0.0"]
+experiment-viewer = ["lmdb>=1.5,<4", "pyarrow>=14.0.0", "fastapi>=0.115.0", "uvicorn[standard]>=0.30.0", "plotly>=5.0.0"]
 docs = [
     "sphinx>=5.0.0",
     "sphinx-rtd-theme>=1.0.0",
@@ -47,8 +49,11 @@ docs = [
 test = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
+    "httpx>=0.27",
+    "httpx2",
 ]
 full = [
+    "lmdb>=1.5,<4",
     "plotly>=5.0.0",
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.30.0",
@@ -65,3 +70,6 @@ exclude = ["betalens-factor*"]
 
 [tool.setuptools]
 include-package-data = true
+
+[tool.setuptools.package-data]
+"betalens.experiments" = ["web/*", "web/assets/*"]

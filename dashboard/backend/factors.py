@@ -104,6 +104,7 @@ def effective_factor_defaults(spec_data: dict[str, Any], factor_cfg: dict[str, A
         ),
     )
     defaults = dict(run)
+    defaults["experiment_export_enabled"] = (factor_cfg.get("experiment_export") or {}).get("enabled", False)
     defaults.update(
         {
             "direction": factor_spec.get("direction"),

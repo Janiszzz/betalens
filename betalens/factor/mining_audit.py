@@ -497,6 +497,11 @@ class FactorMiningResult:
     stage_summaries: dict[str, pd.DataFrame] = field(default_factory=dict)
     selected_candidates: pd.DataFrame = field(default_factory=pd.DataFrame)
     heatmap_paths: tuple[str, ...] = ()
+    archive_context: dict[str, Any] = field(default_factory=dict)
+    candidate_configs: dict[str, dict[str, Any]] = field(default_factory=dict)
+    rank_ic_series: pd.DataFrame = field(default_factory=pd.DataFrame)
+    selected_results: dict[str, dict[str, Any]] = field(default_factory=dict)
+    capture_errors: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -518,6 +523,7 @@ class MiningTask:
     log_path: Path
     store: ResultStore
     metadata: dict[str, Any]
+    candidate_configs: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     @classmethod
     def create(

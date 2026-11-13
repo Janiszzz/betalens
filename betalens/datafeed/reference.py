@@ -57,7 +57,7 @@ def _documents(reader, table, filters=()):
     return result
 
 
-def load_reference(reader, module, *, codes=None, exchange=None):
+def load_reference(reader, module, *, codes=None, exchange=None, start=None, end=None):
     """Capture events first, verify immutable manifests, then return scopes.
 
     Unpublished/revoked rows never become candidates. A malformed published
@@ -73,7 +73,28 @@ def load_reference(reader, module, *, codes=None, exchange=None):
     revoked = {e["revision_id"] for e in events if e["event_type"] == "revoke"}
     published = {e["revision_id"]: e for e in events if e["event_type"] == "publish" and e["revision_id"] not in revoked}
     revisions = _documents(reader, "reference_revision", [("module", "=", module)])
-    scopes = _documents(reader, "reference_scope", [("module", "=", module)])
+    orphan_ids = sorted(set(published) - {r['revision_id'] for r in revisions})
+    if orphan_ids and _documents(reader, 'reference_scope', [('module', '=', module), ('revision_id', 'IN', orphan_ids)]):
+        raise VersionConflictError('可信发布缺少修订头')
+    def relevant(revision):
+        event=published.get(revision['revision_id'])
+        if event is None:return False
+        if not event.get('revision_hash'):return True
+        if digest(revision)!=event['revision_hash']:
+            raise VersionConflictError('可信修订版本头哈希不匹配')
+        request = revision.get('request', {})
+        securities = request.get('security_codes')
+        if codes is not None and securities and not set(codes).intersection(securities):
+            return False
+        if start and request.get('end_date') and request['end_date'] < start:
+            return False
+        if end and request.get('start_date') and request['start_date'] > end:
+            return False
+        return True
+    candidate_ids = [r['revision_id'] for r in revisions if relevant(r)]
+    if not candidate_ids:
+        return []
+    scopes = _documents(reader, "reference_scope", [("module", "=", module), ('revision_id', 'IN', candidate_ids)])
     wanted = [s for s in scopes if s["revision_id"] in published
               and (codes is None or s["selector"].get("security_code") in codes)
               and (exchange is None or s["selector"].get("exchange") == exchange)]
@@ -113,7 +134,9 @@ def load_reference(reader, module, *, codes=None, exchange=None):
     if revision_ids - heads.keys():
         raise VersionConflictError("可信发布缺少修订头")
     return [{**s, "rows": grouped[(s["revision_id"], s["scope_id"])],
-             "ingestion_seq": heads[s["revision_id"]]["ingestion_seq"]} for s in wanted]
+             "ingestion_seq": heads[s["revision_id"]]["ingestion_seq"],
+             '_manifest_hash': heads[s['revision_id']]['manifest_hash'],
+             **({'_evidence_pool': heads[s['revision_id']]['evidence_pool']} if 'evidence_pool' in heads[s['revision_id']] else {})} for s in wanted]
 
 
 def known_scopes(scopes, as_of):
@@ -182,23 +205,24 @@ def calendar_days(reader, begin, end, exchange="SSE", as_of=None, *,
     return [day.date() for day in requested if rows[day.date().isoformat()]["is_open"] == 1]
 
 
-def suspension_status(scope, at):
+def suspension_status(scope, at, policy='strict'):
     """0/1/-1/None: subscription status, not a promise of all trade rules."""
     evidence = scope.get("evidence", {})
     rows = scope["rows"]
     lifecycle = evidence.get("lifecycle", {})
     day = local_time(at).date().isoformat()
-    if lifecycle.get("complete") and proven(lifecycle, at):
+    if lifecycle.get("complete") and (policy != 'strict' or proven(lifecycle, at)):
         if lifecycle.get("list_date") and day < lifecycle["list_date"]:
             return (-1, "未上市") if not rows else (None, "上市范围与事件冲突")
         if lifecycle.get("delist_date") and day >= lifecycle["delist_date"]:
             return None, "退市边界或交易范围未知"
     else:
         return None, "上市范围历史可知性不足"
-    calendar = evidence.get("calendar", {})
+    calendar = evidence.get("calendar") or {}
     cal_rows = calendar.get("rows", [])
     if (not calendar.get("complete") or len(cal_rows) != 1
-            or not proven(cal_rows[0], at) or cal_rows[0].get("is_open") != 1):
+            or (policy == 'strict' and not proven(cal_rows[0], at)) or cal_rows[0].get("is_open") != 1
+            or cal_rows[0].get('data_quality_status') == 'unknown'):
         return None, "开市证据不足或休市"
     if not evidence.get("event_query_complete"):
         return None, "停牌查询范围不完整"
@@ -209,6 +233,8 @@ def suspension_status(scope, at):
         start, end = timestamp(row["start_at"], stored=True), timestamp(row["end_at"], stored=True)
         if start >= end:
             return None, "停牌区间无效"
+        if row.get('is_full_day') != 1 and evidence.get('source_intraday_endpoint_inclusivity') == 'unknown' and at in (start, end):
+            return None, "源端日内停牌端点含义未知"
         intervals.append((start, end))
     intervals.sort()
     if any(left[1] > right[0] for left, right in zip(intervals, intervals[1:])):

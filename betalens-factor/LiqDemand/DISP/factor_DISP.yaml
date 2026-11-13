@@ -36,4 +36,7 @@ run:
   pretom_hi: 4
   include_profiling: true
   dump_excel: true
-  output_dir: outputs/runs/manual
+  output_dir: ../../../outputs/runs/LiqDemand/DISP
+experiment_export:
+  enabled: false
+  store_path: outputs/experiments.lmdb

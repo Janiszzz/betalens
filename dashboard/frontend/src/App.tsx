@@ -24,6 +24,8 @@ import {
   XCircle
 } from 'lucide-react';
 import { api } from './api';
+import { ResultClientContext, useResultClient } from './result-client';
+import type { BacktestResultClient } from './result-client';
 import type {
   EventFile,
   EventStudyAsset,
@@ -43,7 +45,7 @@ import type {
 const PlotView = lazy(() => import('./PlotView'));
 
 type Page = 'home' | 'detail' | 'eventstudy';
-type ResultTab = 'overview' | 'trades' | 'positions' | 'logs';
+export type ResultTab = 'overview' | 'trades' | 'positions' | 'logs';
 
 const FREQ_LABELS: Record<string, string> = {
   D: '每天',
@@ -323,7 +325,8 @@ const buildRunParams = (defaults: Record<string, unknown>) => ({
   short_groups: defaults.short_groups ?? null,
   group_weights: defaults.group_weights || {},
   intra_group_allocation: defaults.intra_group_allocation || {},
-  include_profiling: asBool(defaults.include_profiling, true)
+  include_profiling: asBool(defaults.include_profiling, true),
+  experiment_export_enabled: asBool(defaults.experiment_export_enabled, false)
 });
 
 function App() {
@@ -394,6 +397,8 @@ function App() {
         </nav>
       </header>
       {error && <div className="global-error">{error}</div>}
+
+
       {page === 'home' && (
         <HomePage factors={factors} loading={loading} strategyType={directoryMode} onOpen={openFactor} />
       )}
@@ -737,14 +742,14 @@ function FactorPage({
 
       {error && <div className="global-error">{error}</div>}
 
+      {state?.experiment_export?.status === 'saved' ? (
+        <div className="settings-bar">已保存到实验库：<code>{state.experiment_export.experiment_id}</code></div>
+      ) : state?.experiment_export?.status === 'failed' ? (
+        <div className="global-error">计算结果已保留，实验入库失败：{state.experiment_export.error}</div>
+      ) : null}
+
       <div className="detail-layout">
-        <aside className="side-nav">
-          <NavButton icon={<CircleDollarSign size={18} />} active={activeTab === 'overview'} onClick={() => setActiveTab('overview')}>
-            {isTiming ? '择时概览' : '收益概述'}
-          </NavButton>
-          <NavButton icon={<ClipboardList size={18} />} active={activeTab === 'trades'} onClick={() => setActiveTab('trades')}>交易详情</NavButton>
-          <NavButton icon={<BarChart3 size={18} />} active={activeTab === 'positions'} onClick={() => setActiveTab('positions')}>每日持仓&收益</NavButton>
-          <NavButton icon={<TerminalSquare size={18} />} active={activeTab === 'logs'} onClick={() => setActiveTab('logs')}>日志输出</NavButton>
+        <ResultNavigation activeTab={activeTab} onTab={setActiveTab} isTiming={isTiming}>
           <div className="nav-divider" />
           <ParameterPanel
             params={params}
@@ -753,13 +758,10 @@ function FactorPage({
             onParam={updateParam}
             onCompute={updateCompute}
           />
-        </aside>
+        </ResultNavigation>
 
         <section className="content-panel">
-          {activeTab === 'overview' && (isTiming ? <TimingOverview result={result} state={state} /> : <Overview result={result} state={state} />)}
-          {activeTab === 'trades' && <Trades runId={runId} result={result} />}
-          {activeTab === 'positions' && <Positions runId={runId} result={result} />}
-          {activeTab === 'logs' && <Logs logs={logs} state={state} />}
+          <BacktestResultView result={result} state={state} runId={runId} tab={activeTab} isTiming={isTiming} logs={logs} />
         </section>
       </div>
     </main>
@@ -774,6 +776,31 @@ function StatusBadge({ state }: { state: RunState | null }) {
 
 function NavButton({ icon, active, onClick, children }: { icon: React.ReactNode; active: boolean; onClick: () => void; children: React.ReactNode }) {
   return <button className={`nav-button ${active ? 'active' : ''}`} onClick={onClick}>{icon}<span>{children}</span></button>;
+}
+
+export function ResultNavigation({ activeTab, onTab, isTiming, children }: {
+  activeTab: ResultTab; onTab: (tab: ResultTab) => void; isTiming: boolean; children?: React.ReactNode;
+}) {
+  return <aside className="side-nav">
+    <NavButton icon={<CircleDollarSign size={18} />} active={activeTab === 'overview'} onClick={() => onTab('overview')}>{isTiming ? '择时概览' : '收益概述'}</NavButton>
+    <NavButton icon={<ClipboardList size={18} />} active={activeTab === 'trades'} onClick={() => onTab('trades')}>交易详情</NavButton>
+    <NavButton icon={<BarChart3 size={18} />} active={activeTab === 'positions'} onClick={() => onTab('positions')}>每日持仓&收益</NavButton>
+    <NavButton icon={<TerminalSquare size={18} />} active={activeTab === 'logs'} onClick={() => onTab('logs')}>日志输出</NavButton>
+    {children}
+  </aside>;
+}
+
+/** Canonical renderer consumed by both the execution and offline dashboards. */
+export function BacktestResultView({ result, state, runId, tab = 'overview', isTiming = false, logs = '', client = api }: {
+  result: RunResult | null; state: RunState | null; runId: string | null; tab?: ResultTab;
+  isTiming?: boolean; logs?: string; client?: BacktestResultClient;
+}) {
+  return <ResultClientContext.Provider value={client}>
+    {tab === 'overview' && (isTiming ? <TimingOverview result={result} state={state} /> : <Overview result={result} state={state} />)}
+    {tab === 'trades' && <Trades runId={runId} result={result} />}
+    {tab === 'positions' && <Positions runId={runId} result={result} />}
+    {tab === 'logs' && <Logs logs={logs} state={state} />}
+  </ResultClientContext.Provider>;
 }
 
 function ParameterPanel({
@@ -795,6 +822,7 @@ function ParameterPanel({
       <LabeledInput label="起始日期" type="date" value={asString(params.start_date)} onChange={(v) => onParam('start_date', v)} />
       <LabeledInput label="结束日期" type="date" value={asString(params.end_date)} onChange={(v) => onParam('end_date', v)} />
       <LabeledInput label="初始资金" type="number" value={asString(params.initial_amount)} onChange={(v) => onParam('initial_amount', Number(v))} />
+      <label className="field inline"><input type="checkbox" checked={Boolean(params.experiment_export_enabled)} onChange={(event) => onParam('experiment_export_enabled', event.target.checked)} />保存到实验库</label>
       <label className="field">
         调仓频率
         <select value={asString(params.rebal_freq)} onChange={(event) => onParam('rebal_freq', event.target.value)}>
@@ -2097,6 +2125,7 @@ function DiagnosticsPanel({ result }: { result: RunResult }) {
 }
 
 function FactorProfilingPanel({ runId, initial }: { runId: string; initial: FactorProfiling }) {
+  const resultClient = useResultClient();
   const [profile, setProfile] = useState<FactorProfiling>(initial);
   const [dateFrom, setDateFrom] = useState(initial?.dateFrom || '');
   const [dateTo, setDateTo] = useState(initial?.dateTo || '');
@@ -2108,7 +2137,7 @@ function FactorProfilingPanel({ runId, initial }: { runId: string; initial: Fact
     setLoading(true);
     setProfileError(null);
     try {
-      const next = await api.profiling(runId, { dateFrom: from, dateTo: to });
+      const next = await resultClient.profiling(runId, { dateFrom: from, dateTo: to });
       setProfile(next);
       if (!from) setDateFrom(next.dateFrom || '');
       if (!to) setDateTo(next.dateTo || '');
@@ -2471,12 +2500,13 @@ function formatFactor(value: unknown) {
 }
 
 function Downloads({ result }: { result: RunResult }) {
+  const resultClient = useResultClient();
   const entries = Object.entries(result.downloads).filter(([, item]) => item.exists);
   if (!entries.length) return null;
   return (
     <div className="download-row">
       {entries.map(([kind]) => (
-        <a key={kind} className="secondary-button" href={api.downloadUrl(result.run.run_id, kind)}>
+        <a key={kind} className="secondary-button" href={resultClient.downloadUrl(result.run.run_id, kind)}>
           <Download size={15} />
           下载 {kind}
         </a>
@@ -2551,6 +2581,7 @@ function ResultTable({
   dateTo?: string;
   extraControls?: React.ReactNode;
 }) {
+  const resultClient = useResultClient();
   const [page, setPage] = useState(1);
   const [size] = useState(50);
   const [query, setQuery] = useState('');
@@ -2578,7 +2609,7 @@ function ResultTable({
     if (!runId) return;
     setLoading(true);
     setTableError(null);
-    api
+    resultClient
       .table(runId, kind, { page, size, query: debouncedQuery, filters, dateFrom, dateTo })
       .then(setData)
       .catch((err) => setTableError(err instanceof Error ? err.message : String(err)))

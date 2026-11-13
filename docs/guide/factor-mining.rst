@@ -189,6 +189,33 @@ worker 默认设置单线程 BLAS；如果调用环境已显式设置 ``OPENBLAS
 输出
 ----
 
+归档到统一实验库时，可显式开启选中候选的原始结果捕获：
+
+.. code-block:: python
+
+   from betalens.factor.mining import run_mining
+   from betalens.experiments import ExperimentStore
+
+   result = run_mining("parameter_space.yaml", "performance.yaml", capture_selected=True)
+   with ExperimentStore("outputs/experiments.lmdb") as store:
+       batch = store.save_mining(result)
+       # 已登记的母因子可通过 factor_ids={"ALPHA3": factor_id} 明确关联。
+       assert batch["status"] in {"complete", "partial", "failed"}
+
+``capture_selected`` 默认关闭。开启后由 mining 在最终筛选后补跑入选候选，返回脱离引擎的
+原始快照；存储 API 本身不运行实验。原搜索指标与补跑指标分别保存。
+``FactorMiningResult`` 增加 ``archive_context``、``candidate_configs``、``rank_ic_series``、
+``selected_results`` 和 ``capture_errors``，旧字段与原返回结构保持兼容。
+捕获失败不会丢失搜索指标；归档结果通过 ``failures`` 明确报告异常。
+
+同一批次中相同因子及参数归为一个子实验，各搜索阶段和窗口结果保存在
+``mining/window_results``、``mining/summaries`` 等原始表中。窗口聚合指标不能当作
+整段净值的评价指标。共享全程路径的窗口通过 ``window_refs`` 记录切片范围；
+窗口独立计算的结果使用独立 scope。``read_table`` 的表名可从 ``get(id)["tables"]`` 获取，
+``to_analyst(id, scope="窗口标识")`` 可以恢复对应快照。
+
+原有任务目录、SQLite 进度及审计输出继续保留；统一实验库不依赖这些路径读取历史文件。
+
 每个因子、每次运行使用独立目录：
 
 .. code-block:: text
@@ -229,3 +256,31 @@ Rank IC 序列；IC IR 按窗口内逐期 Rank IC 的均值除以样本标准差
 ``热力图报告.json`` 记录窗口长度、滑动步长、参数轴、聚合方法和实际图像路径；
 图像路径同时记录在 ``metadata.yaml`` 的 ``heatmap_paths`` 和
 ``FactorMiningResult.heatmap_paths``。
+
+
+因子库挖掘入口自动入库
+--------------------
+
+因子库的 ``mining/run.py`` 和 ``timing_mining/run.py`` 保持原有
+``--parameters`` / ``--performance`` 参数，使用外围
+``factor_runtime.run_mining_from_config`` 执行。在 ``performance.yaml`` 配置：
+
+.. code-block:: yaml
+
+   experiment_export:
+     enabled: false
+     store_path: outputs/experiments.lmdb
+     capture_selected: true
+
+默认关闭。开启后，全部候选的搜索指标保存到统一实验库；
+``capture_selected: true`` 另外补跑最终入选候选，保存净值、日频持仓、成交和各窗口原始结果，
+会增加运行时间。设为 false 时仅保存搜索指标。总开关关闭时不捕获赢家、不打开实验库。
+捕获失败仍保存已有搜索指标，入库回执返回 ``partial`` 和失败清单。
+独立窗口和共享路径切片保持各自 scope，窗口聚合指标与完整回测指标分别显示。
+
+母因子使用因子库 YAML 的分类、名称和策略类型，通过 ``factor_ids`` 与单次实验关联，
+例如挖掘工作流 ``factor_class: DISP`` 对应库内 ``LiqDemand:DISP:cross_sectional``。
+新挖掘结果默认位于仓库级 ``outputs/mining/<class>/<factor>/<run_id>/``；
+任务原有 SQLite、缓存和审计保留，同时保存源配置与 ``experiment_export.json``。
+显式自定义输出目录保持有效；实验库的相对路径始终按仓库根解析。
+缺少因子适配器依赖时，在搜索前报告具体缺失模块。

@@ -22,6 +22,7 @@ from .util import digest,dumps,now,parse_date,atomic_json
 from .processors import resolve as resolve_processor, validate_output, VERSION as PROCESSOR_VERSION
 from .response_validation import validate_archives, scope_roles
 from .time_scope import row_in_scope
+from .download_cache import cache_guard
 
 
 def scoped(cls):
@@ -74,13 +75,13 @@ class DatabaseManagerService(ManagerKernel):
         self.sources.settings=new;self.sources.refresh()
         return new.public()
 
-    def _job(self,job,validate=False):
-        item=self.state.job(job)
+    def _job(self,job,validate=False,*,metadata_only=False):
+        item=self.state.job(job,metadata_only=True) if metadata_only else self.state.job(job)
         if item['target']!=self.settings.fingerprint:raise ValueError('任务属于其他数据库配置，请使用原目标或创建新任务')
         if item['plan'].get('revision')=='reference-v1':
             from .reference_service import ReferenceWorkflow
-            return ReferenceWorkflow(self).job(job,validate)
-        if item['plan'].get('revision')!='manager-v1':return super()._job(job,validate)
+            return ReferenceWorkflow(self).job(job,validate,metadata_only=metadata_only)
+        if item['plan'].get('revision')!='manager-v1':return super()._job(job,validate,metadata_only=metadata_only)
         if validate:
             if item['plan'].get('processor_version') and item['plan']['processor_version']!=PROCESSOR_VERSION:raise ValueError('生产处理器已变化，请重审归档并创建关联任务')
             self.sources.refresh()
@@ -254,11 +255,6 @@ class DatabaseManagerService(ManagerKernel):
         if endpoints & {'daily','fund_daily','index_daily','sw_daily','suspend_d'}:
             for exchange in ('SSE','SZSE','BSE'):
                 extra.append(('trade_cal',{'exchange':exchange,'start_date':str(start or end).replace('-',''),'end_date':str(end).replace('-','')}))
-        if 'trade_status_daily' in names and 'tushare' in {b['source_id'] for b in bindings}:
-            if 'stock' in assets:
-                for d in dates(start,end):
-                    for code in request.get('codes',[]) or [None]:
-                        if 'daily' not in endpoints:extra.append(('daily',{'trade_date':d.strftime('%Y%m%d'),**({'ts_code':code} if code else {})}))
         for endpoint,params in extra:
             contracts['tushare:'+endpoint]=self.sources.endpoint('tushare',endpoint)
             bindings.append({'table':names[0],'source_id':'tushare','endpoint':endpoint,'parameters':params,'priority':0,'strategy':'dependency'})
@@ -275,7 +271,7 @@ class DatabaseManagerService(ManagerKernel):
         retrieval={key:{**tushare_policy(key.split(':',1)[1]),'requests_per_minute':rpm,'effective_rpm':min(rpm,tushare_policy(key.split(':',1)[1]).get('endpoint_rpm') or rpm)} for key in contracts if key.startswith('tushare:')}
         for binding in bindings:
             binding['validation_scope']=scope_roles({'mapping_snapshots':snapshots},binding,contracts[binding['source_id']+':'+binding['endpoint']])
-        return {'processor_version':PROCESSOR_VERSION,'retrieval_policies':retrieval,'request':normalized,'requests':bindings,'mapping_snapshots':snapshots,'source_contracts':contracts,'contracts':{},'canonical_contracts':{n:canonical(n).hash for n in names},'mapping_version':digest(snapshots),'target':self.settings.fingerprint,'revision':'manager-v1','source_instance_snapshots':{sid:{**{k:self.sources.values[sid].get(k) for k in ('source_id','provider','label','base_url','auth')},'base_url':self.sources.values[sid].get('base_url') or ('https://api.tushare.pro' if sid=='tushare' else None)} for sid in {b['source_id'] for b in bindings}},'source_instances':{sid:source_identity(self.sources.values[sid]) for sid in {b['source_id'] for b in bindings}},'warnings':warnings,'parent_task_id':request.get('parent_task_id')}
+        return {'status_storage':'sparse-v2','processor_version':PROCESSOR_VERSION,'retrieval_policies':retrieval,'request':normalized,'requests':bindings,'mapping_snapshots':snapshots,'source_contracts':contracts,'contracts':{},'canonical_contracts':{n:canonical(n).hash for n in names},'mapping_version':digest(snapshots),'target':self.settings.fingerprint,'revision':'manager-v1','source_instance_snapshots':{sid:{**{k:self.sources.values[sid].get(k) for k in ('source_id','provider','label','base_url','auth')},'base_url':self.sources.values[sid].get('base_url') or ('https://api.tushare.pro' if sid=='tushare' else None)} for sid in {b['source_id'] for b in bindings}},'source_instances':{sid:source_identity(self.sources.values[sid]) for sid in {b['source_id'] for b in bindings}},'warnings':warnings,'parent_task_id':request.get('parent_task_id')}
 
     def plan(self,request):
         if request.get('modules'):
@@ -303,16 +299,20 @@ class DatabaseManagerService(ManagerKernel):
                     records.append(('meta_source_mapping',digest([item['id'],table,b['source_id'],b['endpoint'],rule['source_field'],rule['column']]),row))
         self.state.ledger_put_many(records,task_targets={item['id']:item['plan']['request']['targets']})
 
+    @cache_guard
     def replan_retrieval(self,job,execution_options=None):
         self.state.ensure_execution(job)
         from .retrieval_replan import replan
         return replan(self,job,execution_options)
 
+    @cache_guard
     def replay_archive(self,job):
         self.state.ensure_execution(job)
         """Reaudit original request facts; never compile or silently fetch new requests."""
         import copy
         original=self._job(job)
+        if original.get('download_cache_cleanup') and any(p.get('archive') and not Path(p['archive']).is_file() for p in original['slices']):
+            raise ValueError('任务下载缓存已清理，请建立新的采集任务')
         if original['plan'].get('revision')!='manager-v1':raise ValueError('旧版任务需要显式建立新的拉取任务')
         self.registry.refresh();self.sources.refresh();self.mappings.refresh()
         old=original['plan']
@@ -530,14 +530,14 @@ class DatabaseManagerService(ManagerKernel):
 
 
 
-    def audit(self,job,after=0,limit=100):
+    def audit(self,job,after=0,limit=100,offset=None):
         if self.state.job(job)['plan'].get('revision')=='reference-v1':
             from .reference_service import ReferenceWorkflow
             return ReferenceWorkflow(self).detail(job)
         if self.state.job(job)['plan'].get('pipeline_version')==2:
             from .pipeline import Pipeline
-            return Pipeline(self).audit(job,after,limit)
-        return super().audit(job,after,limit)
+            return Pipeline(self).audit(job,after,limit,offset=offset)
+        return super().audit(job,after,limit,offset=offset)
 
     def field_audit(self,job=None):
         mappings=self.mappings.snapshots();registered_mappings=mappings;observed={};source_counts=defaultdict(lambda:defaultdict(int));stored=set();proofs=[];item=None

@@ -45,11 +45,9 @@ evaluation:
   span: ["2015-01-01", "2022-12-31"]
   # 调仓频率，使用 pandas 频率字符串；常用：D | W | M。
   rebal_freq: W
-  # 可选：vector | exact。vector 适合大规模搜索，exact 适合精确成交复核。
   # 回测初始资金，必须为正数。
   initial_amount: 100000000
   # 热力图只展示完整 span（total），并按每种滑动窗口组合分别输出。
-  # 可选：行情查询容忍时间（小时），默认 24。
 
 windows:
   # 评分窗口长度，单位为交易日，可配置多个正整数。

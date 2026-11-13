@@ -36,10 +36,13 @@ tests/
 !/tests/test_datafeed*.py
 !/tests/datafeed_support.py
 !/tests/benchmark_datafeed.py
+!/tests/test_experiments*.py
+!/tests/benchmark_experiments.py
 !/betalens-db-manager/tests/
 !/betalens-db-manager/tests/**
 **/.venv/
 **/node_modules/
+experiment-dashboard/tsconfig.tsbuildinfo
 **/.pytest_cache/
 **/*.egg-info/
 **/__pycache__/

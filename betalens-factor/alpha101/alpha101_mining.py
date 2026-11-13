@@ -65,6 +65,7 @@ def make_mining_spec(params: Mapping[str, Any]) -> MiningSpec:
         mask_inputs_by_pit=True,
         direction="positive",
         table_name="market_daily_post_adjusted",
+        query_filters={"asset_type": "stock"},
         index_code="000906.SH",
         use_industry=True,
         use_mktcap=False,
